@@ -1,0 +1,6 @@
+esdlId,Name,investmentCosts,investmentCostsUnit,installationCosts,installationCostsUnit,fixedOperationalCosts,fixedOperationalCostsUnit,variableOperationalCosts,variableOperationalCostsUnit,fixedMaintenanceCosts,fixedMaintenanceCostsUnit,variableMaintenanceCosts,variableMaintenanceCostsUnit,technicalLifetime,discountRate,emissionFactor
+a5243809-0077-46e5-a0ea-09aa486f5e96,GenericConsumer_a524,1000,EUR,100,EUR,3,% OF CAPEX,0,EUR,3,% OF CAPEX,0,EUR/MWh,15,5,0
+743b1ff1-0ee4-4c6c-ba5f-e7ebf169348c,GasHeater_743b,2000,EUR,200,EUR,2,% OF CAPEX,0.1,EUR/kWh,1,% OF CAPEX,0.2,EUR/kWh,20,5,5.0
+b98655e1-9e81-4878-875f-c1f946cc5d6c,GenericProducer_b986,3000,EUR,1500,EUR,200,EUR,2,EUR/kWh,300,EUR,3,EUR/MWh,30,5,10.0
+2a36abb1-0bc0-47fd-b7b1-869118b228fc,HeatStorage_2a36,500,EUR,600,EUR,5,% OF CAPEX,0,EUR,1,% OF CAPEX,0,EUR,40,5,0
+b230a081-0c8d-4f95-9cc7-6548f33bf513,GeothermalSource_b230,1000,EUR/MW,20,EUR/MW,3000,EUR/yr,10,EUR/MWh,3000,EUR/yr,20,EUR/MWh,40,5,0

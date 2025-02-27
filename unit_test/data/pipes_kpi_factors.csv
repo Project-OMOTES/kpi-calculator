@@ -1,0 +1,2 @@
+esdlId,investmentCosts,investmentCostsUnit,installationCosts,installationCostsUnit,fixedOperationalCosts,fixedOperationalCostsUnit,variableOperationalCosts,variableOperationalCostsUnit,fixedMaintenanceCosts,fixedMaintenanceCostsUnit,variableMaintenanceCosts,variableMaintenanceCostsUnit,technicalLifetime,discountRate,emissionFactor
+a25970c8-80c8-461e-b58d-ed7f0f792115,100,EUR/m,0.1,EUR/km,0,% OF CAPEX,0,EUR,0,% OF CAPEX,0,EUR,40,5,
