@@ -13,5 +13,11 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""__init__.py file containing the defaults."""
-from kpicalculator.kpicalculator import start_app
+"""KPI Calculator package for energy systems."""
+
+# Import main classes for easier access
+from .kpi_manager import KpiManager
+from .adapters.common_model import EnergySystem, Asset, AssetType, TimeSeries
+
+# Version information
+__version__ = "0.1.0"

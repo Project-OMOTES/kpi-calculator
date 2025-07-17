@@ -29,9 +29,9 @@ class KpiCalculatorTest(unittest.TestCase):
         assets = DATA_DIR / "nodes_kpi_factors.csv"
         series = DATA_DIR / "power_timeseries.xml"
         unit_conv = DATA_DIR / "unit_conversion.csv"
-        # self.model = kpi_model_class.KpiModelEsdl(
-        #     "klaas", esdl, series, pipes, assets, unit_conv_file=unit_conv
-        # )
+        self.model = kpi_model_class.KpiModelEsdl(
+            "klaas", esdl, series, pipes, assets, unit_conv_file=unit_conv
+        )
 
     def test_investment_costs(self):
         # need to include costs per Mw

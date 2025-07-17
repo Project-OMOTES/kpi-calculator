@@ -222,3 +222,7 @@ unit_test_coverage/
 test-results.xml
 
 .env.*
+
+notes/
+code_bases/
+src_old/kpicalculator
