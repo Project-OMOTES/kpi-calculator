@@ -5,6 +5,7 @@ from typing import Dict, Optional
 
 from esdl import esdl  # type: ignore[import-untyped]
 from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped]
+
 import pandas as pd  # type: ignore[import-untyped]
 
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries

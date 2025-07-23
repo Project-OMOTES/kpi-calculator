@@ -1,5 +1,5 @@
 # src/kpicalculator/calculators/energy_calculator.py
-from typing import Dict, Optional
+# No typing imports needed currently
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
 

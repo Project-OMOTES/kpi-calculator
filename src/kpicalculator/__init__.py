@@ -16,9 +16,9 @@
 """KPI Calculator package for energy systems."""
 
 from .adapters.common_model import Asset, AssetType, EnergySystem, TimeSeries
-
-# Import main classes for easier access
 from .kpi_manager import KpiManager
+
+__all__ = ["Asset", "AssetType", "EnergySystem", "TimeSeries", "KpiManager"]
 
 # Version information
 __version__ = "0.1.0"

@@ -9,7 +9,7 @@ DATA_DIR = TEST_DIR / "data"
 # Add the src directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from kpicalculator import KpiManager
+from kpicalculator import KpiManager  # noqa: E402
 
 
 class NewKpiCalculatorTest(unittest.TestCase):

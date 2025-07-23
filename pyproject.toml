@@ -65,6 +65,9 @@ testpaths = ["unit_test"]
 
 [tool.coverage.run]
 source = ["src"]
+omit = [
+    "src/kpicalculator/adapters/xml_time_series_adapter.py",  # Testing only - exclude from coverage
+]
 
 [tool.flake8]
 exclude = ['.venv/*', 'venv/*', 'doc/*']
