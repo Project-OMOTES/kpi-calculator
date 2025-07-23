@@ -88,10 +88,8 @@ class KpiManager:
         Args:
             simulator_data: Simulator data structure
         """
-        from .adapters.simulator_adapter import SimulatorAdapter  # type: ignore[import-not-found]
-
-        adapter = SimulatorAdapter(self.unit_conversion)
-        self.energy_system = adapter.load(simulator_data)
+        # TODO: Implement simulator adapter
+        raise NotImplementedError("Simulator adapter not implemented yet")
 
     def load_from_mesido(self, mesido_data: Any) -> None:
         """Load energy system data from mesido data structure.
@@ -99,10 +97,8 @@ class KpiManager:
         Args:
             mesido_data: Mesido data structure
         """
-        from .adapters.mesido_adapter import MesidoAdapter  # type: ignore[import-not-found]
-
-        adapter = MesidoAdapter(self.unit_conversion)
-        self.energy_system = adapter.load(mesido_data)
+        # TODO: Implement mesido adapter
+        raise NotImplementedError("Mesido adapter not implemented yet")
 
     def calculate_all_kpis(self, system_lifetime: int = 30) -> KpiResults:
         """Calculate all KPIs for the energy system.
