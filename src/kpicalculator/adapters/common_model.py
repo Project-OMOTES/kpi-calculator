@@ -26,13 +26,13 @@ class Asset:
     id: str
     name: str
     asset_type: AssetType
-    
+
     # Physical properties
     power: float = 0.0  # W
     length: float = 0.0  # m (for pipes)
     volume: float = 0.0  # m³ (for storage)
     cop: float = 0.0  # Coefficient of performance
-    
+
     # Cost properties
     investment_cost: float = 0.0
     investment_cost_unit: str = "EUR"
@@ -46,15 +46,15 @@ class Asset:
     fixed_maintenance_cost_unit: str = "EUR/yr"
     variable_maintenance_cost: float = 0.0
     variable_maintenance_cost_unit: str = "EUR/MWh"
-    
+
     # Lifecycle properties
     technical_lifetime: float = 30.0  # years
     discount_rate: float = 5.0  # %
     emission_factor: float = 0.0  # kg/GJ
-    
+
     # Aggregation
     aggregation_count: int = 1
-    
+
     # Time series data
     time_series: Dict[str, TimeSeries] = field(default_factory=dict)
 

@@ -1,3 +1,4 @@
+from kpi_calculator import kpi_model_class
 import sys
 import os
 import json
@@ -7,7 +8,8 @@ from pathlib import Path
 # Get the absolute path to the directory containing kpi-calculator
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)  # Go up one level to kpi-calculator
-project_root = os.path.dirname(parent_dir)  # Go up another level to project root
+# Go up another level to project root
+project_root = os.path.dirname(parent_dir)
 
 # Add the project root to Python path
 if project_root not in sys.path:
@@ -17,8 +19,6 @@ if project_root not in sys.path:
 # Get the absolute path to the test directory
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"
-
-from kpi_calculator import kpi_model_class
 
 
 class KpiCalculatorTest(unittest.TestCase):
@@ -63,7 +63,8 @@ class KpiCalculatorTest(unittest.TestCase):
         result = {}
         for item in values:
             result[item] = self.model.get_costs_item(group, item)
-        self.assertDictEqual(result, values, "Installation costs are not equal")
+        self.assertDictEqual(
+            result, values, "Installation costs are not equal")
 
     def test_capex(self):
         values = {
@@ -92,7 +93,10 @@ class KpiCalculatorTest(unittest.TestCase):
         result = {}
         for item in values:
             result[item] = self.model.get_costs_item(group, item)
-        self.assertDictEqual(result, values, "Fixed maintenance costs are not equal")
+        self.assertDictEqual(
+            result,
+            values,
+            "Fixed maintenance costs are not equal")
 
     def test_fixed_operational_costs(self):
         group = "Fixed operational costs"
@@ -107,7 +111,10 @@ class KpiCalculatorTest(unittest.TestCase):
         result = {}
         for item in values:
             result[item] = self.model.get_costs_item(group, item)
-        self.assertDictEqual(result, values, "Fixed operational costs are not equal")
+        self.assertDictEqual(
+            result,
+            values,
+            "Fixed operational costs are not equal")
 
     def test_variable_maintenance_costs(self):
         group = "Variable maintenance costs"
@@ -122,7 +129,10 @@ class KpiCalculatorTest(unittest.TestCase):
         result = {}
         for item in values:
             result[item] = self.model.get_costs_item(group, item)
-        self.assertDictEqual(result, values, "Variable maintenance costs are not equal")
+        self.assertDictEqual(
+            result,
+            values,
+            "Variable maintenance costs are not equal")
 
     def test_variable_operational_costs(self):
         # need to include costs per Mw
@@ -138,15 +148,30 @@ class KpiCalculatorTest(unittest.TestCase):
         result = {}
         for item in values:
             result[item] = self.model.get_costs_item(group, item)
-        self.assertDictEqual(result, values, "Variable operational costs are not equal")
+        self.assertDictEqual(
+            result,
+            values,
+            "Variable operational costs are not equal")
 
     def test_opex(self):
         values = {
             "Production": 270299.27072000003,
-            "Consumption": 33.0 + 33.0 + 0.0 + 0.0,
-            "Storage": 11.0 + 55.0 + 0.0 + 0.0,
-            "Transport": 0.0 + 0.0 + 0.0 + 0.0,
-            "Conversion": 22.0 + 44.0 + 26301.023999999998 + 13150.511999999999,
+            "Consumption": 33.0 +
+            33.0 +
+            0.0 +
+            0.0,
+            "Storage": 11.0 +
+            55.0 +
+            0.0 +
+            0.0,
+            "Transport": 0.0 +
+            0.0 +
+            0.0 +
+            0.0,
+            "Conversion": 22.0 +
+            44.0 +
+            26301.023999999998 +
+            13150.511999999999,
             "All": 309948.80672000005,
         }
         result = {}
@@ -190,7 +215,8 @@ class KpiCalculatorTest(unittest.TestCase):
         test = self.model.assets[0].get_capex_life_time(40, True)
         test = self.model.assets[0].get_opex_life_time(40, True)
         opex = self.model.get_capex_lifetime("All", 40, True)
-        values = self.model.get_costs_item_life_time("Fixed operational costs", "All", 40, True)
+        values = self.model.get_costs_item_life_time(
+            "Fixed operational costs", "All", 40, True)
         self.assertTrue(True)
 
     def test_emission(self):
@@ -202,9 +228,8 @@ class KpiCalculatorTest(unittest.TestCase):
             3,
             "Emission is different",
         )
-        self.assertAlmostEqual(
-            sum(self.model.get_costs_item_life_time("CO2", "Production", 40)), 4.7304 * 40, 3
-        )
+        self.assertAlmostEqual(sum(self.model.get_costs_item_life_time(
+            "CO2", "Production", 40)), 4.7304 * 40, 3)
 
 
 if __name__ == "__main__":
