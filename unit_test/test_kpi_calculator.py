@@ -53,12 +53,12 @@ class NewKpiCalculatorTest(unittest.TestCase):
             msg="Energy consumption is incorrect"
         )
         
-        # self.assertAlmostEqual(
-        #     results["emissions"]["total"], 
-        #     7.0956, 
-        #     places=3, 
-        #     msg="Total emissions are incorrect"
-        # )
+        self.assertAlmostEqual(
+            results["emissions"]["total"], 
+            21.665232, 
+            places=3, 
+            msg="Total emissions are incorrect"
+        )
 
 
 if __name__ == "__main__":

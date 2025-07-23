@@ -28,15 +28,16 @@ class EmissionCalculator:
     #     return total_emissions
 
     def get_total_emissions(self) -> float:
-        """Calculate total CO2 emissions."""
+        """Calculate total CO2 emissions.
+        
+        Returns:
+            Total CO2 emissions in tons per year
+        """
         total_emissions = 0.0
         
         for asset in self.energy_system.assets:
-            asset_emissions = self._calculate_asset_emissions(asset)
-            print(f"Asset {asset.name} emissions: {asset_emissions} tons")
-            total_emissions += asset_emissions
+            total_emissions += self._calculate_asset_emissions(asset)
         
-        print(f"Total emissions: {total_emissions} tons")
         return total_emissions
     
     def get_emissions_per_mwh(self) -> float:
@@ -83,46 +84,54 @@ class EmissionCalculator:
         
         return emissions_kg / energy_consumption_gj
     
-    def _calculate_asset_emissions(self, asset: Asset) -> float:
+    def _calculate_asset_emissions(self, asset: Asset, annualize: bool = True) -> float:
         """Calculate CO2 emissions for a specific asset.
-        
+
         Args:
             asset: Asset to calculate emissions for
-            
+            annualize: If True, scale emissions to a full year
+
         Returns:
-            CO2 emissions in tons per year
+            CO2 emissions in tons (annualized or for actual period)
         """
         if not asset.time_series:
             return 0.0
 
-        # Print asset details for debugging
-        print(f"Asset: {asset.name}, Type: {asset.asset_type}, Emission factor: {asset.emission_factor}")
-
-        # Map asset types to their respective time series keys
+        # Select the correct time series key for the asset
         ts_options = {
             AssetType.PRODUCER: ["ThermalProduction", "Production", "Energy"],
             AssetType.GEOTHERMAL: ["ThermalProduction", "Production", "Energy"],
             AssetType.CONSUMER: ["ThermalConsumption", "Consumption", "Energy"],
             AssetType.CONVERSION: ["ElectricalConsumption", "ThermalProduction"]
         }
-
         ts_name = None
         options = ts_options.get(asset.asset_type, [])
         for key in options:
             if key in asset.time_series:
                 ts_name = key
                 break
-
         if not ts_name:
             return 0.0
 
         ts = asset.time_series[ts_name]
-        duration = ts.time_step * len(ts.values)
-        time_factor = (3600 * 24 * 365) / duration
-        energy_sum = sum(ts.values) * ts.time_step
+        duration = ts.time_step * len(ts.values)  # seconds
+        if duration == 0:
+            return 0.0
 
-        # Calculate emissions (emission_factor is in kg/GJ, energy_sum is in J)
-        # Convert J to GJ (1 GJ = 1e9 J) and kg to tons (1 ton = 1000 kg)
-        emissions = asset.emission_factor * energy_sum * time_factor / 1e9 / 1000
+        # Calculate time factor for annualization
+        if annualize:
+            time_factor = 3600 * 24 * 365 / duration
+        else:
+            time_factor = 1
 
-        return emissions
+        # Calculate energy sum
+        energy_sum = sum(ts.values) * ts.time_step  # Joules
+
+        # Calculate emissions
+        # The emission factor from adapter is in kg/J (already divided by 1e9)
+        # We multiply directly by energy in Joules and time factor
+        # The result is in kg, so we need to convert to tons (1 ton = 1000 kg)
+        emissions_kg = asset.emission_factor * energy_sum * time_factor  # kg
+        emissions_tons = emissions_kg / 1000.0  # Convert kg to tons
+
+        return emissions_tons

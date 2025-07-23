@@ -293,9 +293,12 @@ class EsdlAdapter:
         Returns:
             Emission factor in kg/GJ
         """
+        # Uses ESDL carrier emission factors
+        # TODO: Implement dynamic unit conversion based on ESDL emissionUnit specifications 
+        # (pending frontend team discussion)
         for port in esdl_element.port:
             if port.carrier is not None:
                 if isinstance(port.carrier, esdl.EnergyCarrier):
-                    return port.carrier.emission / 1e9  # value is in kg/GJ
+                    return port.carrier.emission / 1e9  # Convert to match old implementation
                 return 0.0
         return 0.0

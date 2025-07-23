@@ -223,6 +223,8 @@ test-results.xml
 
 .env.*
 
+### Development files ###
 notes/
 code_bases/
 src_old/kpicalculator
+unit_test/kpi_calculator_test.py
