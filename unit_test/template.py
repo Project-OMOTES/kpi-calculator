@@ -14,8 +14,9 @@
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Test script for python template."""
-from datetime import datetime
 import unittest
+from datetime import datetime
+
 from kpicalculator import kpicalculator
 
 

@@ -1,9 +1,10 @@
-from kpi_calculator import kpi_model_class
-import sys
-import os
 import json
+import os
+import sys
 import unittest
 from pathlib import Path
+
+from kpi_calculator import kpi_model_class
 
 # Get the absolute path to the directory containing kpi-calculator
 current_dir = os.path.dirname(os.path.abspath(__file__))

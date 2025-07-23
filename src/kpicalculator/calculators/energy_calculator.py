@@ -1,6 +1,10 @@
 # src/kpicalculator/calculators/energy_calculator.py
-from typing import Dict, Optional
-from ..adapters.common_model import EnergySystem, Asset, AssetType
+from typing import Dict
+from typing import Optional
+
+from ..adapters.common_model import Asset
+from ..adapters.common_model import AssetType
+from ..adapters.common_model import EnergySystem
 
 
 class EnergyCalculator:
@@ -24,8 +28,7 @@ class EnergyCalculator:
 
         for asset in self.energy_system.assets:
             if asset.asset_type == AssetType.CONSUMER:
-                total_consumption += self._calculate_asset_energy_consumption(
-                    asset)
+                total_consumption += self._calculate_asset_energy_consumption(asset)
 
         return total_consumption
 
@@ -53,8 +56,7 @@ class EnergyCalculator:
 
         for asset in self.energy_system.assets:
             if asset.asset_type in [AssetType.PRODUCER, AssetType.GEOTHERMAL]:
-                total_production += self._calculate_asset_energy_production(
-                    asset)
+                total_production += self._calculate_asset_energy_production(asset)
 
         return total_production
 
@@ -125,8 +127,7 @@ class EnergyCalculator:
                 break
 
         if not ts_name:
-            return self._calculate_asset_energy_consumption(
-                asset)  # Fall back to consumption
+            return self._calculate_asset_energy_consumption(asset)  # Fall back to consumption
 
         ts = asset.time_series[ts_name]
 

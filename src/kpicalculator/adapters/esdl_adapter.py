@@ -1,12 +1,14 @@
 # src/kpicalculator/adapters/esdl_adapter.py
-from typing import Dict, List, Optional, Any
-import os
 import logging
+import os
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 from esdl import esdl
 from esdl.esdl_handler import EnergySystemHandler
-import pandas as pd
-from .common_model import EnergySystem, Asset, AssetType, TimeSeries
+
+from .common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .xml_time_series_adapter import PiXmlTimeSeries
 
 
@@ -22,11 +24,8 @@ class EsdlAdapter:
         self.unit_conversion = unit_conversion
 
     def load(
-            self,
-            esdl_file: str,
-            time_series_file: str,
-            pipes_cost_file: str,
-            assets_cost_file: str) -> EnergySystem:
+        self, esdl_file: str, time_series_file: str, pipes_cost_file: str, assets_cost_file: str
+    ) -> EnergySystem:
         """Load energy system data from ESDL file.
 
         Args:
@@ -43,8 +42,7 @@ class EsdlAdapter:
         es = esh.load_file(esdl_file)
 
         # Load time series
-        time_series_dict = PiXmlTimeSeries(
-            time_series_file, "locationId", "parameterId")
+        time_series_dict = PiXmlTimeSeries(time_series_file, "locationId", "parameterId")
 
         # Load cost data
         pipe_costs = pd.read_csv(pipes_cost_file)
@@ -71,7 +69,8 @@ class EsdlAdapter:
                     continue
 
                 asset = self._create_asset_from_esdl(
-                    esdl_element, time_series_dict, pipe_costs, asset_costs, model_name)
+                    esdl_element, time_series_dict, pipe_costs, asset_costs, model_name
+                )
 
                 if asset:
                     energy_system.assets.append(asset)
@@ -146,8 +145,7 @@ class EsdlAdapter:
                 }
             )
         except (IndexError, KeyError) as e:
-            logging.warning(
-                f"Could not find cost data for asset {esdl_element.name}: {e}")
+            logging.warning(f"Could not find cost data for asset {esdl_element.name}: {e}")
             return None
 
         # Get time series
@@ -161,22 +159,19 @@ class EsdlAdapter:
                 AssetType.CONSUMER: ["ThermalConsumption"],
                 AssetType.PUMP: ["ElectricalConsumption"],
                 AssetType.PIPE: ["Speed"],
-                AssetType.CONVERSION: [
-                    "ElectricalConsumption",
-                    "ThermalProduction"],
+                AssetType.CONVERSION: ["ElectricalConsumption", "ThermalProduction"],
                 AssetType.STORAGE: ["ElectricalConsumption"],
             }
 
             if asset_type in ts_mapping:
                 for ts_name in ts_mapping[asset_type]:
                     if ts_name in ts_data:
-                        values = [
-                            event.value for event in ts_data[ts_name].events]
+                        values = [event.value for event in ts_data[ts_name].events]
                         time_step = ts_data[ts_name].get_time_step()
 
                         asset_dict["time_series"] = {
-                            ts_name: TimeSeries(
-                                time_step=time_step, values=values)}
+                            ts_name: TimeSeries(time_step=time_step, values=values)
+                        }
                         break
 
         return Asset(**asset_dict)
@@ -283,8 +278,7 @@ class EsdlAdapter:
         if esdl_element.technicalLifetime is None:
             return 40.0
         if esdl_element.technicalLifetime == 0.0:
-            logging.info(
-                f"Technical life time not set or zero for asset {esdl_element.name}")
+            logging.info(f"Technical life time not set or zero for asset {esdl_element.name}")
             return 40.0
         return esdl_element.technicalLifetime
 

@@ -1,23 +1,18 @@
+import datetime
 import os
 import pathlib
-import datetime
-import xmltodict
-from xml.dom import minidom
 import xml.etree.ElementTree as ET
+from xml.dom import minidom
+
+import xmltodict
 
 
 # Class to load and read from and to PiXml files
 class PiXmlTimeSeries:
-    def __init__(
-            self,
-            time_series_xml_file,
-            name_at,
-            property_at,
-            remove_name=True):
+    def __init__(self, time_series_xml_file, name_at, property_at, remove_name=True):
         self.time_series_xml_file = time_series_xml_file
         fname = pathlib.Path(time_series_xml_file)
-        self.time_data_file = datetime.datetime.fromtimestamp(
-            fname.stat().st_mtime)
+        self.time_data_file = datetime.datetime.fromtimestamp(fname.stat().st_mtime)
         self.name_at = name_at
         self.property_at = property_at
         self.station_name = None
@@ -26,8 +21,7 @@ class PiXmlTimeSeries:
         if not os.path.exists(self.time_series_xml_file):
             # create new xml file
             ET.register_namespace("", "http://www.wldelft.nl/fews/PI")
-            ET.register_namespace(
-                "xsi", "http://www.w3.org/2001/XMLSchema-instance")
+            ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
             root = ET.Element("TimeSeries")
             timezone = ET.SubElement(root, "timeZone")
             timezone.text = str(0)
@@ -51,20 +45,17 @@ class PiXmlTimeSeries:
             prop_name = xml_dict["TimeSeries"]["series"]["header"][property_at]
             time_series = TimeSeries()
             time_series.parse_existing(
-                xml_dict["TimeSeries"]["series"]["header"],
-                name_at,
-                property_at)
+                xml_dict["TimeSeries"]["series"]["header"], name_at, property_at
+            )
             if "event" in xml_dict["TimeSeries"]["series"]:
-                time_series.parse_time_series(
-                    xml_dict["TimeSeries"]["series"]["event"])
+                time_series.parse_time_series(xml_dict["TimeSeries"]["series"]["event"])
             self.time_series[name] = {prop_name: time_series}
         else:
             for time_serie in xml_dict["TimeSeries"]["series"]:
                 name = time_serie["header"][name_at]
                 prop_name = time_serie["header"][property_at]
                 series = TimeSeries()
-                series.parse_existing(
-                    time_serie["header"], name_at, property_at)
+                series.parse_existing(time_serie["header"], name_at, property_at)
                 if "event" in time_serie:
                     series.parse_time_series(time_serie["event"])
                 if name in self.time_series:
@@ -124,14 +115,12 @@ class PiXmlTimeSeries:
         if time_series.name in self.time_series:
             self.time_series[time_series.name][time_series.prop] = time_series
         else:
-            self.time_series[time_series.name] = {
-                time_series.prop: time_series}
+            self.time_series[time_series.name] = {time_series.prop: time_series}
         return self.time_series[time_series.name][time_series.prop]
 
     def save_to_XML(self, file=None):
         ET.register_namespace("", "http://www.wldelft.nl/fews/PI")
-        ET.register_namespace(
-            "xsi", "http://www.w3.org/2001/XMLSchema-instance")
+        ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
         # loading xml output file
         tree = ET.parse(self.time_series_xml_file)
         root = tree.getroot()
@@ -142,19 +131,19 @@ class PiXmlTimeSeries:
                     series_element = ET.SubElement(root, "series")
                     self.time_series[name][prop].save_series(series_element)
                 else:
-                    for series_element in root.iter(
-                            "{http://www.wldelft.nl/fews/PI}series"):
+                    for series_element in root.iter("{http://www.wldelft.nl/fews/PI}series"):
                         name_ET = (
-                            series_element[0] .find(
-                                "{http://www.wldelft.nl/fews/PI}" +
-                                self.name_at) .text)
+                            series_element[0]
+                            .find("{http://www.wldelft.nl/fews/PI}" + self.name_at)
+                            .text
+                        )
                         prop_ET = (
-                            series_element[0] .find(
-                                "{http://www.wldelft.nl/fews/PI}" +
-                                self.property_at) .text)
+                            series_element[0]
+                            .find("{http://www.wldelft.nl/fews/PI}" + self.property_at)
+                            .text
+                        )
                         if (name == name_ET) & (prop == prop_ET):
-                            self.time_series[name][prop].save_series(
-                                series_element)
+                            self.time_series[name][prop].save_series(series_element)
 
         if file is None:
             output_file = self.time_series_xml_file
@@ -299,12 +288,12 @@ class TimeSeries:
 
     def get_time_step(self):
         time1 = datetime.datetime.strptime(
-            self.events[0].date + " " + self.events[0].time,
-            "%Y-%m-%d %H:%M:%S")
+            self.events[0].date + " " + self.events[0].time, "%Y-%m-%d %H:%M:%S"
+        )
         if len(self.events) > 1:
             time2 = datetime.datetime.strptime(
-                self.events[1].date + " " + self.events[1].time,
-                "%Y-%m-%d %H:%M:%S")
+                self.events[1].date + " " + self.events[1].time, "%Y-%m-%d %H:%M:%S"
+            )
         else:
             return 3600 * 24 * 7  # assume for now 1 week time step, which is the default in CF
         return (time2 - time1).total_seconds()
@@ -334,7 +323,10 @@ class PiXmlEvent:
 
 
 def main():
-    pixml = r"d:\repos\warmingUp\KPI_calculator\kpi-calculator\KPI_calculator_server\swagger_server\test\test_case\alpha1\to_kpicalculator\power_timeseries2.xml"
+    pixml = (
+        r"d:\repos\warmingUp\KPI_calculator\kpi-calculator\KPI_calculator_server"
+        r"\swagger_server\test\test_case\alpha1\to_kpicalculator\power_timeseries2.xml"
+    )
     pixml_object = PiXmlTimeSeries(pixml, "locationId", "parameterId")
     timeseries = pixml_object.add_timer_series(
         "continuous",
@@ -358,8 +350,6 @@ def main():
     )
     timeseries.add_event("10", "10:00", 100, 1)
     pixml_object.save_to_XML("klaas.xml")
-
-    i = 1
 
 
 if __name__ == "__main__":

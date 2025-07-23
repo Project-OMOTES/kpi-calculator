@@ -1,8 +1,15 @@
 # src/kpicalculator/calculators/cost_calculator.py
-from typing import Dict, List, Optional, Any
 import math
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+
 import numpy as np
-from ..adapters.common_model import EnergySystem, Asset, AssetType
+
+from ..adapters.common_model import Asset
+from ..adapters.common_model import AssetType
+from ..adapters.common_model import EnergySystem
 
 
 class CostCalculator:
@@ -22,13 +29,7 @@ class CostCalculator:
         Returns:
             Dictionary with CAPEX by category
         """
-        categories = [
-            "Production",
-            "Consumption",
-            "Storage",
-            "Transport",
-            "Conversion",
-            "All"]
+        categories = ["Production", "Consumption", "Storage", "Transport", "Conversion", "All"]
         result = {}
 
         for category in categories:
@@ -42,13 +43,7 @@ class CostCalculator:
         Returns:
             Dictionary with OPEX by category
         """
-        categories = [
-            "Production",
-            "Consumption",
-            "Storage",
-            "Transport",
-            "Conversion",
-            "All"]
+        categories = ["Production", "Consumption", "Storage", "Transport", "Conversion", "All"]
         result = {}
 
         for category in categories:
@@ -56,10 +51,7 @@ class CostCalculator:
 
         return result
 
-    def calculate_npv(
-            self,
-            system_lifetime: int,
-            discount_rate: float = 5.0) -> float:
+    def calculate_npv(self, system_lifetime: int, discount_rate: float = 5.0) -> float:
         """Calculate Net Present Value for the energy system.
 
         Args:
@@ -74,12 +66,12 @@ class CostCalculator:
         for asset in self.energy_system.assets:
             # Calculate NPV for CAPEX
             capex_npv = asset.investment_cost + asset.installation_cost
-            capex_npv *= sum([1.0 /
-                              math.pow(1.0 +
-                                       discount_rate /
-                                       100.0, asset.technical_lifetime *
-                                       n) for n in range(math.ceil(system_lifetime /
-                                                                   asset.technical_lifetime))])
+            capex_npv *= sum(
+                [
+                    1.0 / math.pow(1.0 + discount_rate / 100.0, asset.technical_lifetime * n)
+                    for n in range(math.ceil(system_lifetime / asset.technical_lifetime))
+                ]
+            )
 
             # Calculate NPV for OPEX
             opex_annual = (
@@ -97,10 +89,7 @@ class CostCalculator:
 
         return npv
 
-    def calculate_lcoe(
-            self,
-            system_lifetime: int,
-            discount_rate: float = 5.0) -> float:
+    def calculate_lcoe(self, system_lifetime: int, discount_rate: float = 5.0) -> float:
         """Calculate Levelized Cost of Energy.
 
         Args:
@@ -125,8 +114,7 @@ class CostCalculator:
         # Calculate discounted energy production
         discounted_energy = 0.0
         for year in range(system_lifetime):
-            discounted_energy += annual_energy / \
-                math.pow(1.0 + discount_rate / 100.0, year)
+            discounted_energy += annual_energy / math.pow(1.0 + discount_rate / 100.0, year)
 
         return npv / discounted_energy
 
@@ -142,10 +130,10 @@ class CostCalculator:
         capex = 0.0
 
         for asset in self.energy_system.assets:
-            if category == "All" or self._asset_belongs_to_category(
-                    asset, category):
-                capex += self._calculate_investment_cost(
-                    asset) + self._calculate_installation_cost(asset)
+            if category == "All" or self._asset_belongs_to_category(asset, category):
+                capex += self._calculate_investment_cost(asset) + self._calculate_installation_cost(
+                    asset
+                )
 
         return capex
 
@@ -161,8 +149,7 @@ class CostCalculator:
         opex = 0.0
 
         for asset in self.energy_system.assets:
-            if category == "All" or self._asset_belongs_to_category(
-                    asset, category):
+            if category == "All" or self._asset_belongs_to_category(asset, category):
                 opex += (
                     self._calculate_fixed_operational_cost(asset)
                     + self._calculate_variable_operational_cost(asset)
@@ -201,13 +188,7 @@ class CostCalculator:
         Returns:
             Investment cost
         """
-        allowed_units = [
-            "EUR",
-            "EUR/kW",
-            "EUR/MW",
-            "EUR/m",
-            "EUR/km",
-            "EUR/m3"]
+        allowed_units = ["EUR", "EUR/kW", "EUR/MW", "EUR/m", "EUR/km", "EUR/m3"]
 
         if asset.investment_cost_unit not in allowed_units:
             return 0.0
@@ -240,13 +221,7 @@ class CostCalculator:
         Returns:
             Installation cost
         """
-        allowed_units = [
-            "EUR",
-            "EUR/kW",
-            "EUR/MW",
-            "EUR/m",
-            "EUR/km",
-            "EUR/m3"]
+        allowed_units = ["EUR", "EUR/kW", "EUR/MW", "EUR/m", "EUR/km", "EUR/m3"]
 
         if asset.installation_cost_unit not in allowed_units:
             return 0.0
@@ -290,8 +265,9 @@ class CostCalculator:
             return value
 
         if asset.fixed_operational_cost_unit == "% OF CAPEX":
-            capex = self._calculate_investment_cost(
-                asset) + self._calculate_installation_cost(asset)
+            capex = self._calculate_investment_cost(asset) + self._calculate_installation_cost(
+                asset
+            )
             factor = self._get_unit_factor(asset.fixed_operational_cost_unit)
             return capex * value * factor
 
@@ -335,8 +311,7 @@ class CostCalculator:
             energy_sum = sum(ts.values) * ts.time_step
 
             # Apply unit conversion
-            factor = self._get_unit_factor(
-                asset.variable_operational_cost_unit)
+            factor = self._get_unit_factor(asset.variable_operational_cost_unit)
 
             # Special case for geothermal sources
             if asset.asset_type == AssetType.GEOTHERMAL and asset.cop > 0:
@@ -366,8 +341,9 @@ class CostCalculator:
             return value
 
         if asset.fixed_maintenance_cost_unit == "% OF CAPEX":
-            capex = self._calculate_investment_cost(
-                asset) + self._calculate_installation_cost(asset)
+            capex = self._calculate_investment_cost(asset) + self._calculate_installation_cost(
+                asset
+            )
             factor = self._get_unit_factor(asset.fixed_maintenance_cost_unit)
             return capex * value * factor
 
@@ -411,8 +387,7 @@ class CostCalculator:
             energy_sum = sum(ts.values) * ts.time_step
 
             # Apply unit conversion
-            factor = self._get_unit_factor(
-                asset.variable_maintenance_cost_unit)
+            factor = self._get_unit_factor(asset.variable_maintenance_cost_unit)
 
             # Special case for geothermal sources
             if asset.asset_type == AssetType.GEOTHERMAL and asset.cop > 0:

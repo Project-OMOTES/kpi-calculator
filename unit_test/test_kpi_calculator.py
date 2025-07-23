@@ -1,8 +1,7 @@
-from kpicalculator import KpiManager
+import os
+import sys
 import unittest
 from pathlib import Path
-import sys
-import os
 
 # Get the absolute path to the test directory
 TEST_DIR = Path(__file__).parent
@@ -10,6 +9,8 @@ DATA_DIR = TEST_DIR / "data"
 
 # Add the src directory to the Python path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
+
+from kpicalculator import KpiManager
 
 
 class NewKpiCalculatorTest(unittest.TestCase):
@@ -24,8 +25,7 @@ class NewKpiCalculatorTest(unittest.TestCase):
         assets = DATA_DIR / "nodes_kpi_factors.csv"
         series = DATA_DIR / "power_timeseries.xml"
 
-        self.kpi_manager.load_from_esdl(
-            str(esdl), str(series), str(pipes), str(assets))
+        self.kpi_manager.load_from_esdl(str(esdl), str(series), str(pipes), str(assets))
 
     def test_calculate_all_kpis(self):
         # Calculate KPIs
@@ -38,10 +38,8 @@ class NewKpiCalculatorTest(unittest.TestCase):
 
         # Check specific values
         self.assertAlmostEqual(
-            results["costs"]["capex"]["All"],
-            108900.1306,
-            places=2,
-            msg="Total CAPEX is incorrect")
+            results["costs"]["capex"]["All"], 108900.1306, places=2, msg="Total CAPEX is incorrect"
+        )
 
         self.assertAlmostEqual(
             results["energy"]["consumption"],
@@ -51,10 +49,8 @@ class NewKpiCalculatorTest(unittest.TestCase):
         )
 
         self.assertAlmostEqual(
-            results["emissions"]["total"],
-            21.665232,
-            places=3,
-            msg="Total emissions are incorrect")
+            results["emissions"]["total"], 21.665232, places=3, msg="Total emissions are incorrect"
+        )
 
 
 if __name__ == "__main__":

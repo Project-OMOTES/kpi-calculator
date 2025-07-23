@@ -1,7 +1,12 @@
 # src/kpicalculator/adapters/common_model.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from enum import Enum
-from typing import Dict, List, Optional, Union, Any
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Union
 
 
 class AssetType(Enum):

@@ -1,6 +1,7 @@
 # src/kpicalculator/calculators/emission_calculator.py
 from typing import Dict, Optional
-from ..adapters.common_model import EnergySystem, Asset, AssetType
+
+from ..adapters.common_model import Asset, AssetType, EnergySystem
 
 
 class EmissionCalculator:
@@ -84,10 +85,7 @@ class EmissionCalculator:
 
         return emissions_kg / energy_consumption_gj
 
-    def _calculate_asset_emissions(
-            self,
-            asset: Asset,
-            annualize: bool = True) -> float:
+    def _calculate_asset_emissions(self, asset: Asset, annualize: bool = True) -> float:
         """Calculate CO2 emissions for a specific asset.
 
         Args:

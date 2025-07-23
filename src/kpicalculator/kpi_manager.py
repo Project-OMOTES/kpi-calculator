@@ -1,7 +1,14 @@
 # src/kpicalculator/kpi_manager.py
-from typing import Dict, List, Optional, Union, Any
-from .adapters.common_model import EnergySystem, Asset
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Union
+
 import pandas as pd
+
+from .adapters.common_model import Asset
+from .adapters.common_model import EnergySystem
 
 
 class KpiManager:
@@ -30,11 +37,8 @@ class KpiManager:
             self.unit_conversion[row["Unit"]] = row["Factor"]
 
     def load_from_esdl(
-            self,
-            esdl_file: str,
-            time_series_file: str,
-            pipes_cost_file: str,
-            assets_cost_file: str) -> None:
+        self, esdl_file: str, time_series_file: str, pipes_cost_file: str, assets_cost_file: str
+    ) -> None:
         """Load energy system data from ESDL file.
 
         Args:
@@ -82,12 +86,11 @@ class KpiManager:
             Dictionary with all KPI results
         """
         if not self.energy_system:
-            raise ValueError(
-                "No energy system loaded. Call one of the load methods first.")
+            raise ValueError("No energy system loaded. Call one of the load methods first.")
 
         from .calculators.cost_calculator import CostCalculator
-        from .calculators.energy_calculator import EnergyCalculator
         from .calculators.emission_calculator import EmissionCalculator
+        from .calculators.energy_calculator import EnergyCalculator
 
         cost_calc = CostCalculator(self.energy_system)
         energy_calc = EnergyCalculator(self.energy_system)
