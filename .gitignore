@@ -227,4 +227,9 @@ test-results.xml
 notes/
 code_bases/
 src_old/kpicalculator
-unit_test/kpi_calculator_test.py
+unit_test/kpi_calculator_test.py*
+unit_test/template.py*
+doc/project/CLAUDE.md
+doc/project/
+.pre-commit-config.yaml
+

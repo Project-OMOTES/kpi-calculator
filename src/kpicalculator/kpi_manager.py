@@ -1,14 +1,42 @@
 # src/kpicalculator/kpi_manager.py
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Union
+from typing import Any, Dict, Optional, TypedDict
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
-from .adapters.common_model import Asset
 from .adapters.common_model import EnergySystem
+
+
+class CostResults(TypedDict):
+    """Results structure for cost calculations."""
+
+    capex: Dict[str, float]
+    opex: Dict[str, float]
+    npv: float
+    lcoe: float
+
+
+class EnergyResults(TypedDict):
+    """Results structure for energy calculations."""
+
+    consumption: float
+    demand: float
+    production: float
+    efficiency: float
+
+
+class EmissionResults(TypedDict):
+    """Results structure for emission calculations."""
+
+    total: float
+    per_mwh: float
+
+
+class KpiResults(TypedDict):
+    """Complete KPI results structure."""
+
+    costs: CostResults
+    energy: EnergyResults
+    emissions: EmissionResults
 
 
 class KpiManager:
@@ -20,8 +48,8 @@ class KpiManager:
         Args:
             unit_conversion_file: Path to CSV file with unit conversion factors
         """
-        self.energy_system = None
-        self.unit_conversion = {}
+        self.energy_system: Optional[EnergySystem] = None
+        self.unit_conversion: Dict[str, float] = {}
 
         if unit_conversion_file:
             self.load_unit_conversion(unit_conversion_file)
@@ -60,7 +88,7 @@ class KpiManager:
         Args:
             simulator_data: Simulator data structure
         """
-        from .adapters.simulator_adapter import SimulatorAdapter
+        from .adapters.simulator_adapter import SimulatorAdapter  # type: ignore[import-not-found]
 
         adapter = SimulatorAdapter(self.unit_conversion)
         self.energy_system = adapter.load(simulator_data)
@@ -71,12 +99,12 @@ class KpiManager:
         Args:
             mesido_data: Mesido data structure
         """
-        from .adapters.mesido_adapter import MesidoAdapter
+        from .adapters.mesido_adapter import MesidoAdapter  # type: ignore[import-not-found]
 
         adapter = MesidoAdapter(self.unit_conversion)
         self.energy_system = adapter.load(mesido_data)
 
-    def calculate_all_kpis(self, system_lifetime: int = 30) -> Dict[str, Any]:
+    def calculate_all_kpis(self, system_lifetime: int = 30) -> KpiResults:
         """Calculate all KPIs for the energy system.
 
         Args:
@@ -96,7 +124,7 @@ class KpiManager:
         energy_calc = EnergyCalculator(self.energy_system)
         emission_calc = EmissionCalculator(self.energy_system)
 
-        results = {
+        results: KpiResults = {
             "costs": {
                 "capex": cost_calc.get_capex_by_category(),
                 "opex": cost_calc.get_opex_by_category(),

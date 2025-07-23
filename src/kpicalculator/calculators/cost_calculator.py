@@ -1,15 +1,10 @@
 # src/kpicalculator/calculators/cost_calculator.py
 import math
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from ..adapters.common_model import Asset
-from ..adapters.common_model import AssetType
-from ..adapters.common_model import EnergySystem
+from ..adapters.common_model import Asset, AssetType, EnergySystem
 
 
 class CostCalculator:

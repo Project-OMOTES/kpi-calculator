@@ -1,12 +1,11 @@
 # src/kpicalculator/adapters/esdl_adapter.py
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
-import pandas as pd
-from esdl import esdl
-from esdl.esdl_handler import EnergySystemHandler
+from esdl import esdl  # type: ignore[import-untyped]
+from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped]
+import pandas as pd  # type: ignore[import-untyped]
 
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .xml_time_series_adapter import PiXmlTimeSeries
@@ -79,8 +78,8 @@ class EsdlAdapter:
 
     def _create_asset_from_esdl(
         self,
-        esdl_element: Any,
-        time_series_dict: Any,
+        esdl_element: esdl.Asset,
+        time_series_dict: PiXmlTimeSeries,
         pipe_costs: pd.DataFrame,
         asset_costs: pd.DataFrame,
         model_name: str,
@@ -176,7 +175,7 @@ class EsdlAdapter:
 
         return Asset(**asset_dict)
 
-    def _get_asset_type(self, esdl_element: Any) -> Optional[AssetType]:
+    def _get_asset_type(self, esdl_element: esdl.Asset) -> Optional[AssetType]:
         """Get the asset type from an ESDL element.
 
         Args:
@@ -204,7 +203,7 @@ class EsdlAdapter:
         else:
             return None
 
-    def _get_length(self, esdl_element: Any) -> float:
+    def _get_length(self, esdl_element: esdl.Asset) -> float:
         """Get the length of an ESDL element.
 
         Args:
@@ -214,10 +213,10 @@ class EsdlAdapter:
             Length in meters or 0.0 if not applicable
         """
         if isinstance(esdl_element, esdl.Pipe):
-            return esdl_element.length
+            return float(esdl_element.length) if esdl_element.length is not None else 0.0
         return 0.0
 
-    def _get_power(self, esdl_element: Any) -> float:
+    def _get_power(self, esdl_element: esdl.Asset) -> float:
         """Get the power of an ESDL element.
 
         Args:
@@ -233,10 +232,10 @@ class EsdlAdapter:
         ):
             if esdl_element.power is None:
                 return 0.0
-            return esdl_element.power
+            return float(esdl_element.power)
         return 0.0
 
-    def _get_cop(self, esdl_element: Any) -> float:
+    def _get_cop(self, esdl_element: esdl.Asset) -> float:
         """Get the COP of an ESDL element.
 
         Args:
@@ -248,10 +247,10 @@ class EsdlAdapter:
         if isinstance(esdl_element, esdl.GeothermalSource):
             if esdl_element.COP is None:
                 return 0.0
-            return esdl_element.COP
+            return float(esdl_element.COP)
         return 0.0
 
-    def _get_volume(self, esdl_element: Any) -> float:
+    def _get_volume(self, esdl_element: esdl.Asset) -> float:
         """Get the volume of an ESDL element.
 
         Args:
@@ -263,10 +262,10 @@ class EsdlAdapter:
         if isinstance(esdl_element, esdl.Storage):
             if esdl_element.volume is None:
                 return 0.0
-            return esdl_element.volume
+            return float(esdl_element.volume)
         return 0.0
 
-    def _get_tech_lifetime(self, esdl_element: Any) -> float:
+    def _get_tech_lifetime(self, esdl_element: esdl.Asset) -> float:
         """Get the technical lifetime of an ESDL element.
 
         Args:
@@ -280,9 +279,9 @@ class EsdlAdapter:
         if esdl_element.technicalLifetime == 0.0:
             logging.info(f"Technical life time not set or zero for asset {esdl_element.name}")
             return 40.0
-        return esdl_element.technicalLifetime
+        return float(esdl_element.technicalLifetime)
 
-    def _get_aggregation_count(self, esdl_element: Any) -> int:
+    def _get_aggregation_count(self, esdl_element: esdl.Asset) -> int:
         """Get the aggregation count of an ESDL element.
 
         Args:
@@ -292,10 +291,10 @@ class EsdlAdapter:
             Aggregation count or 0 if not applicable
         """
         if esdl_element.aggregationCount:
-            return esdl_element.aggregationCount
+            return int(esdl_element.aggregationCount)
         return 0
 
-    def _get_emission_factor(self, esdl_element: Any) -> float:
+    def _get_emission_factor(self, esdl_element: esdl.Asset) -> float:
         """Get the emission factor of an ESDL element.
 
         Args:
@@ -310,6 +309,6 @@ class EsdlAdapter:
         for port in esdl_element.port:
             if port.carrier is not None:
                 if isinstance(port.carrier, esdl.EnergyCarrier):
-                    return port.carrier.emission / 1e9  # Convert to match old implementation
+                    return float(port.carrier.emission) / 1e9  # Convert to match old implementation
                 return 0.0
         return 0.0

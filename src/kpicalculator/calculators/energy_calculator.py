@@ -1,10 +1,7 @@
 # src/kpicalculator/calculators/energy_calculator.py
-from typing import Dict
-from typing import Optional
+from typing import Dict, Optional
 
-from ..adapters.common_model import Asset
-from ..adapters.common_model import AssetType
-from ..adapters.common_model import EnergySystem
+from ..adapters.common_model import Asset, AssetType, EnergySystem
 
 
 class EnergyCalculator:

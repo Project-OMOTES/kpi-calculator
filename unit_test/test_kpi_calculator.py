@@ -1,4 +1,3 @@
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -14,7 +13,7 @@ from kpicalculator import KpiManager
 
 
 class NewKpiCalculatorTest(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         # Create KPI manager
         unit_conv = DATA_DIR / "unit_conversion.csv"
         self.kpi_manager = KpiManager(str(unit_conv))
@@ -27,7 +26,7 @@ class NewKpiCalculatorTest(unittest.TestCase):
 
         self.kpi_manager.load_from_esdl(str(esdl), str(series), str(pipes), str(assets))
 
-    def test_calculate_all_kpis(self):
+    def test_calculate_all_kpis(self) -> None:
         # Calculate KPIs
         results = self.kpi_manager.calculate_all_kpis(system_lifetime=40)
 

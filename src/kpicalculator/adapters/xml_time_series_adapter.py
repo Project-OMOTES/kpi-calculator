@@ -2,21 +2,30 @@ import datetime
 import os
 import pathlib
 import xml.etree.ElementTree as ET
+from typing import Any, Dict, List, Optional, Union
 from xml.dom import minidom
 
-import xmltodict
+import xmltodict  # type: ignore[import-untyped]
 
 
 # Class to load and read from and to PiXml files
 class PiXmlTimeSeries:
-    def __init__(self, time_series_xml_file, name_at, property_at, remove_name=True):
-        self.time_series_xml_file = time_series_xml_file
+    def __init__(
+        self,
+        time_series_xml_file: str,
+        name_at: str,
+        property_at: str,
+        remove_name: bool = True,
+    ) -> None:
+        self.time_series_xml_file: str = time_series_xml_file
         fname = pathlib.Path(time_series_xml_file)
-        self.time_data_file = datetime.datetime.fromtimestamp(fname.stat().st_mtime)
-        self.name_at = name_at
-        self.property_at = property_at
-        self.station_name = None
-        self.time_series = {}
+        self.time_data_file: datetime.datetime = datetime.datetime.fromtimestamp(
+            fname.stat().st_mtime
+        )
+        self.name_at: str = name_at
+        self.property_at: str = property_at
+        self.station_name: Optional[str] = None
+        self.time_series: Dict[str, Any] = {}
         # check if file exist
         if not os.path.exists(self.time_series_xml_file):
             # create new xml file
@@ -71,25 +80,25 @@ class PiXmlTimeSeries:
 
     def add_timer_series(
         self,
-        pi_xml_type,
-        location_id,
-        parameter_id,
-        qualifier_id,
-        time_step,
-        start_date,
-        end_date,
-        forecast_date,
-        miss_val,
-        station_name,
-        lat,
-        lon,
-        x,
-        y,
-        z,
-        units,
-        creation_date,
-        creation_time,
-    ):
+        pi_xml_type: str,
+        location_id: str,
+        parameter_id: str,
+        qualifier_id: str,
+        time_step: Union[int, str],
+        start_date: str,
+        end_date: str,
+        forecast_date: str,
+        miss_val: Union[int, float],
+        station_name: str,
+        lat: Union[int, float],
+        lon: Union[int, float],
+        x: Union[int, float],
+        y: Union[int, float],
+        z: Union[int, float],
+        units: str,
+        creation_date: str,
+        creation_time: str,
+    ) -> "TimeSeries":
         time_series = TimeSeries(
             pi_xml_type,
             location_id,
@@ -112,13 +121,15 @@ class PiXmlTimeSeries:
         )
         time_series.name = time_series.header_dict[self.name_at]
         time_series.prop = time_series.header_dict[self.property_at]
-        if time_series.name in self.time_series:
-            self.time_series[time_series.name][time_series.prop] = time_series
-        else:
-            self.time_series[time_series.name] = {time_series.prop: time_series}
-        return self.time_series[time_series.name][time_series.prop]
+        if time_series.name is not None and time_series.prop is not None:
+            if time_series.name in self.time_series:
+                self.time_series[time_series.name][time_series.prop] = time_series
+            else:
+                self.time_series[time_series.name] = {time_series.prop: time_series}
+            return self.time_series[time_series.name][time_series.prop]
+        return time_series
 
-    def save_to_XML(self, file=None):
+    def save_to_XML(self, file: Optional[str] = None) -> None:
         ET.register_namespace("", "http://www.wldelft.nl/fews/PI")
         ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
         # loading xml output file
@@ -132,16 +143,15 @@ class PiXmlTimeSeries:
                     self.time_series[name][prop].save_series(series_element)
                 else:
                     for series_element in root.iter("{http://www.wldelft.nl/fews/PI}series"):
-                        name_ET = (
-                            series_element[0]
-                            .find("{http://www.wldelft.nl/fews/PI}" + self.name_at)
-                            .text
+                        name_element = series_element[0].find(
+                            "{http://www.wldelft.nl/fews/PI}" + self.name_at
                         )
-                        prop_ET = (
-                            series_element[0]
-                            .find("{http://www.wldelft.nl/fews/PI}" + self.property_at)
-                            .text
+                        prop_element = series_element[0].find(
+                            "{http://www.wldelft.nl/fews/PI}" + self.property_at
                         )
+
+                        name_ET = name_element.text if name_element is not None else None
+                        prop_ET = prop_element.text if prop_element is not None else None
                         if (name == name_ET) & (prop == prop_ET):
                             self.time_series[name][prop].save_series(series_element)
 
@@ -157,7 +167,7 @@ class PiXmlTimeSeries:
             f.write(xmlstr)
 
 
-def check_header(header, object_name):
+def check_header(header: Dict[str, Any], object_name: str) -> Any:
     if object_name in header:
         return header[object_name]
     else:
@@ -168,27 +178,27 @@ def check_header(header, object_name):
 class TimeSeries:
     def __init__(
         self,
-        pi_xml_type=None,
-        location_id=None,
-        parameter_id=None,
-        qualifier_id=None,
-        time_step=None,
-        start_date=None,
-        end_date=None,
-        forecast_date=None,
-        miss_val=None,
-        station_name=None,
-        lat=None,
-        lon=None,
-        x=None,
-        y=None,
-        z=None,
-        units=None,
-        creation_date=None,
-        creation_time=None,
-        name=None,
-        prop=None,
-    ):
+        pi_xml_type: Any = None,
+        location_id: Any = None,
+        parameter_id: Any = None,
+        qualifier_id: Any = None,
+        time_step: Any = None,
+        start_date: Any = None,
+        end_date: Any = None,
+        forecast_date: Any = None,
+        miss_val: Any = None,
+        station_name: Any = None,
+        lat: Any = None,
+        lon: Any = None,
+        x: Any = None,
+        y: Any = None,
+        z: Any = None,
+        units: Any = None,
+        creation_date: Any = None,
+        creation_time: Any = None,
+        name: Any = None,
+        prop: Any = None,
+    ) -> None:
         self.header_dict = {
             "type": pi_xml_type,
             "locationId": location_id,
@@ -212,7 +222,7 @@ class TimeSeries:
         self.name = None
         self.prop = None
         self.new_element = True
-        self.events = []
+        self.events: List["PiXmlEvent"] = []
         self.object_list = [
             "type",
             "locationId",
@@ -234,7 +244,7 @@ class TimeSeries:
             "creationTime",
         ]
 
-    def parse_existing(self, header_object, name_at, prop_at):
+    def parse_existing(self, header_object: Dict[str, Any], name_at: str, prop_at: str) -> None:
         self.header_dict = {}
         for item in self.object_list:
             self.header_dict[item] = check_header(header_object, item)
@@ -242,10 +252,12 @@ class TimeSeries:
         self.name = self.header_dict[name_at]
         self.prop = self.header_dict[prop_at]
 
-    def parse_time_series(self, event_object):
-        self.events = []
+    def parse_time_series(
+        self, event_object: Union[Dict[str, Any], List[Dict[str, Any]]]
+    ) -> List["PiXmlEvent"]:
+        self.events.clear()
         # check if only one event is in the list:
-        if "@date" in event_object:
+        if isinstance(event_object, dict) and "@date" in event_object:
             self.events.append(
                 PiXmlEvent(
                     event_object["@date"],
@@ -255,22 +267,23 @@ class TimeSeries:
                 )
             )
         else:
-            for event in event_object:
+            for event in event_object:  # type: ignore[union-attr]
+                event_dict: Dict[str, Any] = event  # type: ignore[assignment]
                 self.events.append(
                     PiXmlEvent(
-                        event["@date"],
-                        event["@time"],
-                        float(event["@value"]),
-                        int(float(event["@flag"])),
+                        event_dict["@date"],
+                        event_dict["@time"],
+                        float(event_dict["@value"]),
+                        int(float(event_dict["@flag"])),
                     )
                 )
         return self.events
 
-    def add_event(self, date, time, value, flag):
+    def add_event(self, date: str, time: str, value: float, flag: int) -> None:
         # ToDO check input!
         self.events.append(PiXmlEvent(date, time, value, flag, True))
 
-    def save_series(self, element):
+    def save_series(self, element: ET.Element) -> None:
         if self.new_element:
             header = ET.SubElement(element, "header")
             for item in self.object_list:
@@ -286,7 +299,7 @@ class TimeSeries:
         for event in self.events:
             event.save_event(element)
 
-    def get_time_step(self):
+    def get_time_step(self) -> float:
         time1 = datetime.datetime.strptime(
             self.events[0].date + " " + self.events[0].time, "%Y-%m-%d %H:%M:%S"
         )
@@ -298,20 +311,22 @@ class TimeSeries:
             return 3600 * 24 * 7  # assume for now 1 week time step, which is the default in CF
         return (time2 - time1).total_seconds()
 
-    def get_series_as_list(self):
+    def get_series_as_list(self) -> List[float]:
         return [event.value for event in self.events]
 
 
 # class for PiXmlevent, which is in the Timerseries
 class PiXmlEvent:
-    def __init__(self, date, time, value, flag, new_event=False):
+    def __init__(
+        self, date: str, time: str, value: float, flag: int, new_event: bool = False
+    ) -> None:
         self.date = date
         self.time = time
         self.value = value
         self.flag = flag
         self.new_event = new_event
 
-    def save_event(self, element):
+    def save_event(self, element: ET.Element) -> None:
         if self.new_event:
             event_element = ET.SubElement(element, "event")
             event_element.attrib = {
@@ -322,7 +337,7 @@ class PiXmlEvent:
             }
 
 
-def main():
+def main() -> None:
     pixml = (
         r"d:\repos\warmingUp\KPI_calculator\kpi-calculator\KPI_calculator_server"
         r"\swagger_server\test\test_case\alpha1\to_kpicalculator\power_timeseries2.xml"
