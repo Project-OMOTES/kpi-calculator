@@ -20,7 +20,13 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
-dependencies = ["coloredlogs~=15.0.1"]
+dependencies = [
+    "coloredlogs~=15.0.1",
+    "numpy==1.24.3",  # Specify compatible NumPy version first
+    "pandas==1.5.3",
+    "pyesdl==25.5.1",
+    "xmltodict==0.14.2",
+]
 
 [project.optional-dependencies]
 dev = [
