@@ -13,7 +13,7 @@ A Python package for calculating Key Performance Indicators (KPIs) for heat netw
 ### Currently Implemented
 - [x] Calculate cost-related KPIs (CAPEX, OPEX, NPV, LCOE)
 - [x] Calculate energy-related KPIs (consumption, demand, production, efficiency)
-- [x] Calculate emission-related KPIs (total emissions, emissions per MWh)
+- [x] Calculate emission-related KPIs (total emissions, emissions per MWh thermal)
 - [x] Support for ESDL files with XML time series data
 - [x] Modular architecture with adapters, calculators, and manager components
 - [x] Full type annotations and comprehensive test coverage
@@ -42,6 +42,7 @@ pip install kpi-calculator
 
 ```python
 from kpicalculator import KpiManager
+from kpicalculator.kpi_manager import KpiResults
 
 # Create KPI manager
 kpi_manager = KpiManager("path/to/unit_conversion.csv")
@@ -54,12 +55,13 @@ kpi_manager.load_from_esdl(
     "path/to/assets_costs.csv"
 )
 
-# Calculate KPIs
-results = kpi_manager.calculate_all_kpis(system_lifetime=30)
+# Calculate KPIs with typed results
+results: KpiResults = kpi_manager.calculate_all_kpis(system_lifetime=30)
 
-# Access results
+# Access results with type safety
 print(f"Total CAPEX: {results['costs']['capex']['All']} EUR")
 print(f"Total emissions: {results['emissions']['total']} tons CO2")
+print(f"Heat production: {results['energy']['production']} MWh thermal")
 ```
 
 ## Current Limitations
@@ -78,6 +80,15 @@ print(f"Total emissions: {results['emissions']['total']} tons CO2")
 - coloredlogs (logging)
 
 ## Development
+
+### Project Documentation Index
+
+- [REQUIREMENTS.md](doc/project/REQUIREMENTS.md) - Business requirements and specifications
+- [DESIGN.md](doc/project/DESIGN.md) - Technical architecture and design decisions  
+- [ROADMAP.md](doc/project/ROADMAP.md) - Development priorities and timeline
+- [CLAUDE.md](doc/project/CLAUDE.md) - Development guidance and workflow
+- [PR_SUMMARY.md](doc/project/IMPLEMENTATION_SUMMARY.md) - Current implementation status
+- [ARCHITECTURAL_TODO.md](doc/project/ARCHITECTURAL_TODO.md) - Technical debt and improvements
 
 ### Running Tests
 ```bash
