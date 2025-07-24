@@ -87,7 +87,7 @@ print(f"Heat production: {results['energy']['production']} MWh thermal")
 - [DESIGN.md](doc/project/DESIGN.md) - Technical architecture and design decisions  
 - [ROADMAP.md](doc/project/ROADMAP.md) - Development priorities and timeline
 - [CLAUDE.md](doc/project/CLAUDE.md) - Development guidance and workflow
-- [PR_SUMMARY.md](doc/project/IMPLEMENTATION_SUMMARY.md) - Current implementation status
+- [IMPLEMENTATION_SUMMARY.md](doc/project/IMPLEMENTATION_SUMMARY.md) - Current implementation status
 - [ARCHITECTURAL_TODO.md](doc/project/ARCHITECTURAL_TODO.md) - Technical debt and improvements
 
 ### Running Tests
