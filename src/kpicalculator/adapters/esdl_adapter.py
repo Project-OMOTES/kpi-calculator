@@ -1,52 +1,111 @@
 # src/kpicalculator/adapters/esdl_adapter.py
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from esdl import esdl  # type: ignore[import-untyped]
 from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped]
 
 import pandas as pd  # type: ignore[import-untyped]
 
+from .base_adapter import BaseAdapter, ValidationResult, MesidoResultsProtocol, SimulatorResultsProtocol
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries
+from .database_time_series_loader import DatabaseTimeSeriesLoader
+from ..security.credential_manager import CredentialManager
 from .xml_time_series_adapter import PiXmlTimeSeries
 
 
-class EsdlAdapter:
-    """Adapter for loading energy system data from ESDL files."""
+class EsdlAdapter(BaseAdapter):
+    """Adapter for loading energy system data from ESDL files with database support.
+    
+    Supports both XML time series files (for testing) and InfluxDB profiles 
+    (for production) following the MESIDO pattern.
+    """
 
-    def __init__(self, unit_conversion: Dict[str, float]):
+    def __init__(self, unit_conversions: Optional[Dict[str, float]] = None,
+                 credential_manager: Optional[CredentialManager] = None):
         """Initialize the ESDL adapter.
 
         Args:
-            unit_conversion: Dictionary with unit conversion factors
+            unit_conversions: Dictionary with unit conversion factors
+            credential_manager: Optional secure credential manager for database access
         """
-        self.unit_conversion = unit_conversion
+        super().__init__(unit_conversions)
+        self.database_loader = DatabaseTimeSeriesLoader(credential_manager)
+        self.logger = logging.getLogger(__name__)
 
-    def load(
-        self, esdl_file: str, time_series_file: str, pipes_cost_file: str, assets_cost_file: str
-    ) -> EnergySystem:
+    def load_data(self, 
+                  source: Union[str, Path, MesidoResultsProtocol, SimulatorResultsProtocol], 
+                  time_series_file: Optional[str] = None,
+                  pipes_cost_file: Optional[str] = None,
+                  assets_cost_file: Optional[str] = None,
+                  use_database_profiles: bool = True,
+                  validation_mode: bool = False) -> EnergySystem:
         """Load energy system data from ESDL file.
-
+        
         Args:
-            esdl_file: Path to ESDL file
-            time_series_file: Path to time series file
-            pipes_cost_file: Path to pipes cost CSV file
-            assets_cost_file: Path to assets cost CSV file
-
+            source: ESDL file path (only str/Path supported by this adapter)
+            time_series_file: Optional XML time series file path (testing only)
+            pipes_cost_file: Optional pipes cost CSV file path
+            assets_cost_file: Optional assets cost CSV file path
+            use_database_profiles: Whether to load InfluxDB profiles
+            validation_mode: Whether to validate existing KPIs
+                
         Returns:
             EnergySystem object
+            
+        Raises:
+            TypeError: If source is not a file path (MESIDO/Simulator not supported)
         """
+        # ESDL adapter only supports file paths
+        if not isinstance(source, (str, Path)):
+            raise TypeError(f"ESDL adapter only supports file paths, got {type(source)}")
+        
+        esdl_file = str(source)
+        # Validate inputs
+        validation_result = self.validate_source(esdl_file)
+        if not validation_result.is_valid:
+            raise ValueError(f"Invalid ESDL file: {validation_result.errors}")
+
         # Load ESDL file
         esh = EnergySystemHandler()
         es = esh.load_file(esdl_file)
+        
+        # Load time series data
+        time_series_dict = {}
+        
+        # Priority 1: Load InfluxDB profiles from ESDL (production)
+        if use_database_profiles:
+            try:
+                db_time_series, db_validation = self.database_loader.load_time_series_from_esdl(es)
+                time_series_dict.update(db_time_series)
+                
+                if not db_validation.is_valid:
+                    self.logger.warning(f"Database profile issues: {db_validation.errors}")
+                    
+                if db_validation.warnings:
+                    for warning in db_validation.warnings:
+                        self.logger.warning(warning)
+                        
+            except Exception as e:
+                self.logger.warning(f"Failed to load database profiles: {e}")
+        
+        # Priority 2: Load XML time series (testing/fallback)
+        xml_time_series = None
+        if time_series_file:
+            try:
+                xml_time_series = PiXmlTimeSeries(time_series_file, "locationId", "parameterId")
+                self.logger.info("Loaded XML time series for testing")
+            except Exception as e:
+                self.logger.warning(f"Failed to load XML time series: {e}")
 
-        # Load time series
-        time_series_dict = PiXmlTimeSeries(time_series_file, "locationId", "parameterId")
-
-        # Load cost data
-        pipe_costs = pd.read_csv(pipes_cost_file)
-        asset_costs = pd.read_csv(assets_cost_file)
+        # Load cost data if provided
+        pipe_costs = None
+        asset_costs = None
+        if pipes_cost_file:
+            pipe_costs = pd.read_csv(pipes_cost_file)
+        if assets_cost_file:
+            asset_costs = pd.read_csv(assets_cost_file)
 
         # Create energy system
         model_name = Path(esdl_file).stem
@@ -56,7 +115,7 @@ class EsdlAdapter:
             model_name = model_name[:-4]
 
         energy_system = EnergySystem(
-            name=model_name, assets=[], unit_conversion=self.unit_conversion
+            name=model_name, assets=[], unit_conversion=self.unit_conversions or {}
         )
 
         # Process assets
@@ -65,11 +124,11 @@ class EsdlAdapter:
                 if isinstance(esdl_element, esdl.Joint):
                     continue
                 # Check if the asset is enabled
-                if esdl_element.state.value != 0:
+                if hasattr(esdl_element, 'state') and esdl_element.state and esdl_element.state.value != 0:
                     continue
 
                 asset = self._create_asset_from_esdl(
-                    esdl_element, time_series_dict, pipe_costs, asset_costs, model_name
+                    esdl_element, time_series_dict, xml_time_series, pipe_costs, asset_costs, model_name
                 )
 
                 if asset:
@@ -77,12 +136,54 @@ class EsdlAdapter:
 
         return energy_system
 
+    def validate_source(self, source: Union[str, Path, MesidoResultsProtocol, SimulatorResultsProtocol]) -> ValidationResult:
+        """Validate ESDL file path and basic structure.
+        
+        Args:
+            source: Path to ESDL file
+            
+        Returns:
+            ValidationResult indicating if source is valid
+        """
+        errors: List[str] = []
+        warnings: List[str] = []
+        
+        if not isinstance(source, str):
+            errors.append("ESDL source must be a file path string")
+            return ValidationResult(False, errors, warnings)
+        
+        file_path = Path(source)
+        
+        if not file_path.exists():
+            errors.append(f"ESDL file does not exist: {source}")
+        elif not file_path.is_file():
+            errors.append(f"ESDL path is not a file: {source}")
+        elif not file_path.suffix.lower() == '.esdl':
+            warnings.append(f"File does not have .esdl extension: {source}")
+        
+        return ValidationResult(len(errors) == 0, errors, warnings)
+    
+    def get_supported_source_type(self) -> str:
+        """Return identifier for ESDL adapter."""
+        return "esdl"
+    
+    def get_supported_parameters(self) -> List[str]:
+        """Return list of supported optional parameters."""
+        return [
+            "time_series_file",
+            "pipes_cost_file", 
+            "assets_cost_file",
+            "use_database_profiles",
+            "validation_mode"
+        ]
+
     def _create_asset_from_esdl(
         self,
         esdl_element: esdl.Asset,
-        time_series_dict: PiXmlTimeSeries,
-        pipe_costs: pd.DataFrame,
-        asset_costs: pd.DataFrame,
+        db_time_series_dict: Dict[str, TimeSeries],
+        xml_time_series_dict: Optional[PiXmlTimeSeries],
+        pipe_costs: Optional[pd.DataFrame],
+        asset_costs: Optional[pd.DataFrame],
         model_name: str,
     ) -> Optional[Asset]:
         """Create an Asset object from an ESDL element.
@@ -116,63 +217,75 @@ class EsdlAdapter:
             "emission_factor": self._get_emission_factor(esdl_element),
         }
 
-        # Get cost properties
-        if isinstance(esdl_element, esdl.Pipe):
-            cost_df = pipe_costs
-        else:
-            cost_df = asset_costs
+        # Get cost properties from CSV files if provided
+        if pipe_costs is not None or asset_costs is not None:
+            if isinstance(esdl_element, esdl.Pipe):
+                cost_df = pipe_costs
+            else:
+                cost_df = asset_costs
 
-        try:
-            cost_row = cost_df[cost_df["esdlId"] == esdl_element.id].iloc[0]
+            if cost_df is not None:
+                try:
+                    cost_row = cost_df[cost_df["esdlId"] == esdl_element.id].iloc[0]
 
-            asset_dict.update(
-                {
-                    "investment_cost": float(cost_row["investmentCosts"]),
-                    "investment_cost_unit": cost_row["investmentCostsUnit"],
-                    "installation_cost": float(cost_row["installationCosts"]),
-                    "installation_cost_unit": cost_row["installationCostsUnit"],
-                    "fixed_operational_cost": float(cost_row["fixedOperationalCosts"]),
-                    "fixed_operational_cost_unit": cost_row["fixedOperationalCostsUnit"],
-                    "variable_operational_cost": float(cost_row["variableOperationalCosts"]),
-                    "variable_operational_cost_unit": cost_row["variableOperationalCostsUnit"],
-                    "fixed_maintenance_cost": float(cost_row["fixedMaintenanceCosts"]),
-                    "fixed_maintenance_cost_unit": cost_row["fixedMaintenanceCostsUnit"],
-                    "variable_maintenance_cost": float(cost_row["variableMaintenanceCosts"]),
-                    "variable_maintenance_cost_unit": cost_row["variableMaintenanceCostsUnit"],
-                    "discount_rate": (
-                        float(cost_row["discountRate"]) if "discountRate" in cost_row else 5.0
-                    ),
-                }
-            )
-        except (IndexError, KeyError) as e:
-            logging.warning(f"Could not find cost data for asset {esdl_element.name}: {e}")
-            return None
-
-        # Get time series
-        name = f"{model_name}_{esdl_element.id}"
-        if name in time_series_dict.time_series:
-            ts_data = time_series_dict.time_series[name]
-
-            # Determine which time series to use based on asset type
-            ts_mapping = {
-                AssetType.PRODUCER: ["ThermalProduction"],
-                AssetType.CONSUMER: ["ThermalConsumption"],
-                AssetType.PUMP: ["ElectricalConsumption"],
-                AssetType.PIPE: ["Speed"],
-                AssetType.CONVERSION: ["ElectricalConsumption", "ThermalProduction"],
-                AssetType.STORAGE: ["ElectricalConsumption"],
-            }
-
-            if asset_type in ts_mapping:
-                for ts_name in ts_mapping[asset_type]:
-                    if ts_name in ts_data:
-                        values = [event.value for event in ts_data[ts_name].events]
-                        time_step = ts_data[ts_name].get_time_step()
-
-                        asset_dict["time_series"] = {
-                            ts_name: TimeSeries(time_step=time_step, values=values)
+                    asset_dict.update(
+                        {
+                            "investment_cost": float(cost_row["investmentCosts"]),
+                            "investment_cost_unit": cost_row["investmentCostsUnit"],
+                            "installation_cost": float(cost_row["installationCosts"]),
+                            "installation_cost_unit": cost_row["installationCostsUnit"],
+                            "fixed_operational_cost": float(cost_row["fixedOperationalCosts"]),
+                            "fixed_operational_cost_unit": cost_row["fixedOperationalCostsUnit"],
+                            "variable_operational_cost": float(cost_row["variableOperationalCosts"]),
+                            "variable_operational_cost_unit": cost_row["variableOperationalCostsUnit"],
+                            "fixed_maintenance_cost": float(cost_row["fixedMaintenanceCosts"]),
+                            "fixed_maintenance_cost_unit": cost_row["fixedMaintenanceCostsUnit"],
+                            "variable_maintenance_cost": float(cost_row["variableMaintenanceCosts"]),
+                            "variable_maintenance_cost_unit": cost_row["variableMaintenanceCostsUnit"],
+                            "discount_rate": (
+                                float(cost_row["discountRate"]) if "discountRate" in cost_row else 5.0
+                            ),
                         }
-                        break
+                    )
+                except (IndexError, KeyError) as e:
+                    self.logger.warning(f"Could not find cost data for asset {esdl_element.name}: {e}")
+                    # Don't return None - continue without cost data
+
+        # Get time series data - priority to database profiles
+        time_series_data = {}
+        
+        # Priority 1: Database time series (production)
+        if esdl_element.id in db_time_series_dict:
+            time_series_data["DatabaseProfile"] = db_time_series_dict[esdl_element.id]
+            self.logger.debug(f"Using database profile for asset {esdl_element.id}")
+        
+        # Priority 2: XML time series (testing/fallback)
+        elif xml_time_series_dict is not None:
+            name = f"{model_name}_{esdl_element.id}"
+            if name in xml_time_series_dict.time_series:
+                ts_data = xml_time_series_dict.time_series[name]
+
+                # Determine which time series to use based on asset type
+                ts_mapping = {
+                    AssetType.PRODUCER: ["ThermalProduction"],
+                    AssetType.CONSUMER: ["ThermalConsumption"],
+                    AssetType.PUMP: ["ElectricalConsumption"],
+                    AssetType.PIPE: ["Speed"],
+                    AssetType.CONVERSION: ["ElectricalConsumption", "ThermalProduction"],
+                    AssetType.STORAGE: ["ElectricalConsumption"],
+                }
+
+                if asset_type in ts_mapping:
+                    for ts_name in ts_mapping[asset_type]:
+                        if ts_name in ts_data:
+                            values = [event.value for event in ts_data[ts_name].events]
+                            time_step = ts_data[ts_name].get_time_step()
+
+                            time_series_data[ts_name] = TimeSeries(time_step=time_step, values=values)
+                            break
+        
+        if time_series_data:
+            asset_dict["time_series"] = time_series_data
 
         return Asset(**asset_dict)
 

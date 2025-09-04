@@ -17,8 +17,18 @@
 
 from .adapters.common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .kpi_manager import KpiManager
+from .exceptions import (
+    KpiCalculatorError, ValidationError, SecurityError, DataSourceError, 
+    CalculationError, DatabaseError, CredentialError
+)
+from .security import SecureCredentialManager, ConfigFileCredentialManager
 
-__all__ = ["Asset", "AssetType", "EnergySystem", "TimeSeries", "KpiManager"]
+__all__ = [
+    "Asset", "AssetType", "EnergySystem", "TimeSeries", "KpiManager",
+    "KpiCalculatorError", "ValidationError", "SecurityError", "DataSourceError", 
+    "CalculationError", "DatabaseError", "CredentialError",
+    "SecureCredentialManager", "ConfigFileCredentialManager"
+]
 
 # Version information
 __version__ = "0.1.0"
