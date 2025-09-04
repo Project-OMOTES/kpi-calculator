@@ -6,9 +6,11 @@ from .credential_manager import (
     SecureCredentialManager, 
     ConfigFileCredentialManager
 )
+from .input_validator import InputValidator
 
 __all__ = [
     "CredentialManager",
     "SecureCredentialManager",
     "ConfigFileCredentialManager",
+    "InputValidator",
 ]

@@ -9,9 +9,11 @@ from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped
 import pandas as pd  # type: ignore[import-untyped]
 
 from .base_adapter import BaseAdapter, ValidationResult, MesidoResultsProtocol, SimulatorResultsProtocol
+from ..exceptions import ValidationError, SecurityError
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .database_time_series_loader import DatabaseTimeSeriesLoader
 from ..security.credential_manager import CredentialManager
+from ..security.input_validator import InputValidator
 from .xml_time_series_adapter import PiXmlTimeSeries
 
 
@@ -62,10 +64,21 @@ class EsdlAdapter(BaseAdapter):
             raise TypeError(f"ESDL adapter only supports file paths, got {type(source)}")
         
         esdl_file = str(source)
-        # Validate inputs
+        # Validate inputs with security checks
         validation_result = self.validate_source(esdl_file)
         if not validation_result.is_valid:
             raise ValueError(f"Invalid ESDL file: {validation_result.errors}")
+        
+        # Secure file path validation
+        try:
+            secure_esdl_path = InputValidator.validate_file_path(
+                esdl_file, 
+                allowed_extensions=['.esdl'], 
+                must_exist=True
+            )
+            esdl_file = str(secure_esdl_path)
+        except (ValidationError, SecurityError) as e:
+            raise ValidationError(f"ESDL file security validation failed: {e}") from e
 
         # Load ESDL file
         esh = EnergySystemHandler()
@@ -287,7 +300,14 @@ class EsdlAdapter(BaseAdapter):
         if time_series_data:
             asset_dict["time_series"] = time_series_data
 
-        return Asset(**asset_dict)
+        # Validate asset properties for security and data integrity
+        try:
+            validated_asset_dict = InputValidator.validate_asset_properties(asset_dict)
+            return Asset(**validated_asset_dict)
+        except (ValidationError, SecurityError) as e:
+            self.logger.warning(f"Asset validation failed for {esdl_element.id}: {e}")
+            # Return None to skip invalid assets rather than failing completely
+            return None
 
     def _get_asset_type(self, esdl_element: esdl.Asset) -> Optional[AssetType]:
         """Get the asset type from an ESDL element.

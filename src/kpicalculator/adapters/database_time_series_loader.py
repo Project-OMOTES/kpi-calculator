@@ -13,8 +13,9 @@ from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 from .common_model import TimeSeries
 from .base_adapter import ValidationResult
 from ..common.types import DatabaseCredentials
-from ..exceptions import SecurityError, DatabaseError, CredentialError
+from ..exceptions import SecurityError, DatabaseError, CredentialError, ValidationError
 from ..security.credential_manager import CredentialManager, create_default_credential_manager
+from ..security.input_validator import InputValidator
 
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,9 @@ class DatabaseTimeSeriesLoader:
         try:
             credentials = self._get_secure_credentials(profile_host, profile.port)
             
+            # Validate credentials for security
+            InputValidator.validate_database_credentials(credentials)
+            
             # Override SSL setting from profile if needed
             if ssl_setting and not credentials.ssl:
                 # Create new credentials with corrected SSL setting
@@ -222,6 +226,9 @@ class DatabaseTimeSeriesLoader:
                     ssl=ssl_setting,
                     verify_ssl=credentials.verify_ssl
                 )
+                
+                # Re-validate modified credentials
+                InputValidator.validate_database_credentials(credentials)
             
             return credentials
             
