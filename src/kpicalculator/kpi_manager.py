@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, TypedDict
 import pandas as pd  # type: ignore[import-untyped]
 
 from .adapters.common_model import EnergySystem
+from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
 
 
 class CostResults(TypedDict):
@@ -78,8 +79,12 @@ class KpiManager:
         from .adapters.esdl_adapter import EsdlAdapter
 
         adapter = EsdlAdapter(self.unit_conversion)
-        self.energy_system = adapter.load(
-            esdl_file, time_series_file, pipes_cost_file, assets_cost_file
+        self.energy_system = adapter.load_data(
+            esdl_file, 
+            time_series_file=time_series_file, 
+            pipes_cost_file=pipes_cost_file, 
+            assets_cost_file=assets_cost_file,
+            use_database_profiles=False  # Disable database profiles for testing
         )
 
     def load_from_simulator(self, simulator_data: Any) -> None:
@@ -100,7 +105,7 @@ class KpiManager:
         # TODO: Implement mesido adapter
         raise NotImplementedError("Mesido adapter not implemented yet")
 
-    def calculate_all_kpis(self, system_lifetime: int = 30) -> KpiResults:
+    def calculate_all_kpis(self, system_lifetime: int = DEFAULT_SYSTEM_LIFETIME_YEARS) -> KpiResults:
         """Calculate all KPIs for the energy system.
 
         Args:

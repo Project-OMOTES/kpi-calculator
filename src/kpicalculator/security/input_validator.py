@@ -10,33 +10,22 @@ from urllib.parse import urlparse
 
 from ..exceptions import ValidationError, SecurityError
 from ..common.types import DatabaseCredentials
+from ..common.constants import (
+    MAX_PATH_LENGTH, MAX_FILENAME_LENGTH, RFC_1035_HOSTNAME_LIMIT,
+    MIN_PORT_NUMBER, MAX_PORT_NUMBER, DANGEROUS_PORTS, MAX_USERNAME_LENGTH,
+    MINIMUM_PASSWORD_LENGTH, MAX_DATABASE_NAME_LENGTH, ASSET_VALIDATION_RANGES,
+    MAX_STRING_FIELD_LENGTH, MAX_XML_SIZE_BYTES, MAX_TIME_SERIES_LENGTH,
+    TIME_SERIES_VALUE_RANGE, LOCALHOST_ADDRESSES, SUSPICIOUS_USERNAMES,
+    WINDOWS_RESERVED_NAMES, ALLOWED_FILE_EXTENSIONS, PATH_TRAVERSAL_PATTERNS,
+    XXE_ATTACK_PATTERNS, HOSTNAME_REGEX_PATTERN
+)
 
 
 class InputValidator:
     """Comprehensive input validation for security and data integrity."""
     
-    # Security patterns
-    PATH_TRAVERSAL_PATTERNS = [
-        r'\.\.[\\/]',  # ../ or ..\
-        r'[\\/]\.\.[\\/]',  # /../ or \..\
-        r'[\\/]\.\.$',  # /.. or \.. at end
-        r'^\.\.[\\/]',  # ../ or ..\ at start
-    ]
-    
-    SUSPICIOUS_FILENAMES = [
-        'con', 'prn', 'aux', 'nul',  # Windows reserved names
-        'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-        'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
-    ]
-    
-    ALLOWED_FILE_EXTENSIONS = {'.esdl', '.xml', '.csv', '.json', '.txt'}
-    MAX_PATH_LENGTH = 4096  # Reasonable maximum path length
-    MAX_FILENAME_LENGTH = 255  # Maximum filename length
-    
     # Database validation patterns
-    HOSTNAME_PATTERN = re.compile(
-        r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
-    )
+    HOSTNAME_PATTERN = re.compile(HOSTNAME_REGEX_PATTERN)
     
     @staticmethod
     def validate_file_path(file_path: Union[str, Path], 
@@ -69,21 +58,21 @@ class InputValidator:
         path_str = str(path_obj)
         
         # Check path length
-        if len(path_str) > InputValidator.MAX_PATH_LENGTH:
+        if len(path_str) > MAX_PATH_LENGTH:
             raise ValidationError(
-                f"File path too long: {len(path_str)} > {InputValidator.MAX_PATH_LENGTH} characters",
+                f"File path too long: {len(path_str)} > {MAX_PATH_LENGTH} characters",
                 context={'path_length': len(path_str)}
             )
         
         # Check filename length
-        if len(path_obj.name) > InputValidator.MAX_FILENAME_LENGTH:
+        if len(path_obj.name) > MAX_FILENAME_LENGTH:
             raise ValidationError(
-                f"Filename too long: {len(path_obj.name)} > {InputValidator.MAX_FILENAME_LENGTH} characters",
+                f"Filename too long: {len(path_obj.name)} > {MAX_FILENAME_LENGTH} characters",
                 context={'filename': path_obj.name, 'length': len(path_obj.name)}
             )
         
         # Check for path traversal attacks
-        for pattern in InputValidator.PATH_TRAVERSAL_PATTERNS:
+        for pattern in PATH_TRAVERSAL_PATTERNS:
             if re.search(pattern, path_str, re.IGNORECASE):
                 raise SecurityError(
                     f"Path traversal attempt detected in: {file_path}",
@@ -92,7 +81,7 @@ class InputValidator:
         
         # Check for suspicious filenames (Windows reserved names)
         filename_base = path_obj.stem.lower()
-        if filename_base in InputValidator.SUSPICIOUS_FILENAMES:
+        if filename_base in WINDOWS_RESERVED_NAMES:
             raise SecurityError(
                 f"Suspicious filename detected: {path_obj.name}",
                 context={'filename': path_obj.name}
@@ -153,15 +142,15 @@ class InputValidator:
         if not credentials.host:
             raise ValidationError("Database host cannot be empty")
         
-        if len(credentials.host) > 253:  # RFC 1035 limit
+        if len(credentials.host) > RFC_1035_HOSTNAME_LIMIT:
             raise ValidationError(
-                f"Database hostname too long: {len(credentials.host)} > 253 characters"
+                f"Database hostname too long: {len(credentials.host)} > {RFC_1035_HOSTNAME_LIMIT} characters"
             )
         
         # Check for suspicious characters in hostname
         if not InputValidator.HOSTNAME_PATTERN.match(credentials.host):
             # Allow localhost and IP addresses as special cases
-            if credentials.host not in ['localhost', '127.0.0.1', '::1']:
+            if credentials.host not in LOCALHOST_ADDRESSES:
                 # Check if it's a valid IP address
                 try:
                     socket.inet_aton(credentials.host)  # IPv4
@@ -175,15 +164,14 @@ class InputValidator:
                         )
         
         # Validate port
-        if not (1 <= credentials.port <= 65535):
+        if not (MIN_PORT_NUMBER <= credentials.port <= MAX_PORT_NUMBER):
             raise ValidationError(
-                f"Invalid port number: {credentials.port}. Must be 1-65535",
+                f"Invalid port number: {credentials.port}. Must be {MIN_PORT_NUMBER}-{MAX_PORT_NUMBER}",
                 context={'port': credentials.port}
             )
         
         # Check for common non-database ports that might indicate misconfiguration
-        dangerous_ports = {22, 23, 80, 443, 3389, 5985, 5986}  # SSH, Telnet, HTTP, HTTPS, RDP, WinRM
-        if credentials.port in dangerous_ports:
+        if credentials.port in DANGEROUS_PORTS:
             raise ValidationError(
                 f"Port {credentials.port} is typically not used for databases. "
                 "Please verify this is correct.",
@@ -194,14 +182,13 @@ class InputValidator:
         if not credentials.username:
             raise ValidationError("Database username cannot be empty")
         
-        if len(credentials.username) > 64:  # Common database username limit
+        if len(credentials.username) > MAX_USERNAME_LENGTH:
             raise ValidationError(
-                f"Username too long: {len(credentials.username)} > 64 characters"
+                f"Username too long: {len(credentials.username)} > {MAX_USERNAME_LENGTH} characters"
             )
         
         # Check for suspicious username patterns
-        suspicious_usernames = {'admin', 'root', 'administrator', 'sa', 'test', 'guest'}
-        if credentials.username.lower() in suspicious_usernames:
+        if credentials.username.lower() in SUSPICIOUS_USERNAMES:
             # Warning, not error - these might be legitimate in development
             pass  # Could log a warning here
         
@@ -209,16 +196,16 @@ class InputValidator:
         if not credentials.password:
             raise ValidationError("Database password cannot be empty")
         
-        if len(credentials.password) < 8:
+        if len(credentials.password) < MINIMUM_PASSWORD_LENGTH:
             raise ValidationError(
-                "Database password too short. Minimum 8 characters required.",
+                f"Database password too short. Minimum {MINIMUM_PASSWORD_LENGTH} characters required.",
                 context={'length': len(credentials.password)}
             )
         
         # Validate database name
-        if credentials.database and len(credentials.database) > 64:
+        if credentials.database and len(credentials.database) > MAX_DATABASE_NAME_LENGTH:
             raise ValidationError(
-                f"Database name too long: {len(credentials.database)} > 64 characters"
+                f"Database name too long: {len(credentials.database)} > {MAX_DATABASE_NAME_LENGTH} characters"
             )
         
         # Validate database name characters
@@ -359,14 +346,7 @@ class InputValidator:
             raise ValidationError("XML input must be non-empty string")
         
         # Check for XML External Entity (XXE) attack patterns
-        xxe_patterns = [
-            r'<!ENTITY',  # Entity declarations
-            r'<!ELEMENT',  # Element declarations
-            r'<!DOCTYPE.*\[',  # DOCTYPE with internal subset
-            r'&\w+;',  # Entity references
-            r'SYSTEM\s+["\']',  # System entity references
-            r'PUBLIC\s+["\']',  # Public entity references
-        ]
+        xxe_patterns = XXE_ATTACK_PATTERNS
         
         xml_upper = xml_string.upper()
         for pattern in xxe_patterns:
@@ -377,9 +357,9 @@ class InputValidator:
                 )
         
         # Check for excessively large XML
-        if len(xml_string) > 50 * 1024 * 1024:  # 50MB limit
+        if len(xml_string) > MAX_XML_SIZE_BYTES:
             raise ValidationError(
-                f"XML input too large: {len(xml_string)} bytes > 50MB",
+                f"XML input too large: {len(xml_string)} bytes > {MAX_XML_SIZE_BYTES // (1024*1024)}MB",
                 context={'size_bytes': len(xml_string)}
             )
         
@@ -408,9 +388,9 @@ class InputValidator:
         if len(time_series_data) == 0:
             raise ValidationError(f"{field_name} cannot be empty")
         
-        if len(time_series_data) > 8760 * 10:  # 10 years of hourly data
+        if len(time_series_data) > MAX_TIME_SERIES_LENGTH:
             raise ValidationError(
-                f"{field_name} too long: {len(time_series_data)} > {8760 * 10} values",
+                f"{field_name} too long: {len(time_series_data)} > {MAX_TIME_SERIES_LENGTH} values",
                 context={'length': len(time_series_data)}
             )
         
@@ -423,7 +403,7 @@ class InputValidator:
                 )
             
             # Check for reasonable energy/power values (avoid negative or extreme values)
-            if value < -1e12 or value > 1e12:  # ±1 TW
+            if value < TIME_SERIES_VALUE_RANGE[0] or value > TIME_SERIES_VALUE_RANGE[1]:
                 raise ValidationError(
                     f"{field_name}[{i}] value out of reasonable range: {value}",
                     context={'index': i, 'value': value}

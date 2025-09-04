@@ -2,6 +2,7 @@
 # No typing imports needed currently
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
+from ..common.constants import SECONDS_PER_YEAR
 
 
 class EnergyCalculator:
@@ -98,7 +99,7 @@ class EnergyCalculator:
 
         # Calculate annual energy
         duration = ts.time_step * len(ts.values)
-        time_factor = 3600 * 24 * 365 / duration
+        time_factor = SECONDS_PER_YEAR / duration
         energy_sum = sum(ts.values) * ts.time_step
 
         return energy_sum * time_factor
@@ -130,7 +131,7 @@ class EnergyCalculator:
 
         # Calculate annual energy
         duration = ts.time_step * len(ts.values)
-        time_factor = 3600 * 24 * 365 / duration
+        time_factor = SECONDS_PER_YEAR / duration
         energy_sum = sum(ts.values) * ts.time_step
 
         return energy_sum * time_factor
@@ -162,7 +163,7 @@ class EnergyCalculator:
 
         # Calculate annual energy
         duration = ts.time_step * len(ts.values)
-        time_factor = 3600 * 24 * 365 / duration
+        time_factor = SECONDS_PER_YEAR / duration
         energy_sum = sum(ts.values) * ts.time_step
 
         return energy_sum * time_factor

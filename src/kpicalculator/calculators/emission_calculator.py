@@ -2,6 +2,7 @@
 # No typing imports needed currently
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
+from ..common.constants import TONS_TO_KG, KG_TO_TONS, SECONDS_PER_YEAR
 
 
 class EmissionCalculator:
@@ -58,8 +59,8 @@ class EmissionCalculator:
         # Convert energy from J to MWh (1 MWh = 3.6e9 J)
         energy_consumption_mwh = energy_consumption / 3.6e9
 
-        # Convert emissions from tons to kg (1 ton = 1000 kg)
-        emissions_kg = self.get_total_emissions() * 1000
+        # Convert emissions from tons to kg
+        emissions_kg = self.get_total_emissions() * TONS_TO_KG
 
         return emissions_kg / energy_consumption_mwh
 
@@ -80,8 +81,8 @@ class EmissionCalculator:
         # Convert energy from J to GJ (1 GJ = 1e9 J)
         energy_consumption_gj = energy_consumption / 1e9
 
-        # Convert emissions from tons to kg (1 ton = 1000 kg)
-        emissions_kg = self.get_total_emissions() * 1000
+        # Convert emissions from tons to kg
+        emissions_kg = self.get_total_emissions() * TONS_TO_KG
 
         return emissions_kg / energy_consumption_gj
 
@@ -121,7 +122,7 @@ class EmissionCalculator:
 
         # Calculate time factor for annualization
         if annualize:
-            time_factor = 3600 * 24 * 365 / duration
+            time_factor = SECONDS_PER_YEAR / duration
         else:
             time_factor = 1
 
@@ -131,8 +132,8 @@ class EmissionCalculator:
         # Calculate emissions
         # The emission factor from adapter is in kg/J (already divided by 1e9)
         # We multiply directly by energy in Joules and time factor
-        # The result is in kg, so we need to convert to tons (1 ton = 1000 kg)
+        # The result is in kg, so we need to convert to tons
         emissions_kg = asset.emission_factor * energy_sum * time_factor  # kg
-        emissions_tons = emissions_kg / 1000.0  # Convert kg to tons
+        emissions_tons = emissions_kg * KG_TO_TONS
 
         return emissions_tons

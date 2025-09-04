@@ -3,6 +3,7 @@ import math
 from typing import Dict
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
+from ..common.constants import PERCENTAGE_TO_DECIMAL, SECONDS_PER_YEAR
 
 
 class CostCalculator:
@@ -61,7 +62,7 @@ class CostCalculator:
             capex_npv = asset.investment_cost + asset.installation_cost
             capex_npv *= sum(
                 [
-                    1.0 / math.pow(1.0 + discount_rate / 100.0, asset.technical_lifetime * n)
+                    1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, asset.technical_lifetime * n)
                     for n in range(math.ceil(system_lifetime / asset.technical_lifetime))
                 ]
             )
@@ -75,7 +76,7 @@ class CostCalculator:
             )
 
             opex_npv = opex_annual * sum(
-                [1.0 / math.pow(1.0 + discount_rate / 100.0, n) for n in range(system_lifetime)]
+                [1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, n) for n in range(system_lifetime)]
             )
 
             npv += capex_npv + opex_npv
@@ -107,7 +108,7 @@ class CostCalculator:
         # Calculate discounted energy production
         discounted_energy = 0.0
         for year in range(system_lifetime):
-            discounted_energy += annual_energy / math.pow(1.0 + discount_rate / 100.0, year)
+            discounted_energy += annual_energy / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, year)
 
         return npv / discounted_energy
 
@@ -300,7 +301,7 @@ class CostCalculator:
 
             # Calculate annual energy
             duration = ts.time_step * len(ts.values)
-            time_factor = 3600 * 24 * 365 / duration
+            time_factor = SECONDS_PER_YEAR / duration
             energy_sum = sum(ts.values) * ts.time_step
 
             # Apply unit conversion
@@ -376,7 +377,7 @@ class CostCalculator:
 
             # Calculate annual energy
             duration = ts.time_step * len(ts.values)
-            time_factor = 3600 * 24 * 365 / duration
+            time_factor = SECONDS_PER_YEAR / duration
             energy_sum = sum(ts.values) * ts.time_step
 
             # Apply unit conversion

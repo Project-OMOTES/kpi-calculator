@@ -2,6 +2,7 @@
 """Database time series loader following MESIDO InfluxDB pattern."""
 
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -13,12 +14,14 @@ from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 from .common_model import TimeSeries
 from .base_adapter import ValidationResult
 from ..common.types import DatabaseCredentials
+from ..common.constants import (
+    DEFAULT_TIME_STEP_SECONDS, DEFAULT_DATABASE_SSL_PORT,
+    HTTPS_PREFIX_LENGTH, HTTP_PREFIX_LENGTH, SECONDS_PER_HOUR
+)
+from ..common.logging_utils import get_database_logger
 from ..exceptions import SecurityError, DatabaseError, CredentialError, ValidationError
 from ..security.credential_manager import CredentialManager, create_default_credential_manager
 from ..security.input_validator import InputValidator
-
-
-logger = logging.getLogger(__name__)
 
 
 
@@ -37,6 +40,7 @@ class DatabaseTimeSeriesLoader:
             credential_manager: Secure credential manager. Uses default if None.
         """
         self.credential_manager = credential_manager or create_default_credential_manager()
+        self.db_logger = get_database_logger("time_series_loader")
         
     def _get_secure_credentials(self, host: str, port: int) -> DatabaseCredentials:
         """Get credentials securely with no hard-coded fallbacks.
@@ -51,20 +55,33 @@ class DatabaseTimeSeriesLoader:
         Raises:
             CredentialError: If no credentials found for the host:port combination
         """
-        credentials = self.credential_manager.get_database_credentials(host, port)
-        
-        if not credentials:
-            raise CredentialError(
-                f"No credentials found for {host}:{port}. "
-                f"Set environment variables or configure credentials file.",
-                context={
+        try:
+            self.db_logger.log_connection_attempt(host, port)
+            credentials = self.credential_manager.get_database_credentials(host, port)
+            
+            if not credentials:
+                error_context = {
                     "host": host,
                     "port": port,
                     "env_prefix": f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_{port}"
                 }
-            )
-        
-        return credentials
+                error = CredentialError(
+                    f"No credentials found for {host}:{port}. "
+                    f"Set environment variables or configure credentials file.",
+                    context=error_context
+                )
+                self.db_logger.log_credential_error(host, port, error)
+                raise error
+            
+            # Determine credential source for logging
+            source = "environment" if hasattr(self.credential_manager, '_get_env_credentials') else "config_file"
+            self.db_logger.log_credential_load(host, port, source)
+            return credentials
+            
+        except Exception as e:
+            if not isinstance(e, CredentialError):
+                self.db_logger.log_credential_error(host, port, e)
+            raise
     
     def load_time_series_from_esdl(self, energy_system: esdl.EnergySystem) -> Tuple[Dict[str, TimeSeries], ValidationResult]:
         """Load all InfluxDB time series profiles from ESDL energy system.
@@ -77,7 +94,9 @@ class DatabaseTimeSeriesLoader:
             - time_series_dict: Maps asset_id to TimeSeries objects
             - validation_result: Validation status and any warnings/errors
         """
-        logger.info("Loading time series from InfluxDB profiles...")
+        start_time = time.time()
+        self.db_logger.info("Starting InfluxDB profile loading from ESDL")
+        
         time_series_data = {}
         errors = []
         warnings = []
@@ -87,9 +106,15 @@ class DatabaseTimeSeriesLoader:
             influx_profiles = [x for x in energy_system.eAllContents() 
                              if isinstance(x, esdl.InfluxDBProfile)]
             
+            profile_count = len(influx_profiles)
+            self.db_logger.info("Found InfluxDB profiles in ESDL", {"profile_count": profile_count})
+            
             if not influx_profiles:
                 warnings.append("No InfluxDB profiles found in ESDL file")
                 return time_series_data, ValidationResult(True, [], warnings)
+            
+            successful_loads = 0
+            failed_loads = 0
             
             for profile in influx_profiles:
                 try:
@@ -97,20 +122,54 @@ class DatabaseTimeSeriesLoader:
                     asset_id = self._extract_asset_id(profile)
                     
                     # Load time series data
+                    profile_start = time.time()
                     time_series = self._load_profile_data(profile)
+                    profile_time = time.time() - profile_start
                     
                     if time_series:
                         time_series_data[asset_id] = time_series
-                        logger.info(f"Loaded time series for asset {asset_id}")
+                        successful_loads += 1
+                        
+                        self.db_logger.log_time_series_processing(
+                            asset_id, 
+                            len(time_series.values), 
+                            time_series.time_step,
+                            profile_time
+                        )
+                    else:
+                        failed_loads += 1
                     
                 except Exception as e:
+                    failed_loads += 1
                     error_msg = f"Failed to load profile for field {profile.field}: {str(e)}"
                     errors.append(error_msg)
-                    logger.error(error_msg)
+                    
+                    self.db_logger.error(
+                        "Profile loading failed",
+                        {
+                            "profile_field": profile.field,
+                            "profile_measurement": profile.measurement,
+                            "profile_host": profile.host,
+                            "profile_port": profile.port
+                        },
+                        e
+                    )
+            
+            # Log summary
+            total_time = time.time() - start_time
+            self.db_logger.info(
+                "InfluxDB profile loading completed",
+                {
+                    "total_profiles": profile_count,
+                    "successful_loads": successful_loads,
+                    "failed_loads": failed_loads,
+                    "total_time_ms": round(total_time * 1000, 2)
+                }
+            )
             
         except Exception as e:
             errors.append(f"Failed to process InfluxDB profiles: {str(e)}")
-            logger.error(f"Error loading time series: {str(e)}")
+            self.db_logger.error("Critical error during profile loading", exception=e)
         
         validation_result = ValidationResult(
             is_valid=len(errors) == 0,
@@ -142,11 +201,24 @@ class DatabaseTimeSeriesLoader:
         Returns:
             TimeSeries object with loaded data, or None if loading failed
         """
+        measurement = profile.measurement
+        field = profile.field
+        
         try:
+            self.db_logger.log_query_execution(measurement, field, (profile.startDate, profile.endDate))
+            
             # Get database credentials
             credentials = self._get_credentials_for_profile(profile)
             
+            # Log connection success
+            self.db_logger.log_connection_success(
+                credentials.host, 
+                credentials.port, 
+                credentials.database
+            )
+            
             # Create InfluxDB profile manager
+            query_start = time.time()
             time_series_data = InfluxDBProfileManager.create_esdl_influxdb_profile_manager(
                 profile,
                 credentials.username,
@@ -154,9 +226,13 @@ class DatabaseTimeSeriesLoader:
                 credentials.ssl,
                 credentials.verify_ssl
             )
+            query_time = time.time() - query_start
             
             # Validate profile data
             self._validate_profile_data(profile, time_series_data)
+            
+            record_count = len(time_series_data.profile_data_list)
+            self.db_logger.log_query_success(measurement, field, record_count, query_time)
             
             # Convert to pandas DataFrame
             data_points = {
@@ -172,14 +248,30 @@ class DatabaseTimeSeriesLoader:
             # Apply multiplier
             df = df * profile.multiplier
             
+            # Validate time series data before creating TimeSeries
+            values_list = df.values.flatten().tolist()
+            validated_values = InputValidator.validate_time_series_data(
+                values_list, 
+                f"InfluxDB profile {measurement}.{field}"
+            )
+            
+            # Log data validation
+            asset_id = self._extract_asset_id(profile)
+            self.db_logger.log_data_validation(
+                asset_id, 
+                "time_series_values", 
+                True,
+                {"value_count": len(validated_values), "measurement": measurement, "field": field}
+            )
+            
             # Convert to TimeSeries
             return TimeSeries(
-                time_step=3600.0,  # 1 hour in seconds
-                values=df.values.flatten().tolist()
+                time_step=DEFAULT_TIME_STEP_SECONDS,
+                values=validated_values
             )
             
         except Exception as e:
-            logger.error(f"Failed to load profile data: {str(e)}")
+            self.db_logger.log_query_error(measurement, field, e)
             return None
     
     def _get_credentials_for_profile(self, profile: esdl.InfluxDBProfile) -> DatabaseCredentials:
@@ -200,12 +292,12 @@ class DatabaseTimeSeriesLoader:
         
         # Handle https/http prefixes
         if "https" in profile_host:
-            profile_host = profile_host[8:]
+            profile_host = profile_host[HTTPS_PREFIX_LENGTH:]
             ssl_setting = True
         elif "http" in profile_host:
-            profile_host = profile_host[7:]
+            profile_host = profile_host[HTTP_PREFIX_LENGTH:]
         
-        if profile.port == 443:
+        if profile.port == DEFAULT_DATABASE_SSL_PORT:
             ssl_setting = True
         
         try:
@@ -279,9 +371,9 @@ class DatabaseTimeSeriesLoader:
                 time_series_data.profile_data_list[i + 1][0] - 
                 time_series_data.profile_data_list[i][0]
             )
-            if time_resolution.seconds != 3600:
+            if time_resolution.seconds != SECONDS_PER_HOUR:
                 raise ValueError(
-                    f"Expected 3600s time resolution, got {time_resolution.seconds}s "
+                    f"Expected {SECONDS_PER_HOUR}s time resolution, got {time_resolution.seconds}s "
                     f"for profile {profile.measurement}-{profile.field}"
                 )
     
@@ -308,12 +400,12 @@ class DatabaseTimeSeriesLoader:
                     # No unit conversion for cost
                     pass
                 else:
-                    logger.warning(f"Unsupported physical quantity: {unit}")
+                    self.db_logger.warning("Unsupported physical quantity for unit conversion", {"physical_quantity": str(unit)})
             
             return df
             
         except Exception as e:
-            logger.warning(f"Unit conversion failed: {str(e)}, using original values")
+            self.db_logger.warning("Unit conversion failed, using original values", exception=e)
             return df
     
     def set_credential_manager(self, credential_manager: CredentialManager) -> None:
@@ -323,4 +415,4 @@ class DatabaseTimeSeriesLoader:
             credential_manager: New credential manager to use
         """
         self.credential_manager = credential_manager
-        logger.info("Updated credential manager")
+        self.db_logger.info("Credential manager updated successfully")

@@ -15,6 +15,10 @@ from .database_time_series_loader import DatabaseTimeSeriesLoader
 from ..security.credential_manager import CredentialManager
 from ..security.input_validator import InputValidator
 from .xml_time_series_adapter import PiXmlTimeSeries
+from ..common.constants import (
+    DEFAULT_TECHNICAL_LIFETIME_YEARS, OPTIMAL_TOPOLOGY_SUFFIX, 
+    OPTIMAL_TOPOLOGY_SUFFIX_LENGTH, MOD_SUFFIX_LENGTH
+)
 
 
 class EsdlAdapter(BaseAdapter):
@@ -122,10 +126,10 @@ class EsdlAdapter(BaseAdapter):
 
         # Create energy system
         model_name = Path(esdl_file).stem
-        if "optimal_topology_mod" in model_name[-20:]:
-            model_name = model_name[:-21]
+        if OPTIMAL_TOPOLOGY_SUFFIX in model_name[-20:]:
+            model_name = model_name[:-OPTIMAL_TOPOLOGY_SUFFIX_LENGTH]
         if "mod" in model_name[-4:]:
-            model_name = model_name[:-4]
+            model_name = model_name[:-MOD_SUFFIX_LENGTH]
 
         energy_system = EnergySystem(
             name=model_name, assets=[], unit_conversion=self.unit_conversions or {}
@@ -409,10 +413,10 @@ class EsdlAdapter(BaseAdapter):
             Technical lifetime in years
         """
         if esdl_element.technicalLifetime is None:
-            return 40.0
+            return DEFAULT_TECHNICAL_LIFETIME_YEARS
         if esdl_element.technicalLifetime == 0.0:
             logging.info(f"Technical life time not set or zero for asset {esdl_element.name}")
-            return 40.0
+            return DEFAULT_TECHNICAL_LIFETIME_YEARS
         return float(esdl_element.technicalLifetime)
 
     def _get_aggregation_count(self, esdl_element: esdl.Asset) -> int:

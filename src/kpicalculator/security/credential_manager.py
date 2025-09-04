@@ -10,10 +10,8 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from ..common.types import DatabaseCredentials
+from ..common.logging_utils import get_security_logger, get_database_logger
 from ..exceptions import SecurityError, CredentialError, ConfigurationError
-
-
-logger = logging.getLogger(__name__)
 
 
 class CredentialManager(ABC):
@@ -35,6 +33,11 @@ class CredentialManager(ABC):
 
 class SecureCredentialManager(CredentialManager):
     """Secure credential management using environment variables."""
+    
+    def __init__(self):
+        """Initialize the secure credential manager."""
+        self.security_logger = get_security_logger()
+        self.db_logger = get_database_logger("credential_manager")
     
     def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
         """Load credentials from environment variables.
@@ -62,14 +65,15 @@ class SecureCredentialManager(CredentialManager):
         verify_ssl_env = os.getenv(f"{env_prefix}_VERIFY_SSL", "false").lower()
         
         if not username or not password:
-            logger.debug(f"No credentials found in environment for {host}:{port}")
+            self.db_logger.debug("No credentials found in environment", {"host": host, "port": port})
             return None
         
         # Parse boolean values
         ssl = ssl_env in ("true", "1", "yes", "on")
         verify_ssl = verify_ssl_env in ("true", "1", "yes", "on")
         
-        logger.info(f"Loaded credentials from environment for {host}:{port}")
+        self.security_logger.log_credential_access(host, port, "environment_variables")
+        self.db_logger.log_credential_load(host, port, "environment")
         
         return DatabaseCredentials(
             host=host,
@@ -94,6 +98,8 @@ class ConfigFileCredentialManager(CredentialManager):
         """
         self.config_path = config_path or Path.home() / ".kpi-calculator" / "credentials.json"
         self._cached_credentials: Optional[Dict[str, DatabaseCredentials]] = None
+        self.security_logger = get_security_logger()
+        self.db_logger = get_database_logger("credential_manager")
         
     def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
         """Get credentials from config file.
@@ -109,10 +115,11 @@ class ConfigFileCredentialManager(CredentialManager):
         host_port_key = f"{host}:{port}"
         
         if host_port_key in credentials:
-            logger.info(f"Loaded credentials from config file for {host}:{port}")
+            self.security_logger.log_credential_access(host, port, "config_file")
+            self.db_logger.log_credential_load(host, port, "config_file")
             return credentials[host_port_key]
         
-        logger.debug(f"No credentials found in config file for {host}:{port}")
+        self.db_logger.debug("No credentials found in config file", {"host": host, "port": port})
         return None
     
     def _load_credentials(self) -> Dict[str, DatabaseCredentials]:
@@ -129,7 +136,7 @@ class ConfigFileCredentialManager(CredentialManager):
             return self._cached_credentials
         
         if not self.config_path.exists():
-            logger.info(f"Credentials config file not found: {self.config_path}")
+            self.db_logger.info("Credentials config file not found", {"config_path": str(self.config_path)})
             self._cached_credentials = {}
             return self._cached_credentials
         
@@ -172,7 +179,7 @@ class ConfigFileCredentialManager(CredentialManager):
                 ) from e
         
         self._cached_credentials = credentials
-        logger.info(f"Loaded {len(credentials)} credential entries from config file")
+        self.db_logger.info("Loaded credentials from config file", {"entry_count": len(credentials), "config_path": str(self.config_path)})
         
         return credentials
     
@@ -195,7 +202,12 @@ class ConfigFileCredentialManager(CredentialManager):
                     )
         except AttributeError:
             # Windows or other systems without detailed permission checking
-            logger.warning(f"Cannot validate file permissions on this system: {self.config_path}")
+            self.security_logger.log_validation_failure(
+                "file_permissions", 
+                str(self.config_path), 
+                "Cannot validate permissions on this platform", 
+                "low"
+            )
 
 
 class ChainedCredentialManager(CredentialManager):
@@ -211,6 +223,7 @@ class ChainedCredentialManager(CredentialManager):
             raise ValueError("At least one credential manager must be provided")
         
         self.managers = managers
+        self.db_logger = get_database_logger("credential_manager")
         
     def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
         """Try credential managers in order until credentials are found.
@@ -227,7 +240,7 @@ class ChainedCredentialManager(CredentialManager):
             if credentials:
                 return credentials
         
-        logger.warning(f"No credentials found for {host}:{port} in any manager")
+        self.db_logger.warning("No credentials found in any manager", {"host": host, "port": port})
         return None
 
 

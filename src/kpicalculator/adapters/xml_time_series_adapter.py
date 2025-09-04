@@ -7,6 +7,8 @@ from xml.dom import minidom
 
 import xmltodict  # type: ignore[import-untyped]
 
+from ..common.constants import DEFAULT_WEEK_TIME_STEP, HTTP_SCHEMA_URL
+
 
 # Class to load and read from and to PiXml files
 class PiXmlTimeSeries:
@@ -30,7 +32,7 @@ class PiXmlTimeSeries:
         if not os.path.exists(self.time_series_xml_file):
             # create new xml file
             ET.register_namespace("", "http://www.wldelft.nl/fews/PI")
-            ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+            ET.register_namespace("xsi", HTTP_SCHEMA_URL)
             root = ET.Element("TimeSeries")
             timezone = ET.SubElement(root, "timeZone")
             timezone.text = str(0)
@@ -131,7 +133,7 @@ class PiXmlTimeSeries:
 
     def save_to_XML(self, file: Optional[str] = None) -> None:
         ET.register_namespace("", "http://www.wldelft.nl/fews/PI")
-        ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+        ET.register_namespace("xsi", HTTP_SCHEMA_URL)
         # loading xml output file
         tree = ET.parse(self.time_series_xml_file)
         root = tree.getroot()
@@ -308,7 +310,7 @@ class TimeSeries:
                 self.events[1].date + " " + self.events[1].time, "%Y-%m-%d %H:%M:%S"
             )
         else:
-            return 3600 * 24 * 7  # assume for now 1 week time step, which is the default in CF
+            return DEFAULT_WEEK_TIME_STEP  # assume for now 1 week time step, which is the default in CF
         return (time2 - time1).total_seconds()
 
     def get_series_as_list(self) -> List[float]:
