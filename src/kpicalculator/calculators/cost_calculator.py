@@ -62,7 +62,10 @@ class CostCalculator:
             capex_npv = asset.investment_cost + asset.installation_cost
             capex_npv *= sum(
                 [
-                    1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, asset.technical_lifetime * n)
+                    1.0
+                    / math.pow(
+                        1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, asset.technical_lifetime * n
+                    )
                     for n in range(math.ceil(system_lifetime / asset.technical_lifetime))
                 ]
             )
@@ -76,7 +79,10 @@ class CostCalculator:
             )
 
             opex_npv = opex_annual * sum(
-                [1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, n) for n in range(system_lifetime)]
+                [
+                    1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, n)
+                    for n in range(system_lifetime)
+                ]
             )
 
             npv += capex_npv + opex_npv
@@ -108,7 +114,9 @@ class CostCalculator:
         # Calculate discounted energy production
         discounted_energy = 0.0
         for year in range(system_lifetime):
-            discounted_energy += annual_energy / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, year)
+            discounted_energy += annual_energy / math.pow(
+                1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, year
+            )
 
         return npv / discounted_energy
 

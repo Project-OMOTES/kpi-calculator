@@ -8,6 +8,7 @@ from typing import Optional
 @dataclass
 class DatabaseCredentials:
     """Database connection credentials."""
+
     host: str
     port: int
     username: Optional[str] = None

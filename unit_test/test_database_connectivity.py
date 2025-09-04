@@ -2,42 +2,45 @@
 """Tests for database connectivity implementation."""
 
 import os
-import unittest
-from unittest.mock import Mock, MagicMock, patch
-from pathlib import Path
 import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
 from src.kpicalculator.adapters.base_adapter import BaseAdapter, ValidationResult
-from src.kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
-from src.kpicalculator.common.types import DatabaseCredentials
+from src.kpicalculator.adapters.database_time_series_loader import (
+    DatabaseTimeSeriesLoader,
+)
 from src.kpicalculator.adapters.esdl_adapter import EsdlAdapter
+from src.kpicalculator.common.types import DatabaseCredentials
+from src.kpicalculator.exceptions import CredentialError, SecurityError
 from src.kpicalculator.security.credential_manager import (
+    ConfigFileCredentialManager,
     CredentialManager,
     SecureCredentialManager,
-    ConfigFileCredentialManager,
-    create_default_credential_manager
+    create_default_credential_manager,
 )
-from src.kpicalculator.exceptions import CredentialError, SecurityError
 
 
 class TestBaseAdapter(unittest.TestCase):
     """Test BaseAdapter interface."""
-    
+
     def test_base_adapter_initialization(self):
         """Test BaseAdapter initialization."""
+
         # Since BaseAdapter is abstract, we need to create a concrete implementation
         class ConcreteAdapter(BaseAdapter):
             def load_data(self, source, **kwargs):
                 return Mock()
-            
+
             def validate_source(self, source):
                 return ValidationResult(True)
-            
+
             def get_supported_source_type(self):
                 return "test"
-        
+
         adapter = ConcreteAdapter({"MW": 1000000})
-        
+
         self.assertEqual(adapter.unit_conversions, {"MW": 1000000})
         self.assertEqual(adapter.get_supported_source_type(), "test")
         self.assertEqual(adapter.get_supported_parameters(), [])
@@ -45,7 +48,7 @@ class TestBaseAdapter(unittest.TestCase):
 
 class TestDatabaseCredentials(unittest.TestCase):
     """Test DatabaseCredentials dataclass."""
-    
+
     def test_database_credentials_creation(self):
         """Test DatabaseCredentials creation with different parameters."""
         # Test minimal credentials
@@ -56,7 +59,7 @@ class TestDatabaseCredentials(unittest.TestCase):
         self.assertIsNone(creds.password)
         self.assertEqual(creds.database, "energy_profiles")
         self.assertFalse(creds.ssl)
-        
+
         # Test full credentials
         full_creds = DatabaseCredentials(
             host="test.example.com",
@@ -65,7 +68,7 @@ class TestDatabaseCredentials(unittest.TestCase):
             password="testpass",
             database="test_db",
             ssl=True,
-            verify_ssl=True
+            verify_ssl=True,
         )
         self.assertEqual(full_creds.host, "test.example.com")
         self.assertEqual(full_creds.port, 443)
@@ -78,34 +81,37 @@ class TestDatabaseCredentials(unittest.TestCase):
 
 class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     """Test DatabaseTimeSeriesLoader functionality."""
-    
+
     def setUp(self):
         """Set up test fixtures."""
         self.loader = DatabaseTimeSeriesLoader()
-        
+
     def test_loader_initialization(self):
         """Test loader initialization with secure credential manager."""
         # Test with default credential manager
         loader = DatabaseTimeSeriesLoader()
         self.assertIsNotNone(loader.credential_manager)
-        
+
         # Test with custom credential manager
         mock_manager = Mock(spec=CredentialManager)
         loader_with_manager = DatabaseTimeSeriesLoader(mock_manager)
         self.assertEqual(loader_with_manager.credential_manager, mock_manager)
-    
+
     def test_set_credential_manager(self):
         """Test setting credential manager."""
         mock_manager = Mock(spec=CredentialManager)
         self.loader.set_credential_manager(mock_manager)
-        
+
         self.assertEqual(self.loader.credential_manager, mock_manager)
-    
-    @patch.dict(os.environ, {
-        'KPI_DB_TEST_EXAMPLE_COM_8086_USERNAME': 'test_user',
-        'KPI_DB_TEST_EXAMPLE_COM_8086_PASSWORD': 'test_pass'
-    })
-    @patch('src.kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager')
+
+    @patch.dict(
+        os.environ,
+        {
+            "KPI_DB_TEST_EXAMPLE_COM_8086_USERNAME": "test_user",
+            "KPI_DB_TEST_EXAMPLE_COM_8086_PASSWORD": "test_pass",
+        },
+    )
+    @patch("src.kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
     def test_load_profile_data_success(self, mock_influx):
         """Test successful profile data loading."""
         # Create mock profile
@@ -118,12 +124,12 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         mock_profile.multiplier = 1.0
         mock_profile.startDate = "2023-01-01T00:00:00Z"
         mock_profile.endDate = "2023-01-01T02:00:00Z"
-        
+
         # Mock quantity and unit
         mock_quantity = Mock()
         mock_quantity.physicalQuantity = "POWER"
         mock_profile.profileQuantityAndUnit = mock_quantity
-        
+
         # Mock time series data
         mock_time_series = Mock()
         mock_time_series.profile_data_list = [
@@ -132,20 +138,23 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         ]
         mock_time_series.start_datetime = "2023-01-01T00:00:00Z"
         mock_time_series.end_datetime = "2023-01-01T02:00:00Z"
-        
+
         # Configure mock
         mock_influx.create_esdl_influxdb_profile_manager.return_value = mock_time_series
-        
+
         # Test loading (now with proper credentials)
         credentials = self.loader._get_credentials_for_profile(mock_profile)
         self.assertIsNotNone(credentials)
         self.assertEqual(credentials.username, "test_user")
         self.assertEqual(credentials.password, "test_pass")
-    
-    @patch.dict(os.environ, {
-        'KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_USERNAME': 'test_user',
-        'KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_PASSWORD': 'test_pass'
-    })
+
+    @patch.dict(
+        os.environ,
+        {
+            "KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_USERNAME": "test_user",
+            "KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_PASSWORD": "test_pass",
+        },
+    )
     def test_get_credentials_for_profile(self):
         """Test credential retrieval for profiles from environment."""
         # Create mock profile with known host
@@ -155,9 +164,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         mock_profile.database = "energy_profiles"
         mock_profile.field = "test_field"
         mock_profile.measurement = "test_measurement"
-        
+
         creds = self.loader._get_credentials_for_profile(mock_profile)
-        
+
         self.assertEqual(creds.host, "wu-profiles.esdl-beta.hesi.energy")
         self.assertEqual(creds.port, 443)
         self.assertEqual(creds.username, "test_user")
@@ -166,57 +175,57 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
 class TestEsdlAdapterDatabaseIntegration(unittest.TestCase):
     """Test EsdlAdapter database integration."""
-    
+
     def setUp(self):
         """Set up test fixtures."""
         self.adapter = EsdlAdapter()
-        
+
     def test_adapter_inheritance(self):
         """Test that EsdlAdapter properly inherits from BaseAdapter."""
         self.assertIsInstance(self.adapter, BaseAdapter)
         self.assertEqual(self.adapter.get_supported_source_type(), "esdl")
-        
+
     def test_supported_parameters(self):
         """Test supported parameters list."""
         params = self.adapter.get_supported_parameters()
         expected_params = [
             "time_series_file",
-            "pipes_cost_file", 
+            "pipes_cost_file",
             "assets_cost_file",
             "use_database_profiles",
-            "validation_mode"
+            "validation_mode",
         ]
-        
+
         for param in expected_params:
             self.assertIn(param, params)
-    
+
     def test_validate_source_valid_file(self):
         """Test source validation with valid ESDL file."""
         # Create temporary ESDL file
-        with tempfile.NamedTemporaryFile(suffix='.esdl', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".esdl", delete=False) as temp_file:
             temp_file.write(b'<?xml version="1.0"?><esdl:EnergySystem/>')
             temp_path = temp_file.name
-        
+
         try:
             result = self.adapter.validate_source(temp_path)
             self.assertTrue(result.is_valid)
             self.assertEqual(len(result.errors), 0)
         finally:
             Path(temp_path).unlink()
-    
+
     def test_validate_source_invalid_file(self):
         """Test source validation with invalid file."""
         result = self.adapter.validate_source("nonexistent_file.esdl")
         self.assertFalse(result.is_valid)
         self.assertTrue(len(result.errors) > 0)
         self.assertIn("does not exist", result.errors[0])
-    
+
     def test_validate_source_wrong_extension(self):
         """Test source validation with wrong file extension."""
-        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as temp_file:
-            temp_file.write(b'test content')
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as temp_file:
+            temp_file.write(b"test content")
             temp_path = temp_file.name
-        
+
         try:
             result = self.adapter.validate_source(temp_path)
             self.assertTrue(result.is_valid)  # Still valid, just warning
@@ -224,35 +233,32 @@ class TestEsdlAdapterDatabaseIntegration(unittest.TestCase):
             self.assertIn("does not have .esdl extension", result.warnings[0])
         finally:
             Path(temp_path).unlink()
-    
+
     def test_database_loader_initialization(self):
         """Test that adapter initializes database loader."""
         self.assertIsNotNone(self.adapter.database_loader)
         self.assertIsInstance(self.adapter.database_loader, DatabaseTimeSeriesLoader)
-    
-    @patch('src.kpicalculator.adapters.esdl_adapter.EnergySystemHandler')
+
+    @patch("src.kpicalculator.adapters.esdl_adapter.EnergySystemHandler")
     def test_load_data_database_priority(self, mock_handler):
         """Test that database profiles have priority over XML files."""
         # Create mock ESDL structure
         mock_es = Mock()
         mock_es.eAllContents.return_value = []
         mock_handler.return_value.load_file.return_value = mock_es
-        
+
         # Create temporary ESDL file
-        with tempfile.NamedTemporaryFile(suffix='.esdl', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".esdl", delete=False) as temp_file:
             temp_file.write(b'<?xml version="1.0"?><esdl:EnergySystem/>')
             temp_path = temp_file.name
-        
+
         try:
             # Test with database profiles enabled (default)
-            result = self.adapter.load_data(
-                temp_path, 
-                use_database_profiles=True
-            )
-            
+            result = self.adapter.load_data(temp_path, use_database_profiles=True)
+
             self.assertIsNotNone(result)
             self.assertEqual(result.name, Path(temp_path).stem)
-            
+
         except Exception as e:
             # Expected since we're using mocks - the important thing is the structure
             self.assertIn("load_file", str(e))
@@ -260,5 +266,5 @@ class TestEsdlAdapterDatabaseIntegration(unittest.TestCase):
             Path(temp_path).unlink()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

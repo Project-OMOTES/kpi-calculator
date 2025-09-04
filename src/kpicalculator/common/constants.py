@@ -26,7 +26,7 @@ PERCENTAGE_TO_DECIMAL = 1.0 / 100.0
 # Database constants
 DEFAULT_DATABASE_SSL_PORT = 443
 HTTPS_PREFIX_LENGTH = 8  # len("https://")
-HTTP_PREFIX_LENGTH = 7   # len("http://")
+HTTP_PREFIX_LENGTH = 7  # len("http://")
 
 # File system limits
 MAX_PATH_LENGTH = 4096
@@ -46,14 +46,14 @@ DANGEROUS_PORTS = {22, 23, 80, 443, 3389, 5985, 5986}  # SSH, Telnet, HTTP, HTTP
 
 # Asset property validation ranges
 ASSET_VALIDATION_RANGES = {
-    'power': (0, 1e12),          # 0 to 1 TW
-    'length': (0, 1e6),          # 0 to 1000 km  
-    'volume': (0, 1e9),          # 0 to 1 million m³
-    'cop': (0, 10),              # COP typically 0-10
-    'technical_lifetime': (0, 100),        # 0-100 years
-    'discount_rate': (0, 100),             # 0-100%
-    'emission_factor': (0, 1000),          # 0-1000 kg/GJ
-    'aggregation_count': (1, 10000),       # 1-10000 units
+    "power": (0, 1e12),  # 0 to 1 TW
+    "length": (0, 1e6),  # 0 to 1000 km
+    "volume": (0, 1e9),  # 0 to 1 million m³
+    "cop": (0, 10),  # COP typically 0-10
+    "technical_lifetime": (0, 100),  # 0-100 years
+    "discount_rate": (0, 100),  # 0-100%
+    "emission_factor": (0, 1000),  # 0-1000 kg/GJ
+    "aggregation_count": (1, 10000),  # 1-10000 units
 }
 
 # Time series validation
@@ -69,21 +69,40 @@ OPTIMAL_TOPOLOGY_SUFFIX_LENGTH = 21  # len("optimal_topology_mod") + 1 for under
 MOD_SUFFIX_LENGTH = 4  # len("mod") + 1 for underscore
 
 # Localhost addresses
-LOCALHOST_ADDRESSES = ['localhost', '127.0.0.1', '::1']
+LOCALHOST_ADDRESSES = ["localhost", "127.0.0.1", "::1"]
 
 # Suspicious usernames (for warning purposes)
-SUSPICIOUS_USERNAMES = {'admin', 'root', 'administrator', 'sa', 'test', 'guest'}
+SUSPICIOUS_USERNAMES = {"admin", "root", "administrator", "sa", "test", "guest"}
 
 # Windows reserved filenames
 WINDOWS_RESERVED_NAMES = [
-    'con', 'prn', 'aux', 'nul',
-    'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-    'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    "com1",
+    "com2",
+    "com3",
+    "com4",
+    "com5",
+    "com6",
+    "com7",
+    "com8",
+    "com9",
+    "lpt1",
+    "lpt2",
+    "lpt3",
+    "lpt4",
+    "lpt5",
+    "lpt6",
+    "lpt7",
+    "lpt8",
+    "lpt9",
 ]
 
 # File extensions
-ALLOWED_FILE_EXTENSIONS = {'.esdl', '.xml', '.csv', '.json', '.txt'}
-ESDL_EXTENSION = '.esdl'
+ALLOWED_FILE_EXTENSIONS = {".esdl", ".xml", ".csv", ".json", ".txt"}
+ESDL_EXTENSION = ".esdl"
 
 # File permissions (octal)
 SECURE_FILE_PERMISSIONS = 0o600  # Read/write for owner only
@@ -93,21 +112,24 @@ HTTP_SCHEMA_URL = "http://www.w3.org/2001/XMLSchema-instance"
 
 # Path traversal security patterns
 PATH_TRAVERSAL_PATTERNS = [
-    r'\.\.[\\/]',        # ../ or ..\
-    r'[\\/]\.\.[\\/]',   # /../ or \..\
-    r'[\\/]\.\.$',       # /.. or \.. at end  
-    r'^\.\.[\\/]',       # ../ or ..\ at start
+    r"\.\.[\\/]",  # ../ or ..\
+    r"[\\/]\.\.[\\/]",  # /../ or \..\
+    r"[\\/]\.\.$",  # /.. or \.. at end
+    r"^\.\.[\\/]",  # ../ or ..\ at start
 ]
 
 # XXE attack patterns
 XXE_ATTACK_PATTERNS = [
-    r'<!ENTITY',         # Entity declarations
-    r'<!ELEMENT',        # Element declarations  
-    r'<!DOCTYPE.*\[',    # DOCTYPE with internal subset
-    r'&\w+;',           # Entity references
+    r"<!ENTITY",  # Entity declarations
+    r"<!ELEMENT",  # Element declarations
+    r"<!DOCTYPE.*\[",  # DOCTYPE with internal subset
+    r"&\w+;",  # Entity references
     r'SYSTEM\s+["\']',  # System entity references
     r'PUBLIC\s+["\']',  # Public entity references
 ]
 
-# Hostname validation pattern
-HOSTNAME_REGEX_PATTERN = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
+# Hostname validation pattern (RFC 1123 compliant)
+HOSTNAME_REGEX_PATTERN = (
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*"
+    r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$"
+)

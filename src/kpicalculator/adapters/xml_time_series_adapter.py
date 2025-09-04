@@ -310,7 +310,8 @@ class TimeSeries:
                 self.events[1].date + " " + self.events[1].time, "%Y-%m-%d %H:%M:%S"
             )
         else:
-            return DEFAULT_WEEK_TIME_STEP  # assume for now 1 week time step, which is the default in CF
+            # assume for now 1 week time step, which is the default in CF
+            return DEFAULT_WEEK_TIME_STEP
         return (time2 - time1).total_seconds()
 
     def get_series_as_list(self) -> List[float]:

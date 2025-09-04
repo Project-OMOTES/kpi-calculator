@@ -2,7 +2,7 @@
 # No typing imports needed currently
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
-from ..common.constants import TONS_TO_KG, KG_TO_TONS, SECONDS_PER_YEAR
+from ..common.constants import KG_TO_TONS, SECONDS_PER_YEAR, TONS_TO_KG
 
 
 class EmissionCalculator:

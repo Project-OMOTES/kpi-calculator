@@ -2,9 +2,9 @@
 """Security components for KPI Calculator."""
 
 from .credential_manager import (
+    ConfigFileCredentialManager,
     CredentialManager,
-    SecureCredentialManager, 
-    ConfigFileCredentialManager
+    SecureCredentialManager,
 )
 from .input_validator import InputValidator
 

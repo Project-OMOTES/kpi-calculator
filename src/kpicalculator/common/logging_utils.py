@@ -1,29 +1,33 @@
 # src/kpicalculator/common/logging_utils.py
 """Structured logging utilities for KPI Calculator."""
 
-import logging
 import json
+import logging
 import traceback
-from typing import Dict, Any, Optional, Union
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 
 class StructuredLogger:
     """Enhanced logger with structured logging support."""
-    
+
     def __init__(self, name: str):
         """Initialize structured logger.
-        
+
         Args:
             name: Logger name (typically __name__)
         """
         self.logger = logging.getLogger(name)
-        
-    def _log_structured(self, level: int, message: str, 
-                       context: Optional[Dict[str, Any]] = None,
-                       exception: Optional[Exception] = None) -> None:
+
+    def _log_structured(
+        self,
+        level: int,
+        message: str,
+        context: Optional[Dict[str, Any]] = None,
+        exception: Optional[Exception] = None,
+    ) -> None:
         """Log structured message with context.
-        
+
         Args:
             level: Log level (logging.INFO, etc.)
             message: Human-readable message
@@ -36,19 +40,19 @@ class StructuredLogger:
             "message": message,
             "component": self.logger.name,
         }
-        
+
         # Add context if provided
         if context:
             log_entry["context"] = context
-            
+
         # Add exception details if provided
         if exception:
             log_entry["exception"] = {
                 "type": type(exception).__name__,
                 "message": str(exception),
-                "traceback": traceback.format_exc()
+                "traceback": traceback.format_exc(),
             }
-        
+
         # Log as JSON for structured logging systems, with fallback
         try:
             structured_message = json.dumps(log_entry, default=str)
@@ -61,181 +65,200 @@ class StructuredLogger:
             if exception:
                 fallback_message += f" | Exception: {exception}"
             self.logger.log(level, fallback_message)
-    
+
     def info(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
         """Log info message with context."""
         self._log_structured(logging.INFO, message, context)
-    
+
     def warning(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
         """Log warning message with context."""
         self._log_structured(logging.WARNING, message, context)
-    
-    def error(self, message: str, context: Optional[Dict[str, Any]] = None,
-              exception: Optional[Exception] = None) -> None:
+
+    def error(
+        self,
+        message: str,
+        context: Optional[Dict[str, Any]] = None,
+        exception: Optional[Exception] = None,
+    ) -> None:
         """Log error message with context and optional exception."""
         self._log_structured(logging.ERROR, message, context, exception)
-    
+
     def debug(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
         """Log debug message with context."""
         self._log_structured(logging.DEBUG, message, context)
-    
-    def critical(self, message: str, context: Optional[Dict[str, Any]] = None,
-                exception: Optional[Exception] = None) -> None:
+
+    def critical(
+        self,
+        message: str,
+        context: Optional[Dict[str, Any]] = None,
+        exception: Optional[Exception] = None,
+    ) -> None:
         """Log critical message with context and optional exception."""
         self._log_structured(logging.CRITICAL, message, context, exception)
 
 
 class DatabaseLogger:
     """Specialized structured logger for database operations."""
-    
+
     def __init__(self, component_name: str):
         """Initialize database logger.
-        
+
         Args:
             component_name: Name of the database component
         """
         self.logger = StructuredLogger(f"kpicalculator.database.{component_name}")
-    
+
     def log_connection_attempt(self, host: str, port: int, database: str = None) -> None:
         """Log database connection attempt."""
         context = {"host": host, "port": port}
         if database:
             context["database"] = database
         self.logger.info("Attempting database connection", context)
-    
+
     def log_connection_success(self, host: str, port: int, database: str = None) -> None:
         """Log successful database connection."""
         context = {"host": host, "port": port}
         if database:
             context["database"] = database
         self.logger.info("Database connection established", context)
-    
-    def log_connection_error(self, host: str, port: int, error: Exception,
-                           database: str = None) -> None:
+
+    def log_connection_error(
+        self, host: str, port: int, error: Exception, database: str = None
+    ) -> None:
         """Log database connection error."""
         context = {"host": host, "port": port}
         if database:
             context["database"] = database
         self.logger.error("Database connection failed", context, error)
-    
+
     def log_credential_load(self, host: str, port: int, source: str) -> None:
         """Log credential loading."""
         context = {"host": host, "port": port, "credential_source": source}
         self.logger.info("Loaded database credentials", context)
-    
+
     def log_credential_error(self, host: str, port: int, error: Exception) -> None:
         """Log credential loading error."""
         context = {"host": host, "port": port}
         self.logger.error("Failed to load database credentials", context, error)
-    
-    def log_query_execution(self, measurement: str, field: str, 
-                           time_range: Optional[tuple] = None) -> None:
+
+    def log_query_execution(
+        self, measurement: str, field: str, time_range: Optional[tuple] = None
+    ) -> None:
         """Log database query execution."""
         context = {"measurement": measurement, "field": field}
         if time_range:
             context["start_time"] = str(time_range[0])
             context["end_time"] = str(time_range[1])
         self.logger.info("Executing database query", context)
-    
-    def log_query_success(self, measurement: str, field: str, record_count: int,
-                         execution_time: float = None) -> None:
+
+    def log_query_success(
+        self, measurement: str, field: str, record_count: int, execution_time: float = None
+    ) -> None:
         """Log successful database query."""
-        context = {
-            "measurement": measurement, 
-            "field": field, 
-            "record_count": record_count
-        }
+        context = {"measurement": measurement, "field": field, "record_count": record_count}
         if execution_time:
             context["execution_time_ms"] = round(execution_time * 1000, 2)
         self.logger.info("Database query completed successfully", context)
-    
+
     def log_query_error(self, measurement: str, field: str, error: Exception) -> None:
         """Log database query error."""
         context = {"measurement": measurement, "field": field}
         self.logger.error("Database query failed", context, error)
-    
-    def log_data_validation(self, asset_id: str, validation_type: str, 
-                           result: bool, details: Optional[Dict[str, Any]] = None) -> None:
+
+    def log_data_validation(
+        self,
+        asset_id: str,
+        validation_type: str,
+        result: bool,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Log data validation results."""
         context = {
             "asset_id": asset_id,
             "validation_type": validation_type,
-            "validation_result": "passed" if result else "failed"
+            "validation_result": "passed" if result else "failed",
         }
         if details:
             context.update(details)
-        
+
         level_method = self.logger.info if result else self.logger.warning
         level_method("Data validation completed", context)
-    
-    def log_time_series_processing(self, asset_id: str, data_points: int, 
-                                  time_step: float, processing_time: float = None) -> None:
+
+    def log_time_series_processing(
+        self, asset_id: str, data_points: int, time_step: float, processing_time: float = None
+    ) -> None:
         """Log time series processing."""
-        context = {
-            "asset_id": asset_id,
-            "data_points": data_points,
-            "time_step_seconds": time_step
-        }
+        context = {"asset_id": asset_id, "data_points": data_points, "time_step_seconds": time_step}
         if processing_time:
             context["processing_time_ms"] = round(processing_time * 1000, 2)
         self.logger.info("Time series data processed", context)
 
+    def debug(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        """Log debug message with context."""
+        self.logger.debug(message, context)
+
+    def info(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        """Log info message with context."""
+        self.logger.info(message, context)
+
+    def warning(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+        """Log warning message with context."""
+        self.logger.warning(message, context)
+
 
 class SecurityLogger:
     """Specialized structured logger for security events."""
-    
+
     def __init__(self):
         """Initialize security logger."""
         self.logger = StructuredLogger("kpicalculator.security")
-    
+
     def log_validation_attempt(self, validation_type: str, resource: str) -> None:
         """Log security validation attempt."""
         context = {"validation_type": validation_type, "resource": resource}
         self.logger.debug("Security validation initiated", context)
-    
+
     def log_validation_success(self, validation_type: str, resource: str) -> None:
         """Log successful security validation."""
         context = {"validation_type": validation_type, "resource": resource}
         self.logger.info("Security validation passed", context)
-    
-    def log_validation_failure(self, validation_type: str, resource: str, 
-                             reason: str, severity: str = "medium") -> None:
+
+    def log_validation_failure(
+        self, validation_type: str, resource: str, reason: str, severity: str = "medium"
+    ) -> None:
         """Log security validation failure."""
         context = {
             "validation_type": validation_type,
             "resource": resource,
             "failure_reason": reason,
-            "severity": severity
+            "severity": severity,
         }
         self.logger.warning("Security validation failed", context)
-    
-    def log_security_threat(self, threat_type: str, resource: str, details: Dict[str, Any],
-                          severity: str = "high") -> None:
+
+    def log_security_threat(
+        self, threat_type: str, resource: str, details: Dict[str, Any], severity: str = "high"
+    ) -> None:
         """Log potential security threat."""
         context = {
             "threat_type": threat_type,
             "resource": resource,
             "severity": severity,
-            **details
+            **details,
         }
         self.logger.critical("Potential security threat detected", context)
-    
+
     def log_credential_access(self, host: str, port: int, access_method: str) -> None:
         """Log credential access (without sensitive data)."""
-        context = {
-            "host": host,
-            "port": port,
-            "access_method": access_method
-        }
+        context = {"host": host, "port": port, "access_method": access_method}
         self.logger.info("Credential access granted", context)
 
 
 def get_database_logger(component_name: str) -> DatabaseLogger:
     """Get a database logger for a component.
-    
+
     Args:
         component_name: Name of the database component
-        
+
     Returns:
         Configured DatabaseLogger instance
     """
@@ -244,7 +267,7 @@ def get_database_logger(component_name: str) -> DatabaseLogger:
 
 def get_security_logger() -> SecurityLogger:
     """Get the security logger.
-    
+
     Returns:
         Configured SecurityLogger instance
     """
