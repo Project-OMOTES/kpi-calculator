@@ -3,7 +3,7 @@
 
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pandas as pd
 from esdl import esdl
@@ -13,7 +13,7 @@ from src.kpicalculator.adapters.database_time_series_loader import (
     DatabaseTimeSeriesLoader,
 )
 from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import CredentialError, ValidationError
+from src.kpicalculator.exceptions import CredentialError
 from src.kpicalculator.security.credential_manager import CredentialManager
 
 
@@ -61,7 +61,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     def test_init_with_default_credential_manager(self):
         """Test initialization with default credential manager."""
         with patch(
-            "src.kpicalculator.adapters.database_time_series_loader.create_default_credential_manager"
+            "src.kpicalculator.adapters.database_time_series_loader."
+            "create_default_credential_manager"
         ) as mock_create:
             mock_manager = Mock()
             mock_create.return_value = mock_manager
@@ -186,6 +187,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
                 with patch.object(self.loader, "_convert_units") as mock_convert:
                     mock_df = Mock()
                     mock_df.values.flatten.return_value.tolist.return_value = test_values
+                    # Make the mock support multiplication (df * profile.multiplier)
+                    mock_df.__mul__ = Mock(return_value=mock_df)
                     mock_convert.return_value = mock_df
 
                     # Mock extract asset ID
@@ -249,7 +252,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             mock_get_secure.return_value = self.test_credentials
 
             with patch("src.kpicalculator.adapters.database_time_series_loader.InputValidator"):
-                result = self.loader._get_credentials_for_profile(profile)
+                self.loader._get_credentials_for_profile(profile)
 
         # Should strip http:// prefix (7 characters)
         mock_get_secure.assert_called_once_with("test.example.com", 8080)
@@ -400,7 +403,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         ) as mock_convert:
             mock_convert.return_value = 1500.0
 
-            result_df = self.loader._convert_units(df, profile)
+            self.loader._convert_units(df, profile)
 
         mock_convert.assert_called_once()
 
@@ -419,7 +422,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         ) as mock_convert:
             mock_convert.return_value = 150.0
 
-            result_df = self.loader._convert_units(df, profile)
+            self.loader._convert_units(df, profile)
 
         mock_convert.assert_called_once()
 
@@ -471,7 +474,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     def test_load_time_series_from_esdl_success(self, mock_time):
         """Test successful ESDL time series loading."""
         # Mock time.time() for performance measurement
-        mock_time.time.side_effect = [0.0, 0.1, 0.2, 0.3]  # start, profile1, profile2, end
+        # Provide enough time values for all calls in the method
+        mock_time.time.side_effect = [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45]
 
         # Create mock energy system with InfluxDB profiles
         energy_system = Mock()
@@ -521,7 +525,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         self.assertTrue(validation_result.is_valid)
         self.assertEqual(len(result_data), 0)
-        self.assertIn("No InfluxDB profiles found", validation_result.warnings)
+        self.assertIn("No InfluxDB profiles found in ESDL file", validation_result.warnings)
 
     def test_load_time_series_from_esdl_with_errors(self):
         """Test ESDL loading with profile errors."""

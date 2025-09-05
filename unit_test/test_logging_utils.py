@@ -6,7 +6,7 @@ import logging
 import unittest
 from datetime import datetime
 from io import StringIO
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from src.kpicalculator.common.logging_utils import (
     DatabaseLogger,

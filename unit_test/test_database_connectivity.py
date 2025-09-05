@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from src.kpicalculator.adapters.base_adapter import BaseAdapter, ValidationResult
 from src.kpicalculator.adapters.database_time_series_loader import (
@@ -13,13 +13,7 @@ from src.kpicalculator.adapters.database_time_series_loader import (
 )
 from src.kpicalculator.adapters.esdl_adapter import EsdlAdapter
 from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import CredentialError, SecurityError
-from src.kpicalculator.security.credential_manager import (
-    ConfigFileCredentialManager,
-    CredentialManager,
-    SecureCredentialManager,
-    create_default_credential_manager,
-)
+from src.kpicalculator.security.credential_manager import CredentialManager
 
 
 class TestBaseAdapter(unittest.TestCase):

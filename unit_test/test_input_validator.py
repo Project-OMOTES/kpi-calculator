@@ -302,8 +302,10 @@ class TestInputValidator(unittest.TestCase):
                 self.assertIn("port", error.context)
 
     def test_validate_database_credentials_dangerous_ports(self):
-        """Test database credential validation warns about dangerous ports."""
-        dangerous_ports = [22, 23, 80, 443, 3389, 5985, 5986]
+        """Test database credential validation warns about dangerous ports (except 443)."""
+        # Port 443 is excluded as it's commonly used for HTTPS-based databases
+        # like InfluxDB over HTTPS
+        dangerous_ports = [22, 23, 80, 3389, 5985, 5986]
 
         for port in dangerous_ports:
             with self.subTest(port=port):
@@ -322,6 +324,24 @@ class TestInputValidator(unittest.TestCase):
 
                 error = context.exception
                 self.assertIn("typically not used for databases", str(error))
+
+    def test_validate_database_credentials_port_443_allowed(self):
+        """Test that port 443 is allowed for HTTPS-based databases."""
+        credentials = DatabaseCredentials(
+            host="example.com",
+            port=443,
+            username="user",
+            password="password123",
+            database="db",
+            ssl=True,
+            verify_ssl=True,
+        )
+
+        # Should not raise an exception
+        try:
+            InputValidator.validate_database_credentials(credentials)
+        except ValidationError:
+            self.fail("Port 443 should be allowed for HTTPS-based databases")
 
     def test_validate_database_credentials_empty_username(self):
         """Test database credential validation with empty username."""

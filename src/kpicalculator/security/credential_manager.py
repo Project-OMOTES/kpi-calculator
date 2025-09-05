@@ -10,7 +10,7 @@ from typing import Dict, Optional
 
 from ..common.logging_utils import get_database_logger, get_security_logger
 from ..common.types import DatabaseCredentials
-from ..exceptions import ConfigurationError, CredentialError, SecurityError
+from ..exceptions import ConfigurationError, SecurityError
 
 
 class CredentialManager(ABC):
@@ -33,7 +33,7 @@ class CredentialManager(ABC):
 class SecureCredentialManager(CredentialManager):
     """Secure credential management using environment variables."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the secure credential manager."""
         self.security_logger = get_security_logger()
         self.db_logger = get_database_logger("credential_manager")

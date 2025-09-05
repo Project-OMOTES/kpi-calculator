@@ -5,7 +5,33 @@ import json
 import logging
 import traceback
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional, TypedDict
+
+
+# Type alias for logging context values
+# We use Any here as logging context needs maximum flexibility for JSON serialization
+# This is one of the few legitimate uses of Any - for data that will be serialized
+ContextValue = Any
+
+
+class ExceptionInfo(TypedDict):
+    """Exception information structure."""
+    type: str
+    message: str
+    traceback: str
+
+
+class BaseLogEntry(TypedDict):
+    """Base log entry structure."""
+    timestamp: str
+    message: str
+    component: str
+
+
+class LogEntryWithContext(BaseLogEntry, total=False):
+    """Log entry with optional context and exception."""
+    context: Mapping[str, ContextValue]
+    exception: ExceptionInfo
 
 
 class StructuredLogger:
@@ -23,7 +49,7 @@ class StructuredLogger:
         self,
         level: int,
         message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[Mapping[str, ContextValue]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log structured message with context.
@@ -35,7 +61,7 @@ class StructuredLogger:
             exception: Exception to include in log
         """
         # Build structured log entry
-        log_entry = {
+        log_entry: LogEntryWithContext = {
             "timestamp": datetime.now().isoformat(),
             "message": message,
             "component": self.logger.name,
@@ -66,31 +92,31 @@ class StructuredLogger:
                 fallback_message += f" | Exception: {exception}"
             self.logger.log(level, fallback_message)
 
-    def info(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    def info(self, message: str, context: Optional[Mapping[str, ContextValue]] = None) -> None:
         """Log info message with context."""
         self._log_structured(logging.INFO, message, context)
 
-    def warning(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    def warning(self, message: str, context: Optional[Mapping[str, ContextValue]] = None) -> None:
         """Log warning message with context."""
         self._log_structured(logging.WARNING, message, context)
 
     def error(
         self,
         message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[Mapping[str, ContextValue]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log error message with context and optional exception."""
         self._log_structured(logging.ERROR, message, context, exception)
 
-    def debug(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    def debug(self, message: str, context: Optional[Mapping[str, ContextValue]] = None) -> None:
         """Log debug message with context."""
         self._log_structured(logging.DEBUG, message, context)
 
     def critical(
         self,
         message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[Mapping[str, ContextValue]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log critical message with context and optional exception."""
@@ -108,14 +134,14 @@ class DatabaseLogger:
         """
         self.logger = StructuredLogger(f"kpicalculator.database.{component_name}")
 
-    def log_connection_attempt(self, host: str, port: int, database: str = None) -> None:
+    def log_connection_attempt(self, host: str, port: int, database: Optional[str] = None) -> None:
         """Log database connection attempt."""
         context = {"host": host, "port": port}
         if database:
             context["database"] = database
         self.logger.info("Attempting database connection", context)
 
-    def log_connection_success(self, host: str, port: int, database: str = None) -> None:
+    def log_connection_success(self, host: str, port: int, database: Optional[str] = None) -> None:
         """Log successful database connection."""
         context = {"host": host, "port": port}
         if database:
@@ -123,7 +149,7 @@ class DatabaseLogger:
         self.logger.info("Database connection established", context)
 
     def log_connection_error(
-        self, host: str, port: int, error: Exception, database: str = None
+        self, host: str, port: int, error: Exception, database: Optional[str] = None
     ) -> None:
         """Log database connection error."""
         context = {"host": host, "port": port}
@@ -152,10 +178,18 @@ class DatabaseLogger:
         self.logger.info("Executing database query", context)
 
     def log_query_success(
-        self, measurement: str, field: str, record_count: int, execution_time: float = None
+        self,
+        measurement: str,
+        field: str,
+        record_count: int,
+        execution_time: Optional[float] = None,
     ) -> None:
         """Log successful database query."""
-        context = {"measurement": measurement, "field": field, "record_count": record_count}
+        context = {
+            "measurement": measurement,
+            "field": field,
+            "record_count": record_count,
+        }
         if execution_time:
             context["execution_time_ms"] = round(execution_time * 1000, 2)
         self.logger.info("Database query completed successfully", context)
@@ -170,10 +204,10 @@ class DatabaseLogger:
         asset_id: str,
         validation_type: str,
         result: bool,
-        details: Optional[Dict[str, Any]] = None,
+        details: Optional[Mapping[str, ContextValue]] = None,
     ) -> None:
         """Log data validation results."""
-        context = {
+        context: Dict[str, ContextValue] = {
             "asset_id": asset_id,
             "validation_type": validation_type,
             "validation_result": "passed" if result else "failed",
@@ -185,31 +219,48 @@ class DatabaseLogger:
         level_method("Data validation completed", context)
 
     def log_time_series_processing(
-        self, asset_id: str, data_points: int, time_step: float, processing_time: float = None
+        self,
+        asset_id: str,
+        data_points: int,
+        time_step: float,
+        processing_time: Optional[float] = None,
     ) -> None:
         """Log time series processing."""
-        context = {"asset_id": asset_id, "data_points": data_points, "time_step_seconds": time_step}
+        context = {
+            "asset_id": asset_id,
+            "data_points": data_points,
+            "time_step_seconds": time_step,
+        }
         if processing_time:
             context["processing_time_ms"] = round(processing_time * 1000, 2)
         self.logger.info("Time series data processed", context)
 
-    def debug(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    def debug(self, message: str, context: Optional[Mapping[str, ContextValue]] = None) -> None:
         """Log debug message with context."""
         self.logger.debug(message, context)
 
-    def info(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    def info(self, message: str, context: Optional[Mapping[str, ContextValue]] = None) -> None:
         """Log info message with context."""
         self.logger.info(message, context)
 
-    def warning(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
+    def warning(self, message: str, context: Optional[Mapping[str, ContextValue]] = None) -> None:
         """Log warning message with context."""
         self.logger.warning(message, context)
+
+    def error(
+        self,
+        message: str,
+        context: Optional[Mapping[str, ContextValue]] = None,
+        exception: Optional[Exception] = None,
+    ) -> None:
+        """Log error message with context and optional exception."""
+        self.logger.error(message, context, exception)
 
 
 class SecurityLogger:
     """Specialized structured logger for security events."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize security logger."""
         self.logger = StructuredLogger("kpicalculator.security")
 
@@ -236,7 +287,11 @@ class SecurityLogger:
         self.logger.warning("Security validation failed", context)
 
     def log_security_threat(
-        self, threat_type: str, resource: str, details: Dict[str, Any], severity: str = "high"
+        self,
+        threat_type: str,
+        resource: str,
+        details: Mapping[str, ContextValue],
+        severity: str = "high",
     ) -> None:
         """Log potential security threat."""
         context = {

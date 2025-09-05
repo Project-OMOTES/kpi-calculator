@@ -133,7 +133,8 @@ class InputValidator:
             # Basic sanity check - path should still contain original filename
             if must_exist and canonical_path.name != path_obj.name:
                 raise SecurityError(
-                    f"File path resolution changed filename: {path_obj.name} -> {canonical_path.name}",
+                    f"File path resolution changed filename: "
+                    f"{path_obj.name} -> {canonical_path.name}",
                     context={"original": path_obj.name, "resolved": canonical_path.name},
                 )
 
@@ -187,7 +188,10 @@ class InputValidator:
             )
 
         # Check for common non-database ports that might indicate misconfiguration
-        if credentials.port in DANGEROUS_PORTS:
+        # Note: Port 443 is allowed as it's commonly used for HTTPS-based databases
+        # (e.g., InfluxDB over HTTPS)
+        dangerous_ports_except_https = DANGEROUS_PORTS - {443}
+        if credentials.port in dangerous_ports_except_https:
             raise ValidationError(
                 f"Port {credentials.port} is typically not used for databases. "
                 "Please verify this is correct.",
@@ -382,7 +386,8 @@ class InputValidator:
         # Check for excessively large XML
         if len(xml_string) > MAX_XML_SIZE_BYTES:
             raise ValidationError(
-                f"XML input too large: {len(xml_string)} bytes > {MAX_XML_SIZE_BYTES // (1024*1024)}MB",
+                f"XML input too large: {len(xml_string)} bytes > "
+                f"{MAX_XML_SIZE_BYTES // (1024*1024)}MB",
                 context={"size_bytes": len(xml_string)},
             )
 

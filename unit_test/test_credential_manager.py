@@ -3,14 +3,13 @@
 
 import json
 import os
-import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
+from unittest.mock import Mock, patch
 
 from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import CredentialError, SecurityError
+from src.kpicalculator.exceptions import SecurityError
 from src.kpicalculator.security.credential_manager import (
     ChainedCredentialManager,
     ConfigFileCredentialManager,
@@ -364,7 +363,10 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.config_path.write_text(json.dumps(config_data))
 
         # Mock Windows environment (no S_IRGRP/S_IROTH constants)
-        with patch('builtins.hasattr', side_effect=lambda obj, attr: attr not in ['S_IRGRP', 'S_IROTH']):
+        with patch(
+            'builtins.hasattr',
+            side_effect=lambda obj, attr: attr not in ['S_IRGRP', 'S_IROTH']
+        ):
             # Should not raise exception on Windows
             credentials = self.manager.get_database_credentials("test.com", 443)
             self.assertIsNotNone(credentials)

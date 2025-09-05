@@ -12,7 +12,6 @@ from src.kpicalculator.common.types import DatabaseCredentials
 from src.kpicalculator.exceptions import (
     ConfigurationError,
     CredentialError,
-    SecurityError,
 )
 from src.kpicalculator.security.credential_manager import (
     ChainedCredentialManager,
@@ -86,7 +85,8 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.assertIsNone(creds)
 
     @patch(
-        "src.kpicalculator.security.credential_manager.ConfigFileCredentialManager._validate_file_permissions"
+        "src.kpicalculator.security.credential_manager."
+        "ConfigFileCredentialManager._validate_file_permissions"
     )
     def test_valid_config_file(self, mock_validate_permissions):
         """Test loading credentials from valid config file."""
@@ -115,7 +115,8 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.assertTrue(creds.ssl)
 
     @patch(
-        "src.kpicalculator.security.credential_manager.ConfigFileCredentialManager._validate_file_permissions"
+        "src.kpicalculator.security.credential_manager."
+        "ConfigFileCredentialManager._validate_file_permissions"
     )
     def test_invalid_json_config(self, mock_validate_permissions):
         """Test handling of invalid JSON config file."""
@@ -126,7 +127,8 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             self.manager.get_database_credentials("test.example.com", 8086)
 
     @patch(
-        "src.kpicalculator.security.credential_manager.ConfigFileCredentialManager._validate_file_permissions"
+        "src.kpicalculator.security.credential_manager."
+        "ConfigFileCredentialManager._validate_file_permissions"
     )
     def test_missing_required_fields(self, mock_validate_permissions):
         """Test handling of config with missing required fields."""

@@ -2,7 +2,8 @@
 """Database time series loader following MESIDO InfluxDB pattern."""
 
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Protocol, List
+from datetime import datetime
 
 import pandas as pd
 from esdl import esdl
@@ -18,7 +19,7 @@ from ..common.constants import (
 )
 from ..common.logging_utils import get_database_logger
 from ..common.types import DatabaseCredentials
-from ..exceptions import CredentialError, DatabaseError, SecurityError, ValidationError
+from ..exceptions import CredentialError
 from ..security.credential_manager import (
     CredentialManager,
     create_default_credential_manager,
@@ -26,6 +27,13 @@ from ..security.credential_manager import (
 from ..security.input_validator import InputValidator
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
+
+
+class TimeSeriesDataProtocol(Protocol):
+    """Protocol for time series data from InfluxDBProfileManager."""
+    start_datetime: datetime
+    end_datetime: datetime
+    profile_data_list: List[Tuple[datetime, float]]
 
 
 class DatabaseTimeSeriesLoader:
@@ -109,7 +117,7 @@ class DatabaseTimeSeriesLoader:
         start_time = time.time()
         self.db_logger.info("Starting InfluxDB profile loading from ESDL")
 
-        time_series_data = {}
+        time_series_data: Dict[str, "TimeSeries"] = {}
         errors = []
         warnings = []
 
@@ -191,14 +199,14 @@ class DatabaseTimeSeriesLoader:
         """Extract asset ID from InfluxDB profile container."""
         try:
             # Profile associated to asset port
-            return profile.eContainer().energyasset.id
+            return str(profile.eContainer().energyasset.id)
         except AttributeError:
             try:
                 # Profile associated to carrier
-                return profile.eContainer().id
+                return str(profile.eContainer().id)
             except AttributeError:
                 # Fallback to using measurement as ID
-                return profile.measurement
+                return str(profile.measurement)
 
     def _load_profile_data(self, profile: esdl.InfluxDBProfile) -> Optional[TimeSeries]:
         """Load data for a single InfluxDB profile.
@@ -342,7 +350,9 @@ class DatabaseTimeSeriesLoader:
                 },
             ) from e
 
-    def _validate_profile_data(self, profile: esdl.InfluxDBProfile, time_series_data) -> None:
+    def _validate_profile_data(
+        self, profile: esdl.InfluxDBProfile, time_series_data: TimeSeriesDataProtocol
+    ) -> None:
         """Validate profile data following MESIDO pattern."""
         # Validate start/end dates match
         if time_series_data.end_datetime != profile.endDate:
@@ -411,7 +421,7 @@ class DatabaseTimeSeriesLoader:
             return df
 
         except Exception as e:
-            self.db_logger.warning("Unit conversion failed, using original values", exception=e)
+            self.db_logger.error("Unit conversion failed, using original values", exception=e)
             return df
 
     def set_credential_manager(self, credential_manager: CredentialManager) -> None:
