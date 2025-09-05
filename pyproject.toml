@@ -68,15 +68,13 @@ requires = [
 enabled = true
 
 [tool.pytest.ini_options]
-addopts = "--cov=kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
+addopts = "--cov=src/kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
 testpaths = ["unit_test"]
 
 [tool.coverage.run]
 source = ["src"]
 omit = [
     "src/kpicalculator/adapters/xml_time_series_adapter.py",  # Testing only - exclude from coverage
-    "src/kpicalculator/kpi_manager.py",  # TODO: Temporarily excluded until tests are updated
-    "src/kpicalculator/__init__.py",  # TODO: Temporarily excluded until tests are updated
 ]
 
 [tool.flake8]
