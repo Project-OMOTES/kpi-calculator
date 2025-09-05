@@ -314,8 +314,8 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         mock_stat_result.st_mode = 0o100600  # Regular file with 600 permissions
 
         # Mock the pathlib stat method properly
-        with patch('pathlib.Path.stat', return_value=mock_stat_result):
-            with patch('stat.S_IRGRP', 0o040), patch('stat.S_IROTH', 0o004):
+        with patch("pathlib.Path.stat", return_value=mock_stat_result):
+            with patch("stat.S_IRGRP", 0o040), patch("stat.S_IROTH", 0o004):
                 # Should not raise any exception - secure permissions
                 credentials = self.manager.get_database_credentials("test.com", 443)
                 self.assertIsNotNone(credentials)
@@ -339,8 +339,8 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         mock_stat_result.st_mode = 0o100644  # Regular file with 644 permissions (world readable)
 
         # Mock the pathlib stat method properly
-        with patch('pathlib.Path.stat', return_value=mock_stat_result):
-            with patch('stat.S_IRGRP', 0o040), patch('stat.S_IROTH', 0o004):
+        with patch("pathlib.Path.stat", return_value=mock_stat_result):
+            with patch("stat.S_IRGRP", 0o040), patch("stat.S_IROTH", 0o004):
                 with self.assertRaises(SecurityError) as context:
                     self.manager.get_database_credentials("test.com", 443)
 
@@ -364,8 +364,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
 
         # Mock Windows environment (no S_IRGRP/S_IROTH constants)
         with patch(
-            'builtins.hasattr',
-            side_effect=lambda obj, attr: attr not in ['S_IRGRP', 'S_IROTH']
+            "builtins.hasattr", side_effect=lambda obj, attr: attr not in ["S_IRGRP", "S_IROTH"]
         ):
             # Should not raise exception on Windows
             credentials = self.manager.get_database_credentials("test.com", 443)

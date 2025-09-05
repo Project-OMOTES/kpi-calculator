@@ -2,8 +2,8 @@
 """Database time series loader following MESIDO InfluxDB pattern."""
 
 import time
-from typing import Dict, Optional, Tuple, Protocol, List
 from datetime import datetime
+from typing import Dict, List, Optional, Protocol, Tuple
 
 import pandas as pd
 from esdl import esdl
@@ -31,6 +31,7 @@ from .common_model import TimeSeries
 
 class TimeSeriesDataProtocol(Protocol):
     """Protocol for time series data from InfluxDBProfileManager."""
+
     start_datetime: datetime
     end_datetime: datetime
     profile_data_list: List[Tuple[datetime, float]]
@@ -75,8 +76,7 @@ class DatabaseTimeSeriesLoader:
                     "host": host,
                     "port": port,
                     "env_prefix": (
-                        f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_"
-                        f"{port}"
+                        f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_" f"{port}"
                     ),
                 }
                 error = CredentialError(

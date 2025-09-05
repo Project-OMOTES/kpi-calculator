@@ -420,7 +420,7 @@ class InputValidator:
         if len(time_series_data) > MAX_TIME_SERIES_LENGTH:
             raise ValidationError(
                 f"{field_name} too long: {len(time_series_data)} > " f"{MAX_TIME_SERIES_LENGTH}",
-                context={"length": len(time_series_data), "max_length": MAX_TIME_SERIES_LENGTH}
+                context={"length": len(time_series_data), "max_length": MAX_TIME_SERIES_LENGTH},
             )
 
         # Validate individual values

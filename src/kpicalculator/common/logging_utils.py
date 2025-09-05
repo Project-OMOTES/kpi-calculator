@@ -7,7 +7,6 @@ import traceback
 from datetime import datetime
 from typing import Any, Dict, Mapping, Optional, TypedDict
 
-
 # Type alias for logging context values
 # We use Any here as logging context needs maximum flexibility for JSON serialization
 # This is one of the few legitimate uses of Any - for data that will be serialized
@@ -16,6 +15,7 @@ ContextValue = Any
 
 class ExceptionInfo(TypedDict):
     """Exception information structure."""
+
     type: str
     message: str
     traceback: str
@@ -23,6 +23,7 @@ class ExceptionInfo(TypedDict):
 
 class BaseLogEntry(TypedDict):
     """Base log entry structure."""
+
     timestamp: str
     message: str
     component: str
@@ -30,6 +31,7 @@ class BaseLogEntry(TypedDict):
 
 class LogEntryWithContext(BaseLogEntry, total=False):
     """Log entry with optional context and exception."""
+
     context: Mapping[str, ContextValue]
     exception: ExceptionInfo
 

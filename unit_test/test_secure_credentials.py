@@ -9,10 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import (
-    ConfigurationError,
-    CredentialError,
-)
+from src.kpicalculator.exceptions import ConfigurationError, CredentialError
 from src.kpicalculator.security.credential_manager import (
     ChainedCredentialManager,
     ConfigFileCredentialManager,
