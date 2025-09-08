@@ -38,6 +38,10 @@ jobs:
         python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v3
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
@@ -58,6 +62,10 @@ jobs:
         python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v3
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
@@ -66,7 +74,15 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run unit tests
         run: |
-          uv run pytest --junit-xml=test-results.xml unit_test/
+          echo "Current directory: $(pwd)"
+          echo "Files before test:"
+          ls -la
+          echo "Running pytest..."
+          uv run pytest --junit-xml=test-results.xml unit_test/ -v || echo "Pytest failed with exit code $?"
+          echo "Files after test:"
+          ls -la
+          echo "Looking for XML file:"
+          find . -name "test-results.xml" -type f || echo "No XML file found"
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@main
@@ -100,6 +116,10 @@ jobs:
         python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v3
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
