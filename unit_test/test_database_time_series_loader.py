@@ -1,8 +1,6 @@
 # unit_test/test_database_time_series_loader.py
 """Tests for database time series loader."""
 
-# TODO: Complete DatabaseTimeSeriesLoader implementation to enable these tests
-
 import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
@@ -30,8 +28,6 @@ class MockCredentialManager(CredentialManager):
         return self.credentials.get(key)
 
 
-# TODO: Complete DatabaseTimeSeriesLoader implementation before enabling these tests
-@unittest.skip("DatabaseTimeSeriesLoader implementation incomplete - skipping tests")
 class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     """Test database time series loader functionality."""
 
@@ -50,7 +46,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         # Create mock credential manager
         self.credential_manager = MockCredentialManager(
-            {"test.example.com:443": self.test_credentials}
+            {"test.example.com: 443": self.test_credentials}
         )
 
         # Create loader
@@ -91,7 +87,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         error = context.exception
         self.assertIn("No credentials found", str(error))
-        self.assertIn("unknown.host.com:8080", str(error))
+        self.assertIn("unknown.host.com: 8080", str(error))
         self.assertIn("host", error.context)
         self.assertIn("port", error.context)
         self.assertIn("env_prefix", error.context)
