@@ -3,6 +3,7 @@
 
 import re
 import socket
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -33,8 +34,12 @@ from ..exceptions import SecurityError, ValidationError
 class InputValidator:
     """Comprehensive input validation for security and data integrity."""
 
-    # Database validation patterns
+    # Compiled regex patterns for performance
     HOSTNAME_PATTERN = re.compile(HOSTNAME_REGEX_PATTERN)
+    PATH_TRAVERSAL_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in PATH_TRAVERSAL_PATTERNS]
+    XXE_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS]
+    DATABASE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_]+$")
+    DATABASE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
     @staticmethod
     def validate_file_path(
@@ -83,10 +88,10 @@ class InputValidator:
             )
 
         # Check for path traversal attacks
-        for pattern in PATH_TRAVERSAL_PATTERNS:
-            if re.search(pattern, path_str, re.IGNORECASE):
+        for pattern in InputValidator.PATH_TRAVERSAL_PATTERNS:
+            if pattern.search(path_str):
                 raise SecurityError(
-                    f"Path traversal attempt detected in: {file_path} (pattern: {pattern})"
+                    f"Path traversal attempt detected in: {file_path}"
                 )
 
         # Check for suspicious filenames (Windows reserved names)
@@ -223,7 +228,7 @@ class InputValidator:
 
         # Validate database name characters
         if credentials.database:
-            if not re.match(r"^[a-zA-Z0-9_-]+$", credentials.database):
+            if not InputValidator.DATABASE_NAME_PATTERN.match(credentials.database):
                 raise ValidationError(
                     f"Database name contains invalid characters: {credentials.database}. "
                     "Only letters, numbers, underscore, and hyphen allowed."
@@ -363,11 +368,10 @@ class InputValidator:
         # Check for XML External Entity (XXE) attack patterns
         xxe_patterns = XXE_ATTACK_PATTERNS
 
-        xml_upper = xml_string.upper()
-        for pattern in xxe_patterns:
-            if re.search(pattern, xml_upper, re.IGNORECASE):
+        for pattern in InputValidator.XXE_PATTERNS:
+            if pattern.search(xml_string):
                 raise SecurityError(
-                    f"Suspicious XML content detected: {pattern}"
+                    f"Suspicious XML content detected"
                 )
 
         # Check for excessively large XML
@@ -556,7 +560,7 @@ class InputValidator:
             )
 
         # CRITICAL: Only allow alphanumeric + underscore (prevent SQL injection)
-        if not re.match(r"^[a-zA-Z0-9_]+$", identifier):
+        if not InputValidator.DATABASE_IDENTIFIER_PATTERN.match(identifier):
             raise SecurityError(
                 f"Database {identifier_type} contains invalid characters: {identifier}. "
                 "Only letters, numbers, and underscores allowed (security requirement)"

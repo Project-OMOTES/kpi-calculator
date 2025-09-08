@@ -5,6 +5,7 @@ import json
 import os
 import stat
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -38,6 +39,12 @@ class SecureCredentialManager(CredentialManager):
         self.security_logger = get_security_logger()
         self.db_logger = get_database_logger("credential_manager")
 
+    @lru_cache(maxsize=128)
+    def _get_env_prefix(self, host: str, port: int) -> str:
+        """Get environment variable prefix for host:port (cached)."""
+        normalized_host = host.replace(".", "_").replace("-", "_").upper()
+        return f"KPI_DB_{normalized_host}_{port}"
+
     def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
         """Load credentials from environment variables.
 
@@ -53,9 +60,7 @@ class SecureCredentialManager(CredentialManager):
         Returns:
             DatabaseCredentials if environment variables are set, None otherwise
         """
-        # Normalize host for environment variable naming
-        normalized_host = host.replace(".", "_").replace("-", "_").upper()
-        env_prefix = f"KPI_DB_{normalized_host}_{port}"
+        env_prefix = self._get_env_prefix(host, port)
 
         username = os.getenv(f"{env_prefix}_USERNAME")
         password = os.getenv(f"{env_prefix}_PASSWORD")

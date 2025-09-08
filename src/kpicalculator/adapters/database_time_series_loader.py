@@ -3,6 +3,7 @@
 
 import time
 from datetime import datetime
+from functools import lru_cache
 from typing import Dict, List, Optional, Protocol, Tuple
 
 import pandas as pd
