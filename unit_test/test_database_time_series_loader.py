@@ -231,13 +231,15 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with patch.object(self.loader, "_get_secure_credentials") as mock_get_secure:
             mock_get_secure.return_value = self.test_credentials
 
-            # Mock input validator
+            # Mock input validator with proper return values
             with patch(
                 "src.kpicalculator.adapters.database_time_series_loader.InputValidator"
             ) as mock_validator:
+                mock_validator.validate_database_host.return_value = "test.example.com"
+                mock_validator.validate_database_port.return_value = 443
                 result = self.loader._get_credentials_for_profile(profile)
 
-        # Should strip https:// prefix (8 characters)
+        # Should strip https:// prefix (8 characters) and use validated values
         mock_get_secure.assert_called_once_with("test.example.com", 443)
         mock_validator.validate_database_credentials.assert_called()
         self.assertEqual(result, self.test_credentials)
@@ -251,10 +253,12 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with patch.object(self.loader, "_get_secure_credentials") as mock_get_secure:
             mock_get_secure.return_value = self.test_credentials
 
-            with patch("src.kpicalculator.adapters.database_time_series_loader.InputValidator"):
+            with patch("src.kpicalculator.adapters.database_time_series_loader.InputValidator") as mock_validator:
+                mock_validator.validate_database_host.return_value = "test.example.com"
+                mock_validator.validate_database_port.return_value = 8080
                 self.loader._get_credentials_for_profile(profile)
 
-        # Should strip http:// prefix (7 characters)
+        # Should strip http:// prefix (7 characters) and use validated values
         mock_get_secure.assert_called_once_with("test.example.com", 8080)
 
     def test_get_credentials_for_profile_ssl_port_443(self):
