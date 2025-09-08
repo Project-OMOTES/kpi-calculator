@@ -113,7 +113,7 @@ class ConfigFileCredentialManager(CredentialManager):
             DatabaseCredentials if found in config, None otherwise
         """
         credentials = self._load_credentials()
-        host_port_key = f"{host}:{port}"
+        host_port_key = f"{host}: {port}"
 
         if host_port_key in credentials:
             self.security_logger.log_credential_access(host, port, "config_file")

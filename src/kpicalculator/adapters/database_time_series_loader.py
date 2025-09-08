@@ -81,7 +81,7 @@ class DatabaseTimeSeriesLoader:
                     ),
                 }
                 error = CredentialError(
-                    f"No credentials found for {host}:{port}. "
+                    f"No credentials found for {host}: {port}. "
                     f"Set environment variables or configure credentials file.",
                     context=error_context,
                 )
