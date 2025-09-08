@@ -30,7 +30,13 @@ A Python package for calculating Key Performance Indicators (KPIs) for heat netw
 ```bash
 git clone https://github.com/Project-OMOTES/kpi-calculator.git
 cd kpi-calculator
-pip install -e .
+
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
+# or: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+
+# Set up development environment
+uv sync --dev
 ```
 
 ### PyPI Installation (Coming Soon)
@@ -90,17 +96,23 @@ print(f"Heat production: {results['energy']['production']} MWh thermal")
 - [IMPLEMENTATION_SUMMARY.md](doc/project/IMPLEMENTATION_SUMMARY.md) - Current implementation status
 - [ARCHITECTURAL_TODO.md](doc/project/ARCHITECTURAL_TODO.md) - Technical debt and improvements
 
-### Running Tests
-```bash
-pytest --cov=kpicalculator --cov-report html unit_test/
-```
+### Development Commands
 
-### Code Quality
 ```bash
-black src/ unit_test/
-isort src/ unit_test/
-flake8 src/ unit_test/
-mypy src/ unit_test/
+# Run tests
+uv run pytest --cov=kpicalculator --cov-report html unit_test/
+
+# Code quality checks
+uv run flake8 --max-line-length=100 ./src/ ./unit_test/
+uv run mypy ./src/kpicalculator
+uv run black src/ unit_test/
+uv run isort src/ unit_test/
+
+# Build package
+uv build
+
+# Update dependencies
+uv lock --upgrade
 ```
 
 ## Roadmap
