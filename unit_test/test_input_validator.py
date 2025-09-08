@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import SecurityError, ValidationError
-from src.kpicalculator.security.input_validator import InputValidator
+from kpicalculator.common.types import DatabaseCredentials
+from kpicalculator.exceptions import SecurityError, ValidationError
+from kpicalculator.security.input_validator import InputValidator
 
 
 class TestInputValidator(unittest.TestCase):

@@ -8,13 +8,13 @@ from unittest.mock import Mock, patch
 import pandas as pd
 from esdl import esdl
 
-from src.kpicalculator.adapters.common_model import TimeSeries
-from src.kpicalculator.adapters.database_time_series_loader import (
+from kpicalculator.adapters.common_model import TimeSeries
+from kpicalculator.adapters.database_time_series_loader import (
     DatabaseTimeSeriesLoader,
 )
-from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import CredentialError
-from src.kpicalculator.security.credential_manager import CredentialManager
+from kpicalculator.common.types import DatabaseCredentials
+from kpicalculator.exceptions import CredentialError
+from kpicalculator.security.credential_manager import CredentialManager
 
 
 class MockCredentialManager(CredentialManager):
@@ -61,7 +61,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     def test_init_with_default_credential_manager(self):
         """Test initialization with default credential manager."""
         with patch(
-            "src.kpicalculator.adapters.database_time_series_loader."
+            "kpicalculator.adapters.database_time_series_loader."
             "create_default_credential_manager"
         ) as mock_create:
             mock_manager = Mock()
@@ -145,8 +145,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         asset_id = self.loader._extract_asset_id(profile)
         self.assertEqual(asset_id, "fallback_measurement")
 
-    @patch("src.kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
-    @patch("src.kpicalculator.adapters.database_time_series_loader.InputValidator")
+    @patch("kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
+    @patch("kpicalculator.adapters.database_time_series_loader.InputValidator")
     def test_load_profile_data_success(self, mock_validator, mock_profile_manager):
         """Test successful profile data loading."""
         # Setup mocks
@@ -233,7 +233,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
             # Mock input validator with proper return values
             with patch(
-                "src.kpicalculator.adapters.database_time_series_loader.InputValidator"
+                "kpicalculator.adapters.database_time_series_loader.InputValidator"
             ) as mock_validator:
                 mock_validator.validate_database_host.return_value = "test.example.com"
                 mock_validator.validate_database_port.return_value = 443
@@ -253,7 +253,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with patch.object(self.loader, "_get_secure_credentials") as mock_get_secure:
             mock_get_secure.return_value = self.test_credentials
 
-            with patch("src.kpicalculator.adapters.database_time_series_loader.InputValidator") as mock_validator:
+            with patch("kpicalculator.adapters.database_time_series_loader.InputValidator") as mock_validator:
                 mock_validator.validate_database_host.return_value = "test.example.com"
                 mock_validator.validate_database_port.return_value = 8080
                 self.loader._get_credentials_for_profile(profile)
@@ -282,7 +282,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             mock_get_secure.return_value = non_ssl_credentials
 
             with patch(
-                "src.kpicalculator.adapters.database_time_series_loader.InputValidator"
+                "kpicalculator.adapters.database_time_series_loader.InputValidator"
             ) as mock_validator:
                 result = self.loader._get_credentials_for_profile(profile)
 
@@ -381,7 +381,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile.profileQuantityAndUnit = profile_unit
 
         with patch(
-            "src.kpicalculator.adapters.database_time_series_loader.convert_to_unit"
+            "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
         ) as mock_convert:
             mock_convert.side_effect = [150.0, 250.0, 200.0]  # Mock conversion results
 
@@ -403,7 +403,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile.profileQuantityAndUnit = profile_unit
 
         with patch(
-            "src.kpicalculator.adapters.database_time_series_loader.convert_to_unit"
+            "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
         ) as mock_convert:
             mock_convert.return_value = 1500.0
 
@@ -422,7 +422,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile.profileQuantityAndUnit = profile_unit
 
         with patch(
-            "src.kpicalculator.adapters.database_time_series_loader.convert_to_unit"
+            "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
         ) as mock_convert:
             mock_convert.return_value = 150.0
 
@@ -457,7 +457,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile.profileQuantityAndUnit = profile_unit
 
         with patch(
-            "src.kpicalculator.adapters.database_time_series_loader.convert_to_unit"
+            "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
         ) as mock_convert:
             mock_convert.side_effect = Exception("Conversion error")
 
@@ -474,7 +474,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         self.assertEqual(self.loader.credential_manager, new_manager)
 
-    @patch("src.kpicalculator.adapters.database_time_series_loader.time")
+    @patch("kpicalculator.adapters.database_time_series_loader.time")
     def test_load_time_series_from_esdl_success(self, mock_time):
         """Test successful ESDL time series loading."""
         # Mock time.time() for performance measurement

@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import SecurityError
-from src.kpicalculator.security.credential_manager import (
+from kpicalculator.common.types import DatabaseCredentials
+from kpicalculator.exceptions import SecurityError
+from kpicalculator.security.credential_manager import (
     ChainedCredentialManager,
     ConfigFileCredentialManager,
     CredentialManager,
@@ -462,7 +462,7 @@ class TestChainedCredentialManager(unittest.TestCase):
         manager2 = Mock(spec=CredentialManager)
         manager2.get_database_credentials.return_value = None
 
-        with patch("src.kpicalculator.common.logging_utils.get_database_logger"):
+        with patch("kpicalculator.common.logging_utils.get_database_logger"):
             chained = ChainedCredentialManager(manager1, manager2)
 
             credentials = chained.get_database_credentials("example.com", 443)
@@ -489,7 +489,7 @@ class TestChainedCredentialManager(unittest.TestCase):
         manager2 = Mock(spec=CredentialManager)
         manager2.get_database_credentials.return_value = test_credentials
 
-        with patch("src.kpicalculator.common.logging_utils.get_database_logger"):
+        with patch("kpicalculator.common.logging_utils.get_database_logger"):
             chained = ChainedCredentialManager(manager1, manager2)
 
             # Exception should propagate - not handled by ChainedCredentialManager
@@ -579,7 +579,7 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
             env_manager = SecureCredentialManager()
             config_manager = ConfigFileCredentialManager(config_path)
 
-            with patch("src.kpicalculator.common.logging_utils.get_database_logger"):
+            with patch("kpicalculator.common.logging_utils.get_database_logger"):
                 with patch.object(config_manager, "_validate_file_permissions"):
                     manager = ChainedCredentialManager(env_manager, config_manager)
 

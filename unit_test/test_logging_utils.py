@@ -8,7 +8,7 @@ from datetime import datetime
 from io import StringIO
 from unittest.mock import Mock, patch
 
-from src.kpicalculator.common.logging_utils import (
+from kpicalculator.common.logging_utils import (
     DatabaseLogger,
     SecurityLogger,
     StructuredLogger,
@@ -125,7 +125,7 @@ class TestStructuredLogger(unittest.TestCase):
 
     def test_timestamp_format(self):
         """Test timestamp format in logs."""
-        with patch("src.kpicalculator.common.logging_utils.datetime") as mock_datetime:
+        with patch("kpicalculator.common.logging_utils.datetime") as mock_datetime:
             mock_now = Mock()
             mock_now.isoformat.return_value = "2024-01-01T12:00:00"
             mock_datetime.now.return_value = mock_now

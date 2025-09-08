@@ -7,13 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.kpicalculator.adapters.base_adapter import BaseAdapter, ValidationResult
-from src.kpicalculator.adapters.database_time_series_loader import (
+from kpicalculator.adapters.base_adapter import BaseAdapter, ValidationResult
+from kpicalculator.adapters.database_time_series_loader import (
     DatabaseTimeSeriesLoader,
 )
-from src.kpicalculator.adapters.esdl_adapter import EsdlAdapter
-from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.security.credential_manager import CredentialManager
+from kpicalculator.adapters.esdl_adapter import EsdlAdapter
+from kpicalculator.common.types import DatabaseCredentials
+from kpicalculator.security.credential_manager import CredentialManager
 
 
 class TestBaseAdapter(unittest.TestCase):
@@ -105,7 +105,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             "KPI_DB_TEST_EXAMPLE_COM_8086_PASSWORD": "test_pass",
         },
     )
-    @patch("src.kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
+    @patch("kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
     def test_load_profile_data_success(self, mock_influx):
         """Test successful profile data loading."""
         # Create mock profile
@@ -233,7 +233,7 @@ class TestEsdlAdapterDatabaseIntegration(unittest.TestCase):
         self.assertIsNotNone(self.adapter.database_loader)
         self.assertIsInstance(self.adapter.database_loader, DatabaseTimeSeriesLoader)
 
-    @patch("src.kpicalculator.adapters.esdl_adapter.EnergySystemHandler")
+    @patch("kpicalculator.adapters.esdl_adapter.EnergySystemHandler")
     def test_load_data_database_priority(self, mock_handler):
         """Test that database profiles have priority over XML files."""
         # Create mock ESDL structure

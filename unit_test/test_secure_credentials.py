@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.kpicalculator.common.types import DatabaseCredentials
-from src.kpicalculator.exceptions import ConfigurationError, CredentialError
-from src.kpicalculator.security.credential_manager import (
+from kpicalculator.common.types import DatabaseCredentials
+from kpicalculator.exceptions import ConfigurationError, CredentialError
+from kpicalculator.security.credential_manager import (
     ChainedCredentialManager,
     ConfigFileCredentialManager,
     SecureCredentialManager,
@@ -82,7 +82,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.assertIsNone(creds)
 
     @patch(
-        "src.kpicalculator.security.credential_manager."
+        "kpicalculator.security.credential_manager."
         "ConfigFileCredentialManager._validate_file_permissions"
     )
     def test_valid_config_file(self, mock_validate_permissions):
@@ -112,7 +112,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.assertTrue(creds.ssl)
 
     @patch(
-        "src.kpicalculator.security.credential_manager."
+        "kpicalculator.security.credential_manager."
         "ConfigFileCredentialManager._validate_file_permissions"
     )
     def test_invalid_json_config(self, mock_validate_permissions):
@@ -124,7 +124,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             self.manager.get_database_credentials("test.example.com", 8086)
 
     @patch(
-        "src.kpicalculator.security.credential_manager."
+        "kpicalculator.security.credential_manager."
         "ConfigFileCredentialManager._validate_file_permissions"
     )
     def test_missing_required_fields(self, mock_validate_permissions):
@@ -211,7 +211,7 @@ class TestCredentialManagerIntegration(unittest.TestCase):
     )
     def test_database_loader_integration(self):
         """Test integration with DatabaseTimeSeriesLoader."""
-        from src.kpicalculator.adapters.database_time_series_loader import (
+        from kpicalculator.adapters.database_time_series_loader import (
             DatabaseTimeSeriesLoader,
         )
 
@@ -226,7 +226,7 @@ class TestCredentialManagerIntegration(unittest.TestCase):
 
     def test_credential_error_on_missing_credentials(self):
         """Test that CredentialError is raised when credentials are missing."""
-        from src.kpicalculator.adapters.database_time_series_loader import (
+        from kpicalculator.adapters.database_time_series_loader import (
             DatabaseTimeSeriesLoader,
         )
 
