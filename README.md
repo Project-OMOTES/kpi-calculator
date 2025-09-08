@@ -85,18 +85,7 @@ print(f"Heat production: {results['energy']['production']} MWh thermal")
 - xmltodict (XML parsing)
 - coloredlogs (logging)
 
-## Development
-
-### Project Documentation Index
-
-- [REQUIREMENTS.md](doc/project/REQUIREMENTS.md) - Business requirements and specifications
-- [DESIGN.md](doc/project/DESIGN.md) - Technical architecture and design decisions  
-- [ROADMAP.md](doc/project/ROADMAP.md) - Development priorities and timeline
-- [CLAUDE.md](doc/project/CLAUDE.md) - Development guidance and workflow
-- [IMPLEMENTATION_SUMMARY.md](doc/project/IMPLEMENTATION_SUMMARY.md) - Current implementation status
-- [ARCHITECTURAL_TODO.md](doc/project/ARCHITECTURAL_TODO.md) - Technical debt and improvements
-
-### Development Commands
+## Development Commands
 
 ```bash
 # Run tests

@@ -257,7 +257,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with patch.object(self.loader, "_get_secure_credentials") as mock_get_secure:
             mock_get_secure.return_value = self.test_credentials
 
-            with patch("kpicalculator.adapters.database_time_series_loader.InputValidator") as mock_validator:
+            with patch(
+                "kpicalculator.adapters.database_time_series_loader.InputValidator"
+            ) as mock_validator:
                 mock_validator.validate_database_host.return_value = "test.example.com"
                 mock_validator.validate_database_port.return_value = 8080
                 self.loader._get_credentials_for_profile(profile)
