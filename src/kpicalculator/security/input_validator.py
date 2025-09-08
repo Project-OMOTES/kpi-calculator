@@ -466,7 +466,7 @@ class InputValidator:
         # Prevent localhost access in production (security risk)
         if host.lower() in LOCALHOST_ADDRESSES:
             raise SecurityError(
-                f"Localhost access not allowed in production: {host}",
+                f"Localhost access is disallowed in production: {host}",
                 context={"host": host, "security_risk": "localhost_access"},
             )
 

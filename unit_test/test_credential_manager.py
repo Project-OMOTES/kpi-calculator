@@ -171,7 +171,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test successful credential retrieval from config file."""
         config_data = {
             "databases": {
-                "example.com:443": {
+                "example.com: 443": {
                     "host": "example.com",
                     "port": 443,
                     "username": "testuser",
@@ -202,7 +202,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test credential retrieval when host:port not in config."""
         config_data = {
             "databases": {
-                "other.com:443": {
+                "other.com: 443": {
                     "host": "other.com",
                     "port": 443,
                     "username": "otheruser",
@@ -235,7 +235,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test credential caching behavior."""
         config_data = {
             "databases": {
-                "example.com:443": {
+                "example.com: 443": {
                     "host": "example.com",
                     "port": 443,
                     "username": "testuser",
@@ -253,7 +253,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             # Modify file after first load
             modified_config = {
                 "databases": {
-                    "example.com:443": {
+                    "example.com: 443": {
                         "host": "example.com",
                         "port": 443,
                         "username": "modifieduser",
@@ -273,7 +273,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test credential retrieval with minimal configuration."""
         config_data = {
             "databases": {
-                "example.com:443": {
+                "example.com: 443": {
                     "host": "example.com",
                     "port": 443,
                     "username": "testuser",
@@ -299,7 +299,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test file permission validation when permissions are secure."""
         config_data = {
             "databases": {
-                "test.com:443": {
+                "test.com: 443": {
                     "host": "test.com",
                     "port": 443,
                     "username": "user",
@@ -324,7 +324,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test file permission validation when permissions are insecure."""
         config_data = {
             "databases": {
-                "test.com:443": {
+                "test.com: 443": {
                     "host": "test.com",
                     "port": 443,
                     "username": "user",
@@ -352,7 +352,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test file permission validation on Windows (should skip detailed checks)."""
         config_data = {
             "databases": {
-                "test.com:443": {
+                "test.com: 443": {
                     "host": "test.com",
                     "port": 443,
                     "username": "user",
@@ -565,7 +565,7 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
             config_path = Path(temp_dir) / "credentials.json"
             config_data = {
                 "databases": {
-                    "fallback.host:443": {
+                    "fallback.host: 443": {
                         "host": "fallback.host",
                         "port": 443,
                         "username": "configuser",

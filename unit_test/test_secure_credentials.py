@@ -89,7 +89,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test loading credentials from valid config file."""
         config = {
             "databases": {
-                "test.example.com:8086": {
+                "test.example.com: 8086": {
                     "host": "test.example.com",
                     "port": 8086,
                     "username": "config_user",
@@ -131,7 +131,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Test handling of config with missing required fields."""
         config = {
             "databases": {
-                "test.example.com:8086": {
+                "test.example.com: 8086": {
                     "host": "test.example.com",
                     "port": 8086,
                     # Missing username and password
@@ -236,7 +236,7 @@ class TestCredentialManagerIntegration(unittest.TestCase):
             loader._get_secure_credentials("missing.example.com", 9999)
 
         self.assertIn("No credentials found", str(context.exception))
-        self.assertIn("missing.example.com:9999", str(context.exception))
+        self.assertIn("missing.example.com: 9999", str(context.exception))
 
     def test_default_credential_manager_creation(self):
         """Test default credential manager creation."""
