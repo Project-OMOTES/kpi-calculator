@@ -29,14 +29,11 @@ from ..exceptions import ValidationError, SecurityError
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
 
-
 class TimeSeriesDataProtocol(Protocol):
     """Protocol for time series data from InfluxDBProfileManager."""
-
     start_datetime: datetime
     end_datetime: datetime
     profile_data_list: List[Tuple[datetime, float]]
-
 
 class DatabaseTimeSeriesLoader:
     """Load time series data from database references in ESDL files.
