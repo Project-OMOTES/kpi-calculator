@@ -1,6 +1,7 @@
 [project]
 name = "kpi-calculator"
 dynamic = ["version"]
+requires-python = ">=3.11"
 authors = [
     { name = "Jesús Andrés Rodríguez Sarasty", email = "jesusandres.rodriguez@deltares.nl" },
 ]
@@ -22,12 +23,13 @@ classifiers = [
 
 dependencies = [
     "coloredlogs~=15.0.1",
-    "numpy==1.24.3",  # Specify compatible NumPy version first
-    "pandas==1.5.3",
-    "pandas-stubs",  # Type stubs for pandas
+    "numpy>=1.24.3,<2.0", # Compatible with pandas
+    "pandas>=2.0.0,<3.0", # Use modern pandas with numpy 2.x support
+    "pandas-stubs", # Type stubs for pandas
     "pyesdl==25.5.1",
     "xmltodict==0.14.2",
-    "types-xmltodict",  # Type stubs for xmltodict
+    "types-xmltodict", # Type stubs for xmltodict
+    "influxdb>=5.3.2",
 ]
 
 [project.optional-dependencies]
@@ -70,6 +72,7 @@ enabled = true
 [tool.pytest.ini_options]
 addopts = "--cov=src/kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
 testpaths = ["unit_test"]
+pythonpath = ["src"]
 
 [tool.coverage.run]
 source = ["src"]
@@ -109,3 +112,13 @@ exclude = ['.venv/*', 'venv/*', 'doc/*', 'ci/*']
 module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*"]
 check_untyped_defs = true
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "black>=22.1.0",
+    "flake8>=6.0.0",
+    "isort>=5.13.2",
+    "mypy>=1.5.1",
+    "pytest>=7.3.2",
+    "pytest-cov>=4.0.0",
+]

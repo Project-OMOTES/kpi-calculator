@@ -12,14 +12,14 @@ jobs:
     name: Setup
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-      - run: |
-          ./ci/linux/create_venv.sh
-          ./ci/linux/install_dependencies.sh
+          version: "latest"
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      - name: Create virtual environment and install dependencies
+        run: uv sync --dev
       - name: 'Tar venv'
         run: tar -cvf venv.tar ./.venv/
       - name: Save venv
@@ -46,7 +46,8 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run lint
         run: |
-          ./ci/linux/lint.sh
+          . .venv/bin/activate
+          uv run flake8 --max-line-length=100 ./src/ ./unit_test/ --exclude=src/kpicalculator/adapters/xml_time_series_adapter.py
 
   test:
     name: Test
@@ -66,7 +67,8 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run unit tests
         run: |
-          ./ci/linux/test_unit.sh
+          . .venv/bin/activate
+          PYTHONPATH=src uv run pytest --junit-xml=test-results.xml unit_test/
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@main
@@ -110,7 +112,8 @@ jobs:
         uses: pr-annotators/mypy-pr-annotator@v1.0.0
       - name: Run typechecker
         run: |
-          ./ci/linux/typecheck.sh
+          . .venv/bin/activate
+          uv run mypy ./src/kpicalculator
 
   build:
     name: Build the python package
@@ -130,4 +133,5 @@ jobs:
         run: tar -xvf venv.tar
       - name: Build
         run: |
-          ./ci/linux/build_python_package.sh
+          . .venv/bin/activate
+          uv build
