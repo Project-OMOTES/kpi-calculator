@@ -151,11 +151,11 @@ class ConfigFileCredentialManager(CredentialManager):
                 config = json.load(f)
         except json.JSONDecodeError as e:
             raise ConfigurationError(
-                f"Invalid JSON in credentials file: {self.config_path}", context={"error": str(e)}
+                f"Invalid JSON in credentials file: {self.config_path} (error: {str(e)})"
             ) from e
         except Exception as e:
             raise ConfigurationError(
-                f"Failed to read credentials file: {self.config_path}", context={"error": str(e)}
+                f"Failed to read credentials file: {self.config_path} (error: {str(e)})"
             ) from e
 
         # Parse and validate credentials
@@ -175,8 +175,8 @@ class ConfigFileCredentialManager(CredentialManager):
                 )
             except (KeyError, TypeError) as e:
                 raise ConfigurationError(
-                    f"Invalid credential configuration for {host_port}",
-                    context={"error": str(e), "config": creds_config},
+                    f"Invalid credential configuration for {host_port} "
+                    f"(error: {str(e)}, config: {creds_config})"
                 ) from e
 
         self._cached_credentials = credentials
@@ -201,8 +201,8 @@ class ConfigFileCredentialManager(CredentialManager):
                 if file_stat.st_mode & (stat.S_IRGRP | stat.S_IROTH):
                     raise SecurityError(
                         f"Credentials file has insecure permissions: {self.config_path}. "
-                        f"File should only be readable by owner (chmod 600).",
-                        context={"file_mode": oct(file_stat.st_mode)[-3:]},
+                        f"File should only be readable by owner (chmod 600). "
+                        f"(file_mode: {oct(file_stat.st_mode)[-3:]})"
                     )
         except AttributeError:
             # Windows or other systems without detailed permission checking

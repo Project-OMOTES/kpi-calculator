@@ -88,9 +88,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         error = context.exception
         self.assertIn("No credentials found", str(error))
         self.assertIn("unknown.host.com: 8080", str(error))
-        self.assertIn("host", error.context)
-        self.assertIn("port", error.context)
-        self.assertIn("env_prefix", error.context)
+        self.assertIn("host=unknown.host.com", str(error))
+        self.assertIn("port=8080", str(error))
+        self.assertIn("env_prefix=KPI_DB_UNKNOWN_HOST_COM_8080", str(error))
 
     def test_get_secure_credentials_exception_handling(self):
         """Test credential retrieval with manager exception."""
@@ -302,7 +302,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile.field = "power"
         profile.measurement = "consumption"
 
-        original_error = CredentialError("Original error", context={"original": "context"})
+        original_error = CredentialError("Original error")
 
         with patch.object(self.loader, "_get_secure_credentials") as mock_get_secure:
             mock_get_secure.side_effect = original_error
@@ -313,9 +313,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Should wrap original error with profile context
         error = context.exception
         self.assertIn("Cannot load credentials for InfluxDB profile", str(error))
-        self.assertIn("profile_host", error.context)
-        self.assertIn("profile_port", error.context)
-        self.assertIn("profile_field", error.context)
+        self.assertIn("profile_host=test.example.com", str(error))
+        self.assertIn("profile_port=443", str(error))
+        self.assertIn("profile_field=power", str(error))
 
     def test_validate_profile_data_success(self):
         """Test successful profile data validation."""

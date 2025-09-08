@@ -13,8 +13,6 @@ from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 from ..common.constants import (
     DEFAULT_DATABASE_SSL_PORT,
     DEFAULT_TIME_STEP_SECONDS,
-    HTTP_PREFIX_LENGTH,
-    HTTPS_PREFIX_LENGTH,
     SECONDS_PER_HOUR,
 )
 from ..common.logging_utils import get_database_logger
@@ -70,17 +68,11 @@ class DatabaseTimeSeriesLoader:
             credentials = self.credential_manager.get_database_credentials(host, port)
 
             if not credentials:
-                error_context = {
-                    "host": host,
-                    "port": port,
-                    "env_prefix": (
-                        f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_{port}"
-                    ),
-                }
+                env_prefix = f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_{port}"
                 error = CredentialError(
                     f"No credentials found for {host}: {port}. "
-                    f"Set environment variables or configure credentials file.",
-                    context=error_context,
+                    f"Set environment variables or configure credentials file. "
+                    f"(Context: host={host}, port={port}, env_prefix={env_prefix})"
                 )
                 self.db_logger.log_credential_error(host, port, error)
                 raise error
@@ -270,12 +262,7 @@ class DatabaseTimeSeriesLoader:
 
             # Log data validation
             asset_id = self._extract_asset_id(profile)
-            self.db_logger.log_data_validation(
-                asset_id,
-                "time_series_values",
-                True,
-                {"value_count": len(validated_values), "measurement": measurement, "field": field},
-            )
+            self.db_logger.debug(f"Validated {len(validated_values)} time series values for {asset_id}")
 
             # Convert to TimeSeries
             return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
@@ -301,11 +288,11 @@ class DatabaseTimeSeriesLoader:
         ssl_setting = False
 
         # Handle https/http prefixes
-        if "https" in profile_host:
-            profile_host = profile_host[HTTPS_PREFIX_LENGTH:]
+        if profile_host.startswith("https://"):
+            profile_host = profile_host.removeprefix("https://")
             ssl_setting = True
-        elif "http" in profile_host:
-            profile_host = profile_host[HTTP_PREFIX_LENGTH:]
+        elif profile_host.startswith("http://"):
+            profile_host = profile_host.removeprefix("http://")
 
         # CRITICAL SECURITY FIX: Validate host and port before processing
         try:
@@ -318,16 +305,7 @@ class DatabaseTimeSeriesLoader:
             InputValidator.validate_database_identifier(profile.measurement, "measurement")
             InputValidator.validate_database_identifier(profile.field, "field")
 
-            self.db_logger.info(
-                "Database identifiers validated successfully",
-                {
-                    "host": validated_host,
-                    "port": validated_port,
-                    "database": profile.database,
-                    "measurement": profile.measurement,
-                    "field": profile.field,
-                },
-            )
+            self.db_logger.debug(f"Validated database identifiers for {validated_host}:{validated_port}")
 
         except (ValidationError, SecurityError) as e:
             self.db_logger.error(
@@ -343,12 +321,9 @@ class DatabaseTimeSeriesLoader:
                 e,
             )
             raise CredentialError(
-                f"Security validation failed for InfluxDB profile: {e}",
-                context={
-                    "profile_host": profile.host,
-                    "profile_port": profile.port,
-                    "security_check": "database_identifier_validation",
-                },
+                f"Security validation failed for InfluxDB profile: {e} "
+                f"(Context: profile_host={profile.host}, profile_port={profile.port}, "
+                f"security_check=database_identifier_validation)"
             ) from e
 
         if profile.port == DEFAULT_DATABASE_SSL_PORT:
@@ -381,15 +356,10 @@ class DatabaseTimeSeriesLoader:
         except CredentialError as e:
             # Add profile context to the error
             raise CredentialError(
-                f"Cannot load credentials for InfluxDB profile: {e}",
-                context={
-                    **e.context,
-                    "profile_host": profile.host,
-                    "profile_port": profile.port,
-                    "profile_database": profile.database,
-                    "profile_field": profile.field,
-                    "profile_measurement": profile.measurement,
-                },
+                f"Cannot load credentials for InfluxDB profile: {e} "
+                f"(Context: profile_host={profile.host}, profile_port={profile.port}, "
+                f"profile_database={profile.database}, profile_field={profile.field}, "
+                f"profile_measurement={profile.measurement})"
             ) from e
 
     def _validate_profile_data(
@@ -473,4 +443,4 @@ class DatabaseTimeSeriesLoader:
             credential_manager: New credential manager to use
         """
         self.credential_manager = credential_manager
-        self.db_logger.info("Credential manager updated successfully")
+        self.db_logger.debug("Credential manager updated")

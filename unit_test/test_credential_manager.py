@@ -346,7 +346,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
 
                 error = context.exception
                 self.assertIn("Credentials file has insecure permissions", str(error))
-                self.assertIn("file_mode", error.context)
+                self.assertIn("file_mode", str(error))
 
     def test_validate_file_permissions_windows(self):
         """Test file permission validation on Windows (should skip detailed checks)."""

@@ -62,7 +62,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("File path too long", str(error))
-        self.assertIn("path_length", error.context)
 
     def test_validate_file_path_filename_too_long(self):
         """Test file path validation with filename too long."""
@@ -74,8 +73,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("Filename too long", str(error))
-        self.assertIn("filename", error.context)
-        self.assertIn("length", error.context)
 
     def test_validate_file_path_traversal_attack(self):
         """Test file path validation detects path traversal attacks."""
@@ -94,7 +91,6 @@ class TestInputValidator(unittest.TestCase):
 
                 error = context.exception
                 self.assertIn("Path traversal attempt detected", str(error))
-                self.assertIn("pattern_matched", error.context)
 
     def test_validate_file_path_windows_reserved_names(self):
         """Test file path validation detects Windows reserved names."""
@@ -109,7 +105,6 @@ class TestInputValidator(unittest.TestCase):
 
                 error = context.exception
                 self.assertIn("Suspicious filename detected", str(error))
-                self.assertIn("filename", error.context)
 
     def test_validate_file_path_invalid_extension(self):
         """Test file path validation with invalid extension."""
@@ -122,8 +117,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("File extension not allowed", str(error))
-        self.assertIn("extension", error.context)
-        self.assertIn("allowed", error.context)
 
     def test_validate_file_path_does_not_exist(self):
         """Test file path validation when file doesn't exist."""
@@ -224,7 +217,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("Invalid hostname format", str(error))
-        self.assertIn("hostname", error.context)
 
     def test_validate_database_credentials_localhost_allowed(self):
         """Test database credential validation allows localhost."""
@@ -299,7 +291,6 @@ class TestInputValidator(unittest.TestCase):
 
                 error = context.exception
                 self.assertIn("Invalid port number", str(error))
-                self.assertIn("port", error.context)
 
     def test_validate_database_credentials_dangerous_ports(self):
         """Test database credential validation warns about dangerous ports (except 443)."""
@@ -395,7 +386,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("Database password too short", str(error))
-        self.assertIn("length", error.context)
 
     def test_validate_database_credentials_empty_password(self):
         """Test database credential validation with empty password."""
@@ -465,8 +455,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("test_value must be numeric", str(error))
-        self.assertIn("value", error.context)
-        self.assertIn("type", error.context)
 
     def test_validate_numeric_range_below_minimum(self):
         """Test numeric range validation below minimum."""
@@ -475,8 +463,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("test_value too small", str(error))
-        self.assertIn("value", error.context)
-        self.assertIn("min_allowed", error.context)
 
     def test_validate_numeric_range_above_maximum(self):
         """Test numeric range validation above maximum."""
@@ -485,8 +471,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("test_value too large", str(error))
-        self.assertIn("value", error.context)
-        self.assertIn("max_allowed", error.context)
 
     def test_validate_asset_properties_success(self):
         """Test successful asset property validation."""
@@ -522,7 +506,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("Required asset field missing", str(error))
-        self.assertIn("asset_data", error.context)
 
     def test_validate_asset_properties_numeric_out_of_range(self):
         """Test asset property validation with numeric values out of range."""
@@ -634,7 +617,6 @@ class TestInputValidator(unittest.TestCase):
 
                 error = context.exception
                 self.assertIn("Suspicious XML content detected", str(error))
-                self.assertIn("pattern", error.context)
 
     def test_sanitize_xml_input_too_large(self):
         """Test XML sanitization with input too large."""
@@ -645,7 +627,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("XML input too large", str(error))
-        self.assertIn("size_bytes", error.context)
 
     def test_validate_time_series_data_success(self):
         """Test successful time series data validation."""
@@ -678,7 +659,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("test_series too long", str(error))
-        self.assertIn("length", error.context)
 
     def test_validate_time_series_data_non_numeric_values(self):
         """Test time series validation with non-numeric values."""
@@ -689,8 +669,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("test_series[1] must be numeric", str(error))
-        self.assertIn("index", error.context)
-        self.assertIn("value", error.context)
 
     def test_validate_time_series_data_extreme_values(self):
         """Test time series validation with extreme values."""
@@ -701,8 +679,6 @@ class TestInputValidator(unittest.TestCase):
 
         error = context.exception
         self.assertIn("test_series[0] value out of reasonable range", str(error))
-        self.assertIn("index", error.context)
-        self.assertIn("value", error.context)
 
     def test_validate_time_series_data_negative_extreme(self):
         """Test time series validation with extreme negative values."""
