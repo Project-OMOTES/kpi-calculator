@@ -77,7 +77,7 @@ class DatabaseTimeSeriesLoader:
                     "host": host,
                     "port": port,
                     "env_prefix": (
-                        f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_" f"{port}"
+                        f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_{port}"
                     ),
                 }
                 error = CredentialError(

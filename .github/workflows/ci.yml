@@ -74,15 +74,7 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run unit tests
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Files before test:"
-          ls -la
-          echo "Running pytest..."
-          uv run pytest --junit-xml=test-results.xml unit_test/ -v || echo "Pytest failed with exit code $?"
-          echo "Files after test:"
-          ls -la
-          echo "Looking for XML file:"
-          find . -name "test-results.xml" -type f || echo "No XML file found"
+          uv run pytest --junit-xml=test-results.xml unit_test/
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@main
