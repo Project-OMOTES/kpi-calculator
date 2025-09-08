@@ -46,7 +46,6 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run lint
         run: |
-          . .venv/bin/activate
           uv run flake8 --max-line-length=100 ./src/ ./unit_test/ --exclude=src/kpicalculator/adapters/xml_time_series_adapter.py
 
   test:
@@ -67,7 +66,6 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run unit tests
         run: |
-          . .venv/bin/activate
           PYTHONPATH=src uv run pytest --junit-xml=test-results.xml unit_test/
       - name: Surface failing tests
         if: always()
@@ -112,7 +110,6 @@ jobs:
         uses: pr-annotators/mypy-pr-annotator@v1.0.0
       - name: Run typechecker
         run: |
-          . .venv/bin/activate
           uv run mypy ./src/kpicalculator
 
   build:
@@ -133,5 +130,4 @@ jobs:
         run: tar -xvf venv.tar
       - name: Build
         run: |
-          . .venv/bin/activate
           uv build
