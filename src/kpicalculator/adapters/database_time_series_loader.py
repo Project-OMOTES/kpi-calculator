@@ -25,6 +25,7 @@ from ..security.credential_manager import (
     create_default_credential_manager,
 )
 from ..security.input_validator import InputValidator
+from ..exceptions import ValidationError, SecurityError
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
 
@@ -309,11 +310,55 @@ class DatabaseTimeSeriesLoader:
         elif "http" in profile_host:
             profile_host = profile_host[HTTP_PREFIX_LENGTH:]
 
+        # CRITICAL SECURITY FIX: Validate host and port before processing
+        try:
+            validated_host = InputValidator.validate_database_host(profile_host)
+            validated_port = InputValidator.validate_database_port(profile.port)
+
+            # CRITICAL SECURITY FIX: Validate database identifiers to prevent injection
+            if profile.database:
+                InputValidator.validate_database_identifier(profile.database, "database")
+            InputValidator.validate_database_identifier(profile.measurement, "measurement")
+            InputValidator.validate_database_identifier(profile.field, "field")
+
+            self.db_logger.info(
+                "Database identifiers validated successfully",
+                {
+                    "host": validated_host,
+                    "port": validated_port,
+                    "database": profile.database,
+                    "measurement": profile.measurement,
+                    "field": profile.field,
+                },
+            )
+
+        except (ValidationError, SecurityError) as e:
+            self.db_logger.error(
+                "Database identifier validation failed - security risk detected",
+                {
+                    "profile_host": profile.host,
+                    "profile_port": profile.port,
+                    "profile_database": profile.database,
+                    "profile_measurement": profile.measurement,
+                    "profile_field": profile.field,
+                    "validation_error": str(e),
+                },
+                e,
+            )
+            raise CredentialError(
+                f"Security validation failed for InfluxDB profile: {e}",
+                context={
+                    "profile_host": profile.host,
+                    "profile_port": profile.port,
+                    "security_check": "database_identifier_validation",
+                },
+            ) from e
+
         if profile.port == DEFAULT_DATABASE_SSL_PORT:
             ssl_setting = True
 
         try:
-            credentials = self._get_secure_credentials(profile_host, profile.port)
+            credentials = self._get_secure_credentials(validated_host, validated_port)
 
             # Validate credentials for security
             InputValidator.validate_database_credentials(credentials)

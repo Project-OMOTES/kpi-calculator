@@ -439,3 +439,176 @@ class InputValidator:
                 )
 
         return time_series_data
+
+    @staticmethod
+    def validate_database_host(host: str) -> str:
+        """Validate database host for security - prevent localhost and invalid hosts.
+
+        This addresses the critical security fix from Phase 1 roadmap:
+        "Add host/port validation in database_time_series_loader.py
+        (prevent localhost/invalid hosts)"
+
+        Args:
+            host: Database hostname or IP address
+
+        Returns:
+            Validated host string
+
+        Raises:
+            SecurityError: If host is localhost or invalid
+            ValidationError: If host format is invalid
+        """
+        if not host or not host.strip():
+            raise ValidationError("Database host cannot be empty")
+
+        host = host.strip()
+
+        # Prevent localhost access in production (security risk)
+        if host.lower() in LOCALHOST_ADDRESSES:
+            raise SecurityError(
+                f"Localhost access not allowed in production: {host}",
+                context={"host": host, "security_risk": "localhost_access"},
+            )
+
+        # Prevent private/internal IP ranges (additional security)
+        if host.startswith(("10.", "192.168.", "172.")):
+            raise SecurityError(
+                f"Private IP address not allowed: {host}",
+                context={"host": host, "security_risk": "private_ip"},
+            )
+
+        # Validate hostname format
+        if not InputValidator.HOSTNAME_PATTERN.match(host):
+            # Check if it's a valid public IP address
+            try:
+                socket.inet_aton(host)  # IPv4
+                # Additional check for public IP ranges
+                octets = host.split(".")
+                if len(octets) == 4:
+                    first_octet = int(octets[0])
+                    # Prevent reserved IP ranges
+                    if (
+                        first_octet in [0, 10, 127]
+                        or (first_octet == 172 and 16 <= int(octets[1]) <= 31)
+                        or (first_octet == 192 and octets[1] == "168")
+                    ):
+                        raise SecurityError(
+                            f"Reserved or private IP address not allowed: {host}",
+                            context={"host": host, "security_risk": "reserved_ip"},
+                        )
+            except (socket.error, ValueError):
+                try:
+                    socket.inet_pton(socket.AF_INET6, host)  # IPv6
+                except socket.error:
+                    raise ValidationError(
+                        f"Invalid hostname or IP address format: {host}", context={"host": host}
+                    )
+
+        return host
+
+    @staticmethod
+    def validate_database_port(port: int) -> int:
+        """Validate database port for security and correctness.
+
+        This addresses the critical security fix from Phase 1 roadmap:
+        "Add host/port validation in database_time_series_loader.py"
+
+        Args:
+            port: Database port number
+
+        Returns:
+            Validated port number
+
+        Raises:
+            ValidationError: If port is invalid or dangerous
+        """
+        if not isinstance(port, int):
+            raise ValidationError(
+                f"Port must be integer, got {type(port).__name__}", context={"port": port}
+            )
+
+        # Standard port validation
+        if not (MIN_PORT_NUMBER <= port <= MAX_PORT_NUMBER):
+            raise ValidationError(
+                f"Invalid port number: {port}. Must be {MIN_PORT_NUMBER}-{MAX_PORT_NUMBER}",
+                context={"port": port},
+            )
+
+        # Check for dangerous ports (except HTTPS which is common for databases)
+        dangerous_ports_except_https = DANGEROUS_PORTS - {443}
+        if port in dangerous_ports_except_https:
+            raise ValidationError(
+                f"Port {port} is not typically used for databases and may be dangerous",
+                context={"port": port, "security_risk": "dangerous_port"},
+            )
+
+        return port
+
+    @staticmethod
+    def validate_database_identifier(
+        identifier: str, identifier_type: str = "identifier"
+    ) -> str:
+        """Validate database identifiers (names, measurements, fields) for injection prevention.
+
+        This addresses the critical security fixes from Phase 1 roadmap:
+        - "Implement database name sanitization (prevent injection attacks)"
+        - "Add measurement and field name validation (alphanumeric + underscore only)"
+
+        Args:
+            identifier: Database identifier (name, measurement, field)
+            identifier_type: Type of identifier for error messages
+
+        Returns:
+            Validated identifier string
+
+        Raises:
+            ValidationError: If identifier contains invalid characters
+            SecurityError: If identifier appears to be an injection attempt
+        """
+        if not identifier or not identifier.strip():
+            raise ValidationError(f"Database {identifier_type} cannot be empty")
+
+        identifier = identifier.strip()
+
+        # Length check
+        max_length = MAX_DATABASE_NAME_LENGTH if identifier_type == "database" else 100
+        if len(identifier) > max_length:
+            raise ValidationError(
+                f"Database {identifier_type} too long: {len(identifier)} > {max_length}",
+                context={identifier_type: identifier, "length": len(identifier)},
+            )
+
+        # CRITICAL: Only allow alphanumeric + underscore (prevent SQL injection)
+        if not re.match(r"^[a-zA-Z0-9_]+$", identifier):
+            raise SecurityError(
+                f"Database {identifier_type} contains invalid characters: {identifier}. "
+                "Only letters, numbers, and underscores allowed (security requirement)",
+                context={
+                    identifier_type: identifier,
+                    "security_risk": "potential_injection",
+                    "allowed_pattern": "^[a-zA-Z0-9_]+$",
+                },
+            )
+
+        # Additional injection pattern detection
+        suspicious_patterns = ["--", ";", "drop", "select", "union", "insert", "update", "delete"]
+        identifier_lower = identifier.lower()
+        for pattern in suspicious_patterns:
+            if pattern in identifier_lower:
+                raise SecurityError(
+                    f"Database {identifier_type} contains suspicious pattern: {identifier}",
+                    context={
+                        identifier_type: identifier,
+                        "suspicious_pattern": pattern,
+                        "security_risk": "sql_injection_attempt",
+                    },
+                )
+
+        # Must start with letter or underscore (SQL best practice)
+        if not identifier[0].isalpha() and identifier[0] != "_":
+            raise ValidationError(
+                f"Database {identifier_type} must start with letter or underscore: {identifier}",
+                context={identifier_type: identifier},
+            )
+
+        return identifier
