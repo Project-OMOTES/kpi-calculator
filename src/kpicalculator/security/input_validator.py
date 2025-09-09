@@ -3,7 +3,6 @@
 
 import re
 import socket
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -37,7 +36,9 @@ class InputValidator:
     # Compiled regex patterns for performance
     HOSTNAME_PATTERN = re.compile(HOSTNAME_REGEX_PATTERN)
     PATH_TRAVERSAL_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in PATH_TRAVERSAL_PATTERNS]
-    XXE_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS]
+    XXE_PATTERNS = [
+        re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS
+    ]
     DATABASE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_]+$")
     DATABASE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -366,13 +367,9 @@ class InputValidator:
             raise ValidationError("XML input must be non-empty string")
 
         # Check for XML External Entity (XXE) attack patterns
-        xxe_patterns = XXE_ATTACK_PATTERNS
-
         for pattern in InputValidator.XXE_PATTERNS:
             if pattern.search(xml_string):
-                raise SecurityError(
-                    f"Suspicious XML content detected"
-                )
+                raise SecurityError("Suspicious XML content detected")
 
         # Check for excessively large XML
         if len(xml_string) > MAX_XML_SIZE_BYTES:
@@ -572,13 +569,15 @@ class InputValidator:
         for pattern in suspicious_patterns:
             if pattern in identifier_lower:
                 raise SecurityError(
-                    f"Database {identifier_type} contains suspicious pattern: {identifier} (pattern: {pattern})"
+                    f"Database {identifier_type} contains suspicious pattern: "
+                    f"{identifier} (pattern: {pattern})"
                 )
 
         # Must start with letter or underscore (SQL best practice)
         if not identifier[0].isalpha() and identifier[0] != "_":
             raise ValidationError(
-                f"Database {identifier_type} must start with letter or underscore: {identifier}"
+                f"Database {identifier_type} must start with letter or underscore: "
+                f"{identifier}"
             )
 
         return identifier

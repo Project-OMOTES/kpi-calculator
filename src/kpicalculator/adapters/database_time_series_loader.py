@@ -3,7 +3,6 @@
 
 import time
 from datetime import datetime
-from functools import lru_cache
 from typing import Dict, List, Optional, Protocol, Tuple
 
 import pandas as pd
@@ -28,11 +27,13 @@ from ..exceptions import ValidationError, SecurityError
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
 
+
 class TimeSeriesDataProtocol(Protocol):
     """Protocol for time series data from InfluxDBProfileManager."""
     start_datetime: datetime
     end_datetime: datetime
     profile_data_list: List[Tuple[datetime, float]]
+
 
 class DatabaseTimeSeriesLoader:
     """Load time series data from database references in ESDL files.
@@ -263,7 +264,9 @@ class DatabaseTimeSeriesLoader:
 
             # Log data validation
             asset_id = self._extract_asset_id(profile)
-            self.db_logger.debug(f"Validated {len(validated_values)} time series values for {asset_id}")
+            self.db_logger.debug(
+                f"Validated {len(validated_values)} time series values for {asset_id}"
+            )
 
             # Convert to TimeSeries
             return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
@@ -303,10 +306,14 @@ class DatabaseTimeSeriesLoader:
             # CRITICAL SECURITY FIX: Validate database identifiers to prevent injection
             if profile.database:
                 InputValidator.validate_database_identifier(profile.database, "database")
-            InputValidator.validate_database_identifier(profile.measurement, "measurement")
+            InputValidator.validate_database_identifier(
+                profile.measurement, "measurement"
+            )
             InputValidator.validate_database_identifier(profile.field, "field")
 
-            self.db_logger.debug(f"Validated database identifiers for {validated_host}:{validated_port}")
+            self.db_logger.debug(
+                f"Validated database identifiers for {validated_host}:{validated_port}"
+            )
 
         except (ValidationError, SecurityError) as e:
             self.db_logger.error(
