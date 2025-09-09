@@ -311,7 +311,7 @@ class DatabaseTimeSeriesLoader:
             InputValidator.validate_database_identifier(profile.field, "field")
 
             self.db_logger.debug(
-                f"Validated database identifiers for {validated_host}:{validated_port}"
+                f"Validated database identifiers for {validated_host}: {validated_port}"
             )
 
         except (ValidationError, SecurityError) as e:

@@ -122,6 +122,11 @@ dev = [
     "mypy>=1.5.1",
     "pytest>=7.3.2",
     "pytest-cov>=4.0.0",
-    "pipdeptree>=2.0.0",  # For Maintenance dependency analysis
+    "pipdeptree>=2.0.0",  # For maintenance dependency analysis
     "httpie>=3.0.0",      # For API testing and integration work
+    "codespell>=2.0.0",   # For typo detection in code and comments
+    "vulture>=2.0.0",     # For dead code detection and correctness review
+    "pylint>=3.0.0",      # For comprehensive bug and logic error detection
+    "radon>=6.0.0",       # For code complexity analysis
+    "xenon>=0.9.0",       # For complexity threshold monitoring
 ]
