@@ -115,10 +115,13 @@ ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
+    "bandit>=1.8.6",
     "black>=22.1.0",
     "flake8>=6.0.0",
     "isort>=5.13.2",
     "mypy>=1.5.1",
     "pytest>=7.3.2",
     "pytest-cov>=4.0.0",
+    "pipdeptree>=3.0.0",  # For Maintenance dependency analysis
+    "httpie>=3.0.0",      # For API testing and integration work
 ]
