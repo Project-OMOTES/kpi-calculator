@@ -35,10 +35,10 @@ class InputValidator:
 
     # Compiled regex patterns for performance
     HOSTNAME_PATTERN = re.compile(HOSTNAME_REGEX_PATTERN)
-    PATH_TRAVERSAL_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in PATH_TRAVERSAL_PATTERNS]
-    XXE_PATTERNS = [
-        re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS
+    PATH_TRAVERSAL_PATTERNS = [
+        re.compile(pattern, re.IGNORECASE) for pattern in PATH_TRAVERSAL_PATTERNS
     ]
+    XXE_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS]
     DATABASE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_]+$")
     DATABASE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -69,9 +69,7 @@ class InputValidator:
         try:
             path_obj = Path(file_path) if isinstance(file_path, str) else file_path
         except Exception as e:
-            raise ValidationError(
-                f"Invalid file path format: {file_path} (error: {str(e)})"
-            )
+            raise ValidationError(f"Invalid file path format: {file_path} (error: {str(e)})")
 
         # Convert to string for pattern matching
         path_str = str(path_obj)
@@ -91,16 +89,12 @@ class InputValidator:
         # Check for path traversal attacks
         for pattern in InputValidator.PATH_TRAVERSAL_PATTERNS:
             if pattern.search(path_str):
-                raise SecurityError(
-                    f"Path traversal attempt detected in: {file_path}"
-                )
+                raise SecurityError(f"Path traversal attempt detected in: {file_path}")
 
         # Check for suspicious filenames (Windows reserved names)
         filename_base = path_obj.stem.lower()
         if filename_base in WINDOWS_RESERVED_NAMES:
-            raise SecurityError(
-                f"Suspicious filename detected: {path_obj.name}"
-            )
+            raise SecurityError(f"Suspicious filename detected: {path_obj.name}")
 
         # Validate file extension
         extensions = allowed_extensions or [".esdl", ".xml", ".csv", ".json", ".txt"]
@@ -113,9 +107,7 @@ class InputValidator:
         try:
             resolved_path = path_obj.resolve()
         except Exception as e:
-            raise ValidationError(
-                f"Cannot resolve file path: {file_path} (error: {str(e)})"
-            )
+            raise ValidationError(f"Cannot resolve file path: {file_path} (error: {str(e)})")
 
         # Check if file exists (if required)
         if must_exist:
@@ -174,9 +166,7 @@ class InputValidator:
                     try:
                         socket.inet_pton(socket.AF_INET6, credentials.host)  # IPv6
                     except socket.error:
-                        raise SecurityError(
-                            f"Invalid hostname format: {credentials.host}"
-                        )
+                        raise SecurityError(f"Invalid hostname format: {credentials.host}")
 
         # Validate port
         if not (MIN_PORT_NUMBER <= credentials.port <= MAX_PORT_NUMBER):
@@ -257,19 +247,13 @@ class InputValidator:
             ValidationError: If value is out of range or invalid
         """
         if not isinstance(value, (int, float)):
-            raise ValidationError(
-                f"{field_name} must be numeric, got {type(value).__name__}"
-            )
+            raise ValidationError(f"{field_name} must be numeric, got {type(value).__name__}")
 
         if min_val is not None and value < min_val:
-            raise ValidationError(
-                f"{field_name} too small: {value} < {min_val}"
-            )
+            raise ValidationError(f"{field_name} too small: {value} < {min_val}")
 
         if max_val is not None and value > max_val:
-            raise ValidationError(
-                f"{field_name} too large: {value} > {max_val}"
-            )
+            raise ValidationError(f"{field_name} too large: {value} > {max_val}")
 
         return value
 
@@ -292,9 +276,7 @@ class InputValidator:
         required_fields = ["id", "name", "asset_type"]
         for field in required_fields:
             if field not in asset_data or not asset_data[field]:
-                raise ValidationError(
-                    f"Required asset field missing: {field}"
-                )
+                raise ValidationError(f"Required asset field missing: {field}")
 
         # Validate numeric properties with reasonable ranges
         numeric_validations = [
@@ -418,9 +400,7 @@ class InputValidator:
 
             # Check for reasonable energy/power values (avoid negative or extreme values)
             if value < TIME_SERIES_VALUE_RANGE[0] or value > TIME_SERIES_VALUE_RANGE[1]:
-                raise ValidationError(
-                    f"{field_name}[{i}] value out of reasonable range: {value}"
-                )
+                raise ValidationError(f"{field_name}[{i}] value out of reasonable range: {value}")
 
         return time_series_data
 
@@ -449,15 +429,11 @@ class InputValidator:
 
         # Prevent localhost access in production (security risk)
         if host.lower() in LOCALHOST_ADDRESSES:
-            raise SecurityError(
-                f"Localhost access is disallowed in production: {host}"
-            )
+            raise SecurityError(f"Localhost access is disallowed in production: {host}")
 
         # Prevent private/internal IP ranges (additional security)
         if host.startswith(("10.", "192.168.", "172.")):
-            raise SecurityError(
-                f"Private IP address not allowed: {host}"
-            )
+            raise SecurityError(f"Private IP address not allowed: {host}")
 
         # Validate hostname format
         if not InputValidator.HOSTNAME_PATTERN.match(host):
@@ -474,16 +450,12 @@ class InputValidator:
                         or (first_octet == 172 and 16 <= int(octets[1]) <= 31)
                         or (first_octet == 192 and octets[1] == "168")
                     ):
-                        raise SecurityError(
-                            f"Reserved or private IP address not allowed: {host}"
-                        )
+                        raise SecurityError(f"Reserved or private IP address not allowed: {host}")
             except (socket.error, ValueError):
                 try:
                     socket.inet_pton(socket.AF_INET6, host)  # IPv6
                 except socket.error:
-                    raise ValidationError(
-                        f"Invalid hostname or IP address format: {host}"
-                    )
+                    raise ValidationError(f"Invalid hostname or IP address format: {host}")
 
         return host
 
@@ -504,9 +476,7 @@ class InputValidator:
             ValidationError: If port is invalid or dangerous
         """
         if not isinstance(port, int):
-            raise ValidationError(
-                f"Port must be integer, got {type(port).__name__}"
-            )
+            raise ValidationError(f"Port must be integer, got {type(port).__name__}")
 
         # Standard port validation
         if not (MIN_PORT_NUMBER <= port <= MAX_PORT_NUMBER):
@@ -524,9 +494,7 @@ class InputValidator:
         return port
 
     @staticmethod
-    def validate_database_identifier(
-        identifier: str, identifier_type: str = "identifier"
-    ) -> str:
+    def validate_database_identifier(identifier: str, identifier_type: str = "identifier") -> str:
         """Validate database identifiers (names, measurements, fields) for injection prevention.
 
         This addresses the critical security fixes from Phase 1 roadmap:
@@ -576,8 +544,7 @@ class InputValidator:
         # Must start with letter or underscore (SQL best practice)
         if not identifier[0].isalpha() and identifier[0] != "_":
             raise ValidationError(
-                f"Database {identifier_type} must start with letter or underscore: "
-                f"{identifier}"
+                f"Database {identifier_type} must start with letter or underscore: " f"{identifier}"
             )
 
         return identifier

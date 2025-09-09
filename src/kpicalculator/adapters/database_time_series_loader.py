@@ -30,6 +30,7 @@ from .common_model import TimeSeries
 
 class TimeSeriesDataProtocol(Protocol):
     """Protocol for time series data from InfluxDBProfileManager."""
+
     start_datetime: datetime
     end_datetime: datetime
     profile_data_list: List[Tuple[datetime, float]]
@@ -306,9 +307,7 @@ class DatabaseTimeSeriesLoader:
             # CRITICAL SECURITY FIX: Validate database identifiers to prevent injection
             if profile.database:
                 InputValidator.validate_database_identifier(profile.database, "database")
-            InputValidator.validate_database_identifier(
-                profile.measurement, "measurement"
-            )
+            InputValidator.validate_database_identifier(profile.measurement, "measurement")
             InputValidator.validate_database_identifier(profile.field, "field")
 
             self.db_logger.debug(

@@ -37,7 +37,7 @@ dev = [
     "setuptools ~= 69.0.3",
     "wheel ~= 0.40.0",
     "setuptools-git-versioning < 2",
-    "black~=22.1.0",
+    "black>=24.0.0",
     "flake8==6.0.0",
     "Flake8-pyproject==1.2.3",
     "pytest ~=7.3.1",
@@ -116,7 +116,7 @@ ignore_missing_imports = true
 [dependency-groups]
 dev = [
     "bandit>=1.8.6",
-    "black>=22.1.0",
+    "black>=24.0.0",
     "flake8>=6.0.0",
     "isort>=5.13.2",
     "mypy>=1.5.1",
