@@ -9,9 +9,7 @@ import pandas as pd
 from esdl import esdl
 
 from kpicalculator.adapters.common_model import TimeSeries
-from kpicalculator.adapters.database_time_series_loader import (
-    DatabaseTimeSeriesLoader,
-)
+from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
 from kpicalculator.common.types import DatabaseCredentials
 from kpicalculator.exceptions import CredentialError
 from kpicalculator.security.credential_manager import CredentialManager

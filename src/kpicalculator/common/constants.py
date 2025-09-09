@@ -42,7 +42,9 @@ MAX_PORT_NUMBER = 65535
 MINIMUM_PASSWORD_LENGTH = 8
 
 # Security-related ports to validate against
-DANGEROUS_PORTS = {22, 23, 80, 443, 3389, 5985, 5986}  # SSH, Telnet, HTTP, HTTPS, RDP, WinRM
+DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM
+# Secure database ports (allowed for SSL/TLS connections)
+SECURE_DATABASE_PORTS = {443, 8443}
 
 # Asset property validation ranges
 ASSET_VALIDATION_RANGES = {

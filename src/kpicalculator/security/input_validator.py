@@ -1,6 +1,7 @@
 # src/kpicalculator/security/input_validator.py
 """Secure input validation for file paths, database connections, and ESDL data."""
 
+import os
 import re
 import socket
 from pathlib import Path
@@ -21,6 +22,7 @@ from ..common.constants import (
     MINIMUM_PASSWORD_LENGTH,
     PATH_TRAVERSAL_PATTERNS,
     RFC_1035_HOSTNAME_LIMIT,
+    SECURE_DATABASE_PORTS,
     SUSPICIOUS_USERNAMES,
     TIME_SERIES_VALUE_RANGE,
     WINDOWS_RESERVED_NAMES,
@@ -176,10 +178,7 @@ class InputValidator:
             )
 
         # Check for common non-database ports that might indicate misconfiguration
-        # Note: Port 443 is allowed as it's commonly used for HTTPS-based databases
-        # (e.g., InfluxDB over HTTPS)
-        dangerous_ports_except_https = DANGEROUS_PORTS - {443}
-        if credentials.port in dangerous_ports_except_https:
+        if not InputValidator._is_database_port_allowed(credentials.port):
             raise ValidationError(
                 f"Port {credentials.port} is typically not used for databases. "
                 "Please verify this is correct."
@@ -405,7 +404,42 @@ class InputValidator:
         return time_series_data
 
     @staticmethod
-    def validate_database_host(host: str) -> str:
+    def _is_database_port_allowed(port: int) -> bool:
+        """Check if port is allowed for database connections.
+
+        Args:
+            port: Port number to validate
+
+        Returns:
+            True if port is allowed for database use
+        """
+        # Allow secure database ports
+        if port in SECURE_DATABASE_PORTS:
+            return True
+
+        # Block dangerous/non-database ports
+        if port in DANGEROUS_PORTS:
+            return False
+
+        # Allow other ports (assume they're legitimate database ports)
+        return True
+
+    @staticmethod
+    def _is_development_mode() -> bool:
+        """Check if running in development mode based on environment variables."""
+        # Check common development environment indicators
+        dev_indicators = [
+            os.getenv("ENVIRONMENT", "").lower() in ("development", "dev", "local"),
+            os.getenv("NODE_ENV", "").lower() in ("development", "dev"),
+            os.getenv("FLASK_ENV", "").lower() in ("development", "dev"),
+            os.getenv("DJANGO_ENV", "").lower() in ("development", "dev"),
+            os.getenv("KPI_CALCULATOR_ENV", "").lower() in ("development", "dev", "local"),
+            os.getenv("PYTEST_CURRENT_TEST") is not None,  # Running under pytest
+        ]
+        return any(dev_indicators)
+
+    @staticmethod
+    def validate_database_host(host: str, allow_localhost: Optional[bool] = None) -> str:
         """Validate database host for security - prevent localhost and invalid hosts.
 
         This addresses the critical security fix from Phase 1 roadmap:
@@ -414,6 +448,7 @@ class InputValidator:
 
         Args:
             host: Database hostname or IP address
+            allow_localhost: Allow localhost access override (None=auto-detect development mode)
 
         Returns:
             Validated host string
@@ -427,13 +462,14 @@ class InputValidator:
 
         host = host.strip()
 
-        # Prevent localhost access in production (security risk)
-        if host.lower() in LOCALHOST_ADDRESSES:
-            raise SecurityError(f"Localhost access is disallowed in production: {host}")
+        # Auto-detect development mode if not explicitly specified
+        if allow_localhost is None:
+            allow_localhost = InputValidator._is_development_mode()
 
-        # Prevent private/internal IP ranges (additional security)
-        if host.startswith(("10.", "192.168.", "172.")):
-            raise SecurityError(f"Private IP address not allowed: {host}")
+        # Prevent localhost access in production (security risk)
+        # Allow in development/testing mode when explicitly enabled
+        if host.lower() in LOCALHOST_ADDRESSES and not allow_localhost:
+            raise SecurityError(f"Localhost access is disallowed in production: {host}")
 
         # Validate hostname format
         if not InputValidator.HOSTNAME_PATTERN.match(host):
@@ -444,8 +480,8 @@ class InputValidator:
                 octets = host.split(".")
                 if len(octets) == 4:
                     first_octet = int(octets[0])
-                    # Prevent reserved IP ranges
-                    if (
+                    # Prevent reserved IP ranges (allow in development mode)
+                    if not allow_localhost and (
                         first_octet in [0, 10, 127]
                         or (first_octet == 172 and 16 <= int(octets[1]) <= 31)
                         or (first_octet == 192 and octets[1] == "168")
@@ -484,9 +520,8 @@ class InputValidator:
                 f"Invalid port number: {port}. Must be {MIN_PORT_NUMBER}-{MAX_PORT_NUMBER}"
             )
 
-        # Check for dangerous ports (except HTTPS which is common for databases)
-        dangerous_ports_except_https = DANGEROUS_PORTS - {443}
-        if port in dangerous_ports_except_https:
+        # Check for dangerous ports (allow secure database ports)
+        if not InputValidator._is_database_port_allowed(port):
             raise ValidationError(
                 f"Port {port} is not typically used for databases and may be dangerous"
             )

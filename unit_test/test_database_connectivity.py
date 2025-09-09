@@ -8,9 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from kpicalculator.adapters.base_adapter import BaseAdapter, ValidationResult
-from kpicalculator.adapters.database_time_series_loader import (
-    DatabaseTimeSeriesLoader,
-)
+from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
 from kpicalculator.adapters.esdl_adapter import EsdlAdapter
 from kpicalculator.common.types import DatabaseCredentials
 from kpicalculator.security.credential_manager import CredentialManager
