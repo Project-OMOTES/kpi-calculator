@@ -37,14 +37,11 @@ dev = [
     "setuptools ~= 69.0.3",
     "wheel ~= 0.40.0",
     "setuptools-git-versioning < 2",
-    "black>=24.0.0",
-    "flake8==6.0.0",
-    "Flake8-pyproject==1.2.3",
+    "ruff>=0.6.0",
     "pytest ~=7.3.1",
     "pytest-cov ~=4.0.0",
     "bump2version==1.0.1",
     "mypy ~= 1.5.1",
-    "isort==5.13.2",
     "build ~= 1.0.3",
     "pre-commit ~= 3.6.0",
 ]
@@ -80,24 +77,36 @@ omit = [
     "src/kpicalculator/adapters/xml_time_series_adapter.py",  # Testing only - exclude from coverage
 ]
 
-[tool.flake8]
-exclude = ['.venv/*', 'venv/*', 'doc/*']
-ignore = [
-    'Q000', # Remove bad quotes
-    'D401', # Docstring First line should be imperative
-    'E203', # Space before colon (not PEP-8 compliant, and conflicts with black)
-    'C408', # Suggestion to use dict() over {}
-    'W503', # Starting lines with operators.
-]
-per-file-ignores = ['__init__.py:F401', 'test_main.py:D100,D101,D102,D103']
-max-line-length = 100
-count = true
-
-[tool.black]
+# Ruff replaces flake8, isort, and black
+[tool.ruff]
 line-length = 100
+target-version = "py311"
+exclude = [".venv", "venv", "doc", "code_bases"]
 
-[tool.isort]
-profile = "black"
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E203", # Space before colon (conflicts with formatter)
+    "C408", # Suggestion to use dict() over {}
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"test_*.py" = ["D100", "D101", "D102", "D103"]
+"src/kpicalculator/adapters/xml_time_series_adapter.py" = ["E501", "F401", "F841"]  # Testing only
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.11"

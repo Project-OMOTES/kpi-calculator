@@ -7,7 +7,6 @@ import stat
 from abc import ABC, abstractmethod
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Optional
 
 from ..common.logging_utils import get_database_logger, get_security_logger
 from ..common.types import DatabaseCredentials
@@ -18,7 +17,7 @@ class CredentialManager(ABC):
     """Abstract base class for credential management."""
 
     @abstractmethod
-    def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
+    def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Get database credentials for host:port combination.
 
         Args:
@@ -45,7 +44,7 @@ class SecureCredentialManager(CredentialManager):
         normalized_host = host.replace(".", "_").replace("-", "_").upper()
         return f"KPI_DB_{normalized_host}_{port}"
 
-    def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
+    def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Load credentials from environment variables.
 
         Environment variable format:
@@ -95,7 +94,7 @@ class SecureCredentialManager(CredentialManager):
 class ConfigFileCredentialManager(CredentialManager):
     """Load credentials from secure configuration files."""
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize with optional config file path.
 
         Args:
@@ -103,11 +102,11 @@ class ConfigFileCredentialManager(CredentialManager):
                         Defaults to ~/.kpi-calculator/credentials.json
         """
         self.config_path = config_path or Path.home() / ".kpi-calculator" / "credentials.json"
-        self._cached_credentials: Optional[Dict[str, DatabaseCredentials]] = None
+        self._cached_credentials: dict[str, DatabaseCredentials] | None = None
         self.security_logger = get_security_logger()
         self.db_logger = get_database_logger("credential_manager")
 
-    def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
+    def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Get credentials from config file.
 
         Args:
@@ -128,7 +127,7 @@ class ConfigFileCredentialManager(CredentialManager):
         self.db_logger.debug("No credentials found in config file", {"host": host, "port": port})
         return None
 
-    def _load_credentials(self) -> Dict[str, DatabaseCredentials]:
+    def _load_credentials(self) -> dict[str, DatabaseCredentials]:
         """Load credentials from config file with security validation.
 
         Returns:
@@ -152,7 +151,7 @@ class ConfigFileCredentialManager(CredentialManager):
         self._validate_file_permissions()
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 config = json.load(f)
         except json.JSONDecodeError as e:
             raise ConfigurationError(
@@ -234,7 +233,7 @@ class ChainedCredentialManager(CredentialManager):
         self.managers = managers
         self.db_logger = get_database_logger("credential_manager")
 
-    def get_database_credentials(self, host: str, port: int) -> Optional[DatabaseCredentials]:
+    def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Try credential managers in order until credentials are found.
 
         Args:

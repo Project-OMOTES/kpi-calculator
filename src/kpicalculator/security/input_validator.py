@@ -5,7 +5,7 @@ import os
 import re
 import socket
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from ..common.constants import (
     DANGEROUS_PORTS,
@@ -46,8 +46,8 @@ class InputValidator:
 
     @staticmethod
     def validate_file_path(
-        file_path: Union[str, Path],
-        allowed_extensions: Optional[List[str]] = None,
+        file_path: str | Path,
+        allowed_extensions: list[str] | None = None,
         must_exist: bool = True,
     ) -> Path:
         """Validate file path for security and existence.
@@ -154,7 +154,7 @@ class InputValidator:
 
         if len(credentials.host) > RFC_1035_HOSTNAME_LIMIT:
             raise ValidationError(
-                f"Hostname too long: {len(credentials.host)} > " f"{RFC_1035_HOSTNAME_LIMIT}"
+                f"Hostname too long: {len(credentials.host)} > {RFC_1035_HOSTNAME_LIMIT}"
             )
 
         # Check for suspicious characters in hostname
@@ -164,10 +164,10 @@ class InputValidator:
                 # Check if it's a valid IP address
                 try:
                     socket.inet_aton(credentials.host)  # IPv4
-                except socket.error:
+                except OSError:
                     try:
                         socket.inet_pton(socket.AF_INET6, credentials.host)  # IPv6
-                    except socket.error:
+                    except OSError:
                         raise SecurityError(f"Invalid hostname format: {credentials.host}")
 
         # Validate port
@@ -190,8 +190,7 @@ class InputValidator:
 
         if len(credentials.username) > MAX_USERNAME_LENGTH:
             raise ValidationError(
-                f"Username too long: {len(credentials.username)} > "
-                f"{MAX_USERNAME_LENGTH} characters"
+                f"Username too long: {len(credentials.username)} > {MAX_USERNAME_LENGTH} characters"
             )
 
         # Check for suspicious username patterns
@@ -226,11 +225,11 @@ class InputValidator:
 
     @staticmethod
     def validate_numeric_range(
-        value: Union[int, float],
-        min_val: Optional[Union[int, float]] = None,
-        max_val: Optional[Union[int, float]] = None,
+        value: int | float,
+        min_val: int | float | None = None,
+        max_val: int | float | None = None,
         field_name: str = "value",
-    ) -> Union[int, float]:
+    ) -> int | float:
         """Validate numeric values are within acceptable ranges.
 
         Args:
@@ -257,7 +256,7 @@ class InputValidator:
         return value
 
     @staticmethod
-    def validate_asset_properties(asset_data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_asset_properties(asset_data: dict[str, Any]) -> dict[str, Any]:
         """Validate asset properties for range and consistency.
 
         Args:
@@ -310,9 +309,7 @@ class InputValidator:
 
         for field_name in cost_fields:
             if field_name in asset_data and asset_data[field_name] is not None:
-                validated[field_name] = validate_range(
-                    asset_data[field_name], 0, None, field_name
-                )
+                validated[field_name] = validate_range(asset_data[field_name], 0, None, field_name)
 
         # Validate string fields
         string_fields = ["id", "name"]
@@ -359,15 +356,15 @@ class InputValidator:
         if len(xml_string) > MAX_XML_SIZE_BYTES:
             raise ValidationError(
                 f"XML input too large: {len(xml_string)} bytes > "
-                f"{MAX_XML_SIZE_BYTES // (1024*1024)}MB"
+                f"{MAX_XML_SIZE_BYTES // (1024 * 1024)}MB"
             )
 
         return xml_string.strip()
 
     @staticmethod
     def validate_time_series_data(
-        time_series_data: List[float], field_name: str = "time_series"
-    ) -> List[float]:
+        time_series_data: list[float], field_name: str = "time_series"
+    ) -> list[float]:
         """Validate time series data for reasonable values and size.
 
         Args:
@@ -390,7 +387,7 @@ class InputValidator:
 
         if len(time_series_data) > MAX_TIME_SERIES_LENGTH:
             raise ValidationError(
-                f"{field_name} too long: {len(time_series_data)} > " f"{MAX_TIME_SERIES_LENGTH}"
+                f"{field_name} too long: {len(time_series_data)} > {MAX_TIME_SERIES_LENGTH}"
             )
 
         # Validate individual values
@@ -442,7 +439,7 @@ class InputValidator:
         return any(dev_indicators)
 
     @staticmethod
-    def validate_database_host(host: str, allow_localhost: Optional[bool] = None) -> str:
+    def validate_database_host(host: str, allow_localhost: bool | None = None) -> str:
         """Validate database host for security - prevent localhost and invalid hosts.
 
         This addresses the critical security fix from Phase 1 roadmap:
@@ -490,10 +487,10 @@ class InputValidator:
                         or (first_octet == 192 and octets[1] == "168")
                     ):
                         raise SecurityError(f"Reserved or private IP address not allowed: {host}")
-            except (socket.error, ValueError):
+            except (OSError, ValueError):
                 try:
                     socket.inet_pton(socket.AF_INET6, host)  # IPv6
-                except socket.error:
+                except OSError:
                     raise ValidationError(f"Invalid hostname or IP address format: {host}")
 
         return host
@@ -582,7 +579,7 @@ class InputValidator:
         # Must start with letter or underscore (SQL best practice)
         if not identifier[0].isalpha() and identifier[0] != "_":
             raise ValidationError(
-                f"Database {identifier_type} must start with letter or underscore: " f"{identifier}"
+                f"Database {identifier_type} must start with letter or underscore: {identifier}"
             )
 
         return identifier

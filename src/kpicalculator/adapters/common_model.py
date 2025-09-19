@@ -1,7 +1,6 @@
 # src/kpicalculator/adapters/common_model.py
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List
 
 
 class AssetType(Enum):
@@ -18,7 +17,7 @@ class AssetType(Enum):
 @dataclass
 class TimeSeries:
     time_step: float
-    values: List[float]
+    values: list[float]
 
 
 @dataclass
@@ -56,11 +55,11 @@ class Asset:
     aggregation_count: int = 1
 
     # Time series data
-    time_series: Dict[str, TimeSeries] = field(default_factory=dict)
+    time_series: dict[str, TimeSeries] = field(default_factory=dict)
 
 
 @dataclass
 class EnergySystem:
     name: str
-    assets: List[Asset]
-    unit_conversion: Dict[str, float] = field(default_factory=dict)
+    assets: list[Asset]
+    unit_conversion: dict[str, float] = field(default_factory=dict)

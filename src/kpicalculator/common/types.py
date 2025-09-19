@@ -2,7 +2,6 @@
 """Common type definitions and data structures."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -11,8 +10,8 @@ class DatabaseCredentials:
 
     host: str
     port: int
-    username: Optional[str] = None
-    password: Optional[str] = None
+    username: str | None = None
+    password: str | None = None
     database: str = "energy_profiles"
     ssl: bool = False
     verify_ssl: bool = False

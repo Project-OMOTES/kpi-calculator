@@ -1,7 +1,6 @@
 # src/kpicalculator/adapters/esdl_adapter.py
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import pandas as pd  # type: ignore[import-untyped]
 from esdl import esdl  # type: ignore[import-untyped]
@@ -36,8 +35,8 @@ class EsdlAdapter(BaseAdapter):
 
     def __init__(
         self,
-        unit_conversions: Optional[Dict[str, float]] = None,
-        credential_manager: Optional[CredentialManager] = None,
+        unit_conversions: dict[str, float] | None = None,
+        credential_manager: CredentialManager | None = None,
     ):
         """Initialize the ESDL adapter.
 
@@ -51,10 +50,10 @@ class EsdlAdapter(BaseAdapter):
 
     def load_data(
         self,
-        source: Union[str, Path, MesidoResultsProtocol, SimulatorResultsProtocol],
-        time_series_file: Optional[str] = None,
-        pipes_cost_file: Optional[str] = None,
-        assets_cost_file: Optional[str] = None,
+        source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol,
+        time_series_file: str | None = None,
+        pipes_cost_file: str | None = None,
+        assets_cost_file: str | None = None,
         use_database_profiles: bool = True,
         validation_mode: bool = False,
     ) -> EnergySystem:
@@ -172,7 +171,7 @@ class EsdlAdapter(BaseAdapter):
         return energy_system
 
     def validate_source(
-        self, source: Union[str, Path, MesidoResultsProtocol, SimulatorResultsProtocol]
+        self, source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol
     ) -> ValidationResult:
         """Validate ESDL file path and basic structure.
 
@@ -182,8 +181,8 @@ class EsdlAdapter(BaseAdapter):
         Returns:
             ValidationResult indicating if source is valid
         """
-        errors: List[str] = []
-        warnings: List[str] = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if not isinstance(source, str):
             errors.append("ESDL source must be a file path string")
@@ -204,7 +203,7 @@ class EsdlAdapter(BaseAdapter):
         """Return identifier for ESDL adapter."""
         return "esdl"
 
-    def get_supported_parameters(self) -> List[str]:
+    def get_supported_parameters(self) -> list[str]:
         """Return list of supported optional parameters."""
         return [
             "time_series_file",
@@ -217,12 +216,12 @@ class EsdlAdapter(BaseAdapter):
     def _create_asset_from_esdl(
         self,
         esdl_element: esdl.Asset,
-        db_time_series_dict: Dict[str, TimeSeries],
-        xml_time_series_dict: Optional[PiXmlTimeSeries],
-        pipe_costs: Optional[pd.DataFrame],
-        asset_costs: Optional[pd.DataFrame],
+        db_time_series_dict: dict[str, TimeSeries],
+        xml_time_series_dict: PiXmlTimeSeries | None,
+        pipe_costs: pd.DataFrame | None,
+        asset_costs: pd.DataFrame | None,
         model_name: str,
-    ) -> Optional[Asset]:
+    ) -> Asset | None:
         """Create an Asset object from an ESDL element.
 
         Args:
@@ -347,7 +346,7 @@ class EsdlAdapter(BaseAdapter):
             # Return None to skip invalid assets rather than failing completely
             return None
 
-    def _get_asset_type(self, esdl_element: esdl.Asset) -> Optional[AssetType]:
+    def _get_asset_type(self, esdl_element: esdl.Asset) -> AssetType | None:
         """Get the asset type from an ESDL element.
 
         Args:

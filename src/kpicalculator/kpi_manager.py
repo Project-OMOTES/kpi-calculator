@@ -1,5 +1,5 @@
 # src/kpicalculator/kpi_manager.py
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, TypedDict
 
 import pandas as pd  # type: ignore[import-untyped]
 
@@ -10,8 +10,8 @@ from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
 class CostResults(TypedDict):
     """Results structure for cost calculations."""
 
-    capex: Dict[str, float]
-    opex: Dict[str, float]
+    capex: dict[str, float]
+    opex: dict[str, float]
     npv: float
     lcoe: float
 
@@ -43,14 +43,14 @@ class KpiResults(TypedDict):
 class KpiManager:
     """Main class for managing KPI calculations across different data sources."""
 
-    def __init__(self, unit_conversion_file: Optional[str] = None):
+    def __init__(self, unit_conversion_file: str | None = None):
         """Initialize the KPI manager.
 
         Args:
             unit_conversion_file: Path to CSV file with unit conversion factors
         """
-        self.energy_system: Optional[EnergySystem] = None
-        self.unit_conversion: Dict[str, float] = {}
+        self.energy_system: EnergySystem | None = None
+        self.unit_conversion: dict[str, float] = {}
 
         if unit_conversion_file:
             self.load_unit_conversion(unit_conversion_file)

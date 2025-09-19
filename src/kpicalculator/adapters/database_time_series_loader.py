@@ -3,7 +3,7 @@
 
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Protocol, Tuple
+from typing import Protocol
 
 import pandas as pd
 from esdl import esdl
@@ -13,8 +13,8 @@ from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 from ..common.constants import (
     DEFAULT_DATABASE_SSL_PORT,
     DEFAULT_TIME_STEP_SECONDS,
-    HTTPS_PREFIX_LENGTH,
     HTTP_PREFIX_LENGTH,
+    HTTPS_PREFIX_LENGTH,
     SECONDS_PER_HOUR,
 )
 from ..common.logging_utils import get_database_logger
@@ -34,7 +34,7 @@ class TimeSeriesDataProtocol(Protocol):
 
     start_datetime: datetime
     end_datetime: datetime
-    profile_data_list: List[Tuple[datetime, float]]
+    profile_data_list: list[tuple[datetime, float]]
 
 
 class DatabaseTimeSeriesLoader:
@@ -45,7 +45,7 @@ class DatabaseTimeSeriesLoader:
     Uses secure credential management with no hard-coded credentials.
     """
 
-    def __init__(self, credential_manager: Optional[CredentialManager] = None):
+    def __init__(self, credential_manager: CredentialManager | None = None):
         """Initialize database loader with secure credential management.
 
         Args:
@@ -97,7 +97,7 @@ class DatabaseTimeSeriesLoader:
 
     def load_time_series_from_esdl(
         self, energy_system: esdl.EnergySystem
-    ) -> Tuple[Dict[str, TimeSeries], ValidationResult]:
+    ) -> tuple[dict[str, TimeSeries], ValidationResult]:
         """Load all InfluxDB time series profiles from ESDL energy system.
 
         Args:
@@ -111,7 +111,7 @@ class DatabaseTimeSeriesLoader:
         start_time = time.time()
         self.db_logger.info("Starting InfluxDB profile loading from ESDL")
 
-        time_series_data: Dict[str, "TimeSeries"] = {}
+        time_series_data: dict[str, TimeSeries] = {}
         errors = []
         warnings = []
 
@@ -202,7 +202,7 @@ class DatabaseTimeSeriesLoader:
                 # Fallback to using measurement as ID
                 return str(profile.measurement)
 
-    def _load_profile_data(self, profile: esdl.InfluxDBProfile) -> Optional[TimeSeries]:
+    def _load_profile_data(self, profile: esdl.InfluxDBProfile) -> TimeSeries | None:
         """Load data for a single InfluxDB profile.
 
         Args:

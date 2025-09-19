@@ -59,8 +59,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     def test_init_with_default_credential_manager(self):
         """Test initialization with default credential manager."""
         with patch(
-            "kpicalculator.adapters.database_time_series_loader."
-            "create_default_credential_manager"
+            "kpicalculator.adapters.database_time_series_loader.create_default_credential_manager"
         ) as mock_create:
             mock_manager = Mock()
             mock_create.return_value = mock_manager
@@ -480,6 +479,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Mock time.time() for performance measurement
         # Use itertools.count() to provide unlimited mock time values
         import itertools
+
         mock_time.time.side_effect = itertools.count(0.0, 0.05)
 
         # Create mock energy system with InfluxDB profiles

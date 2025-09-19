@@ -31,4 +31,4 @@ jobs:
 
     - name: Lint
       run: |
-        uv run flake8 --max-line-length=100 ./src/ ./unit_test/ --exclude=src/kpicalculator/adapters/xml_time_series_adapter.py
+        uv run ruff check ./src/ ./unit_test/

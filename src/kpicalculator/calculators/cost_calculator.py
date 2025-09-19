@@ -1,6 +1,5 @@
 # src/kpicalculator/calculators/cost_calculator.py
 import math
-from typing import Dict
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
 from ..common.constants import PERCENTAGE_TO_DECIMAL, SECONDS_PER_YEAR
@@ -17,7 +16,7 @@ class CostCalculator:
         """
         self.energy_system = energy_system
 
-    def get_capex_by_category(self) -> Dict[str, float]:
+    def get_capex_by_category(self) -> dict[str, float]:
         """Get CAPEX by asset category.
 
         Returns:
@@ -31,7 +30,7 @@ class CostCalculator:
 
         return result
 
-    def get_opex_by_category(self) -> Dict[str, float]:
+    def get_opex_by_category(self) -> dict[str, float]:
         """Get OPEX by asset category.
 
         Returns:

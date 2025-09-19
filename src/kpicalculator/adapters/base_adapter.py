@@ -3,7 +3,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol, Union
+from typing import Protocol
 
 from .common_model import EnergySystem
 
@@ -14,28 +14,28 @@ class DatabaseReference(Protocol):
     host: str
     port: int
     database: str
-    username: Optional[str]
-    password: Optional[str]
+    username: str | None
+    password: str | None
 
 
 class MesidoResultsProtocol(Protocol):
     """Protocol for MESIDO optimization results."""
 
-    assets: Dict[str, object]
-    time_series: Dict[str, object]
-    parameters: Dict[str, float]
+    assets: dict[str, object]
+    time_series: dict[str, object]
+    parameters: dict[str, float]
     # Optional database reference for time series
-    database_ref: Optional[DatabaseReference]
+    database_ref: DatabaseReference | None
 
 
 class SimulatorResultsProtocol(Protocol):
     """Protocol for OMOTES Simulator results."""
 
-    assets: Dict[str, object]
-    simulation_data: Dict[str, object]
-    time_series: Dict[str, object]
+    assets: dict[str, object]
+    simulation_data: dict[str, object]
+    time_series: dict[str, object]
     # Optional database reference for time series
-    database_ref: Optional[DatabaseReference]
+    database_ref: DatabaseReference | None
 
 
 class ValidationResult:
@@ -44,8 +44,8 @@ class ValidationResult:
     def __init__(
         self,
         is_valid: bool,
-        errors: Optional[List[str]] = None,
-        warnings: Optional[List[str]] = None,
+        errors: list[str] | None = None,
+        warnings: list[str] | None = None,
     ):
         self.is_valid = is_valid
         self.errors = errors or []
@@ -59,7 +59,7 @@ class BaseAdapter(ABC):
     All adapters must implement these methods for standardized data loading.
     """
 
-    def __init__(self, unit_conversions: Optional[Dict[str, float]] = None):
+    def __init__(self, unit_conversions: dict[str, float] | None = None):
         """Initialize adapter with unit conversion factors.
 
         Args:
@@ -70,10 +70,10 @@ class BaseAdapter(ABC):
     @abstractmethod
     def load_data(
         self,
-        source: Union[str, Path, MesidoResultsProtocol, SimulatorResultsProtocol],
-        time_series_file: Optional[str] = None,
-        pipes_cost_file: Optional[str] = None,
-        assets_cost_file: Optional[str] = None,
+        source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol,
+        time_series_file: str | None = None,
+        pipes_cost_file: str | None = None,
+        assets_cost_file: str | None = None,
         use_database_profiles: bool = True,
         validation_mode: bool = False,
     ) -> EnergySystem:
@@ -101,7 +101,7 @@ class BaseAdapter(ABC):
 
     @abstractmethod
     def validate_source(
-        self, source: Union[str, Path, MesidoResultsProtocol, SimulatorResultsProtocol]
+        self, source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol
     ) -> ValidationResult:
         """Validate that source data is compatible with this adapter.
 
@@ -122,7 +122,7 @@ class BaseAdapter(ABC):
         """
         pass
 
-    def get_supported_parameters(self) -> List[str]:
+    def get_supported_parameters(self) -> list[str]:
         """Return list of supported optional parameters for load_data.
 
         Returns:
