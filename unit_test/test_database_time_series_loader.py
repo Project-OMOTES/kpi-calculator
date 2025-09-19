@@ -271,7 +271,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             host="test.example.com",
             port=443,
             username="user",
-            password="pass",
+            password="password123",  # Updated to meet 8-character minimum
             database="db",
             ssl=False,
             verify_ssl=True,

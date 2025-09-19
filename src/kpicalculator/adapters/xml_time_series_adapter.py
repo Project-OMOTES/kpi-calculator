@@ -172,8 +172,7 @@ class PiXmlTimeSeries:
 def check_header(header: dict[str, Any], object_name: str) -> Any:
     if object_name in header:
         return header[object_name]
-    else:
-        return None
+    return None
 
 
 # class which holds a complete time series object

@@ -357,22 +357,21 @@ class EsdlAdapter(BaseAdapter):
         """
         if isinstance(esdl_element, esdl.GeothermalSource):
             return AssetType.GEOTHERMAL
-        elif isinstance(esdl_element, esdl.Producer):
+        if isinstance(esdl_element, esdl.Producer):
             return AssetType.PRODUCER
-        elif isinstance(esdl_element, esdl.Consumer):
+        if isinstance(esdl_element, esdl.Consumer):
             return AssetType.CONSUMER
-        elif isinstance(esdl_element, esdl.Storage):
+        if isinstance(esdl_element, esdl.Storage):
             return AssetType.STORAGE
-        elif isinstance(esdl_element, esdl.Conversion):
+        if isinstance(esdl_element, esdl.Conversion):
             return AssetType.CONVERSION
-        elif isinstance(esdl_element, esdl.Pipe):
+        if isinstance(esdl_element, esdl.Pipe):
             return AssetType.PIPE
-        elif isinstance(esdl_element, esdl.Pump):
+        if isinstance(esdl_element, esdl.Pump):
             return AssetType.PUMP
-        elif isinstance(esdl_element, esdl.Transport):
+        if isinstance(esdl_element, esdl.Transport):
             return AssetType.TRANSPORT
-        else:
-            return None
+        return None
 
     def _get_length(self, esdl_element: esdl.Asset) -> float:
         """Get the length of an ESDL element.

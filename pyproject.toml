@@ -30,6 +30,7 @@ dependencies = [
     "xmltodict==0.14.2",
     "types-xmltodict", # Type stubs for xmltodict
     "influxdb>=5.3.2",
+    "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
 ]
 
 [project.optional-dependencies]
@@ -44,6 +45,9 @@ dev = [
     "mypy ~= 1.5.1",
     "build ~= 1.0.3",
     "pre-commit ~= 3.6.0",
+    "hypothesis>=6.0.0", # Property-based testing
+    "interrogate>=1.7.0", # Documentation coverage
+    "pytest-xdist>=3.0.0", # Parallel test execution
 ]
 
 [project.urls]
@@ -70,6 +74,10 @@ enabled = true
 addopts = "--cov=src/kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
 testpaths = ["unit_test"]
 pythonpath = ["src"]
+# Exclude obsolete tests that were replaced by Pydantic validation
+markers = [
+    "obsolete: marks tests as obsolete (replaced by modern implementations)"
+]
 
 [tool.coverage.run]
 source = ["src"]
@@ -92,6 +100,11 @@ select = [
     "B",   # flake8-bugbear
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
+    "S",   # bandit (security)
+    "T20", # flake8-print
+    "RET", # flake8-return
+    "SIM", # flake8-simplify
+    "PTH", # flake8-use-pathlib
 ]
 ignore = [
     "E203", # Space before colon (conflicts with formatter)
@@ -139,3 +152,21 @@ dev = [
     "radon>=6.0.0",       # For code complexity analysis
     "xenon>=0.9.0",       # For complexity threshold monitoring
 ]
+
+# Interrogate configuration for documentation coverage
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = false
+ignore-magic = false
+ignore-semiprivate = false
+ignore-private = false
+ignore-property-decorators = false
+ignore-module = false
+ignore-nested-functions = false
+ignore-nested-classes = true
+fail-under = 80
+exclude = ["setup.py", "docs", "build", ".venv", "venv"]
+verbose = 0
+quiet = false
+color = true
+omit-covered-files = false
