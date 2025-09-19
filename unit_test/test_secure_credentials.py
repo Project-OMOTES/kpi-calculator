@@ -82,8 +82,10 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.assertIsNone(creds)
 
     @patch(
-        "kpicalculator.security.credential_manager."
-        "ConfigFileCredentialManager._validate_file_permissions"
+        (
+            "kpicalculator.security.credential_manager"
+            ".ConfigFileCredentialManager._validate_file_permissions"
+        )
     )
     def test_valid_config_file(self, mock_validate_permissions):
         """Test loading credentials from valid config file."""
@@ -112,8 +114,10 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.assertTrue(creds.ssl)
 
     @patch(
-        "kpicalculator.security.credential_manager."
-        "ConfigFileCredentialManager._validate_file_permissions"
+        (
+            "kpicalculator.security.credential_manager"
+            ".ConfigFileCredentialManager._validate_file_permissions"
+        )
     )
     def test_invalid_json_config(self, mock_validate_permissions):
         """Test handling of invalid JSON config file."""
@@ -124,8 +128,10 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             self.manager.get_database_credentials("test.example.com", 8086)
 
     @patch(
-        "kpicalculator.security.credential_manager."
-        "ConfigFileCredentialManager._validate_file_permissions"
+        (
+            "kpicalculator.security.credential_manager"
+            ".ConfigFileCredentialManager._validate_file_permissions"
+        )
     )
     def test_missing_required_fields(self, mock_validate_permissions):
         """Test handling of config with missing required fields."""

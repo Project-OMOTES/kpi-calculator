@@ -13,6 +13,8 @@ from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 from ..common.constants import (
     DEFAULT_DATABASE_SSL_PORT,
     DEFAULT_TIME_STEP_SECONDS,
+    HTTPS_PREFIX_LENGTH,
+    HTTP_PREFIX_LENGTH,
     SECONDS_PER_HOUR,
 )
 from ..common.logging_utils import get_database_logger
@@ -293,10 +295,10 @@ class DatabaseTimeSeriesLoader:
 
         # Handle https/http prefixes
         if profile_host.startswith("https://"):
-            profile_host = profile_host.removeprefix("https://")
+            profile_host = profile_host[HTTPS_PREFIX_LENGTH:]
             ssl_setting = True
         elif profile_host.startswith("http://"):
-            profile_host = profile_host.removeprefix("http://")
+            profile_host = profile_host[HTTP_PREFIX_LENGTH:]
 
         # CRITICAL SECURITY FIX: Validate host and port before processing
         try:
