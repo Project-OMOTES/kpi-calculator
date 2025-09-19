@@ -289,9 +289,12 @@ class InputValidator:
             ("aggregation_count", 1, 10000),  # 1-10000 units
         ]
 
+        # Store method reference to avoid repeated lookups
+        validate_range = InputValidator.validate_numeric_range
+
         for field_name, min_val, max_val in numeric_validations:
             if field_name in asset_data and asset_data[field_name] is not None:
-                validated[field_name] = InputValidator.validate_numeric_range(
+                validated[field_name] = validate_range(
                     asset_data[field_name], min_val, max_val, field_name
                 )
 
@@ -307,7 +310,7 @@ class InputValidator:
 
         for field_name in cost_fields:
             if field_name in asset_data and asset_data[field_name] is not None:
-                validated[field_name] = InputValidator.validate_numeric_range(
+                validated[field_name] = validate_range(
                     asset_data[field_name], 0, None, field_name
                 )
 

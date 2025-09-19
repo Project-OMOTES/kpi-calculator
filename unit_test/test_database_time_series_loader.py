@@ -478,8 +478,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     def test_load_time_series_from_esdl_success(self, mock_time):
         """Test successful ESDL time series loading."""
         # Mock time.time() for performance measurement
-        # Provide enough time values for all calls in the method
-        mock_time.time.side_effect = [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45]
+        # Use itertools.count() to provide unlimited mock time values
+        import itertools
+        mock_time.time.side_effect = itertools.count(0.0, 0.05)
 
         # Create mock energy system with InfluxDB profiles
         energy_system = Mock()
