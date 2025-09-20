@@ -116,7 +116,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"test_*.py" = ["D100", "D101", "D102", "D103"]
+"test_*.py" = ["D100", "D101", "D102", "D103", "B017", "SIM117"]  # Allow Exception assertions and nested with in tests
 "src/kpicalculator/adapters/xml_time_series_adapter.py" = ["ALL"]  # Testing only - exclude from all linting
 
 [tool.ruff.format]

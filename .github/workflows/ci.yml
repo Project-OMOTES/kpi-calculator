@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Create virtual environment and install dependencies
-        run: uv sync --dev
+        run: uv sync --group dev
       - name: 'Tar venv'
         run: tar -cvf venv.tar ./.venv/
       - name: Save venv
@@ -50,7 +50,10 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run lint
         run: |
+          # Run ruff check (do not auto-fix in CI)
           uv run ruff check ./src/ ./unit_test/
+          # Run ruff format (check only)
+          uv run ruff format --check ./src/ ./unit_test/
 
   test:
     name: Test
@@ -72,9 +75,13 @@ jobs:
           name: ${{ runner.os }}-python-${{ matrix.python-version }}-venv-${{github.run_id}}
       - name: Untar venv
         run: tar -xvf venv.tar
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         run: |
-          uv run pytest --junit-xml=test-results.xml unit_test/
+          uv run pytest --cov=src/kpicalculator --maxfail=5 --disable-warnings --junit-xml=test-results.xml unit_test/
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          path: htmlcov/
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@main
@@ -122,7 +129,7 @@ jobs:
         uses: pr-annotators/mypy-pr-annotator@v1.0.0
       - name: Run typechecker
         run: |
-          uv run mypy ./src/kpicalculator
+          uv run mypy ./src/kpicalculator ./unit_test ./scripts
 
   build:
     name: Build the python package

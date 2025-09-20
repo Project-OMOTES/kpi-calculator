@@ -1,5 +1,8 @@
 # unit_test/test_secure_credentials.py
-"""Tests for secure credential management system."""
+"""
+# unit_test/test_secure_credentials.py
+Tests for secure credential management system.
+"""
 
 import json
 import os
@@ -63,8 +66,9 @@ class TestSecureCredentialManager(unittest.TestCase):
         creds = self.manager.get_database_credentials("complex-host.name", 443)
 
         self.assertIsNotNone(creds)
-        self.assertEqual(creds.username, "complex_user")
-        self.assertEqual(creds.password, "complex_pass")
+        if creds:
+            self.assertEqual(creds.username, "complex_user")
+            self.assertEqual(creds.password, "complex_pass")
 
 
 class TestConfigFileCredentialManager(unittest.TestCase):
@@ -100,16 +104,17 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             }
         }
 
-        with open(self.config_path, "w") as f:
+        with self.config_path.open("w") as f:
             json.dump(config, f)
 
         creds = self.manager.get_database_credentials("test.example.com", 8086)
 
         self.assertIsNotNone(creds)
-        self.assertEqual(creds.username, "config_user")
-        self.assertEqual(creds.password, "config_pass")
-        self.assertEqual(creds.database, "config_db")
-        self.assertTrue(creds.ssl)
+        if creds:
+            self.assertEqual(creds.username, "config_user")
+            self.assertEqual(creds.password, "config_pass")
+            self.assertEqual(creds.database, "config_db")
+            self.assertTrue(creds.ssl)
 
     @patch(
         "kpicalculator.security.credential_manager"
@@ -117,7 +122,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
     )
     def test_invalid_json_config(self, mock_validate_permissions):
         """Test handling of invalid JSON config file."""
-        with open(self.config_path, "w") as f:
+        with self.config_path.open("w") as f:
             f.write("{ invalid json")
 
         with self.assertRaises(ConfigurationError):
@@ -139,7 +144,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             }
         }
 
-        with open(self.config_path, "w") as f:
+        with self.config_path.open("w") as f:
             json.dump(config, f)
 
         with self.assertRaises(ConfigurationError):
@@ -162,7 +167,10 @@ class TestChainedCredentialManager(unittest.TestCase):
 
         secondary_manager = Mock()
         secondary_creds = DatabaseCredentials(
-            host="test.example.com", port=8086, username="secondary_user", password="secondary_pass"
+            host="test.example.com",
+            port=8086,
+            username="secondary_user",
+            password="secondary_pass",
         )
         secondary_manager.get_database_credentials.return_value = secondary_creds
 
@@ -180,7 +188,10 @@ class TestChainedCredentialManager(unittest.TestCase):
         """Test that first manager's credentials are used when available."""
         # Create mock managers
         primary_creds = DatabaseCredentials(
-            host="test.example.com", port=8086, username="primary_user", password="primary_pass"
+            host="test.example.com",
+            port=8086,
+            username="primary_user",
+            password="primary_pass",
         )
         primary_manager = Mock()
         primary_manager.get_database_credentials.return_value = primary_creds

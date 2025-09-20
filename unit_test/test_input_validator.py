@@ -73,11 +73,10 @@ class TestInputValidator(unittest.TestCase):
         # This test is difficult to trigger reliably across platforms
         # The null character test may not always cause the expected exception
         # Let's test with a path that has invalid characters for Windows
-        try:
+        import contextlib
+
+        with contextlib.suppress(ValidationError, ValueError, OSError):
             InputValidator.validate_file_path("\x00invalid.esdl", must_exist=False)
-        except (ValidationError, ValueError, OSError):
-            # Any of these exceptions is acceptable for invalid path format
-            pass
 
     def test_validate_file_path_too_long(self):
         """Test file path validation with path too long."""

@@ -71,7 +71,7 @@ class InputValidator:
         try:
             path_obj = Path(file_path) if isinstance(file_path, str) else file_path
         except Exception as e:
-            raise ValidationError(f"Invalid file path format: {file_path} (error: {str(e)})")
+            raise ValidationError(f"Invalid file path format: {file_path} (error: {str(e)})") from e
 
         # Convert to string for pattern matching
         path_str = str(path_obj)
@@ -109,7 +109,7 @@ class InputValidator:
         try:
             resolved_path = path_obj.resolve()
         except Exception as e:
-            raise ValidationError(f"Cannot resolve file path: {file_path} (error: {str(e)})")
+            raise ValidationError(f"Cannot resolve file path: {file_path} (error: {str(e)})") from e
 
         # Check if file exists (if required)
         if must_exist:
@@ -133,7 +133,7 @@ class InputValidator:
                 )
 
         except Exception as e:
-            raise SecurityError(f"Path resolution security check failed: {e}")
+            raise SecurityError(f"Path resolution security check failed: {e}") from e
 
         return resolved_path
 
@@ -158,17 +158,18 @@ class InputValidator:
             )
 
         # Check for suspicious characters in hostname
-        if not InputValidator.HOSTNAME_PATTERN.match(credentials.host):
-            # Allow localhost and IP addresses as special cases
-            if credentials.host not in LOCALHOST_ADDRESSES:
-                # Check if it's a valid IP address
+        if (
+            not InputValidator.HOSTNAME_PATTERN.match(credentials.host)
+            and credentials.host not in LOCALHOST_ADDRESSES
+        ):
+            # Check if it's a valid IP address
+            try:
+                socket.inet_aton(credentials.host)  # IPv4
+            except OSError:
                 try:
-                    socket.inet_aton(credentials.host)  # IPv4
-                except OSError:
-                    try:
-                        socket.inet_pton(socket.AF_INET6, credentials.host)  # IPv6
-                    except OSError:
-                        raise SecurityError(f"Invalid hostname format: {credentials.host}")
+                    socket.inet_pton(socket.AF_INET6, credentials.host)  # IPv6
+                except OSError as e:
+                    raise SecurityError(f"Invalid hostname format: {credentials.host}") from e
 
         # Validate port
         if not (MIN_PORT_NUMBER <= credentials.port <= MAX_PORT_NUMBER):
@@ -216,12 +217,13 @@ class InputValidator:
             )
 
         # Validate database name characters
-        if credentials.database:
-            if not InputValidator.DATABASE_NAME_PATTERN.match(credentials.database):
-                raise ValidationError(
-                    f"Database name contains invalid characters: {credentials.database}. "
-                    "Only letters, numbers, underscore, and hyphen allowed."
-                )
+        if credentials.database and not InputValidator.DATABASE_NAME_PATTERN.match(
+            credentials.database
+        ):
+            raise ValidationError(
+                f"Database name contains invalid characters: {credentials.database}. "
+                "Only letters, numbers, underscore, and hyphen allowed."
+            )
 
     @staticmethod
     def validate_numeric_range(
@@ -418,11 +420,7 @@ class InputValidator:
             return True
 
         # Block dangerous/non-database ports
-        if port in DANGEROUS_PORTS:
-            return False
-
-        # Allow other ports (assume they're legitimate database ports)
-        return True
+        return port not in DANGEROUS_PORTS
 
     @staticmethod
     def _is_development_mode() -> bool:
@@ -490,8 +488,8 @@ class InputValidator:
             except (OSError, ValueError):
                 try:
                     socket.inet_pton(socket.AF_INET6, host)  # IPv6
-                except OSError:
-                    raise ValidationError(f"Invalid hostname or IP address format: {host}")
+                except OSError as e:
+                    raise ValidationError(f"Invalid hostname or IP address format: {host}") from e
 
         return host
 

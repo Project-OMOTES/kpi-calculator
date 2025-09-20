@@ -151,7 +151,7 @@ class ConfigFileCredentialManager(CredentialManager):
         self._validate_file_permissions()
 
         try:
-            with open(self.config_path, encoding="utf-8") as f:
+            with self.config_path.open(encoding="utf-8") as f:
                 config = json.load(f)
         except json.JSONDecodeError as e:
             raise ConfigurationError(
@@ -201,13 +201,16 @@ class ConfigFileCredentialManager(CredentialManager):
             file_stat = self.config_path.stat()
 
             # Check if file is readable by group or others (Unix-like systems)
-            if hasattr(stat, "S_IRGRP") and hasattr(stat, "S_IROTH"):
-                if file_stat.st_mode & (stat.S_IRGRP | stat.S_IROTH):
-                    raise SecurityError(
-                        f"Credentials file has insecure permissions: {self.config_path}. "
-                        f"File should only be readable by owner (chmod 600). "
-                        f"(file_mode: {oct(file_stat.st_mode)[-3:]})"
-                    )
+            if (
+                hasattr(stat, "S_IRGRP")
+                and hasattr(stat, "S_IROTH")
+                and file_stat.st_mode & (stat.S_IRGRP | stat.S_IROTH)
+            ):
+                raise SecurityError(
+                    f"Credentials file has insecure permissions: {self.config_path}. "
+                    f"File should only be readable by owner (chmod 600). "
+                    f"(file_mode: {oct(file_stat.st_mode)[-3:]})"
+                )
         except AttributeError:
             # Windows or other systems without detailed permission checking
             self.security_logger.log_validation_failure(
