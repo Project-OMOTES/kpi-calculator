@@ -303,7 +303,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
                     "host": "test.com",
                     "port": 443,
                     "username": "user",
-                    "password": "pass",
+                    "password": "password123",
                 }
             }
         }
@@ -328,7 +328,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
                     "host": "test.com",
                     "port": 443,
                     "username": "user",
-                    "password": "pass",
+                    "password": "password123",
                 }
             }
         }
@@ -356,7 +356,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
                     "host": "test.com",
                     "port": 443,
                     "username": "user",
-                    "password": "pass",
+                    "password": "password123",
                 }
             }
         }
@@ -406,7 +406,7 @@ class TestChainedCredentialManager(unittest.TestCase):
             host="example.com",
             port=443,
             username="user",
-            password="pass",
+            password="password123",
             database="db",
             ssl=True,
             verify_ssl=True,
@@ -433,7 +433,7 @@ class TestChainedCredentialManager(unittest.TestCase):
             host="example.com",
             port=443,
             username="user",
-            password="pass",
+            password="password123",
             database="db",
             ssl=True,
             verify_ssl=True,
@@ -481,7 +481,7 @@ class TestChainedCredentialManager(unittest.TestCase):
             host="example.com",
             port=443,
             username="user",
-            password="pass",
+            password="password123",
             database="db",
             ssl=True,
             verify_ssl=True,
@@ -508,7 +508,7 @@ class TestChainedCredentialManager(unittest.TestCase):
             host="example.com",
             port=443,
             username="user",
-            password="pass",
+            password="password123",
             database="db",
             ssl=True,
             verify_ssl=True,
@@ -548,7 +548,7 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
             os.environ,
             {
                 "KPI_DB_TEST_HOST_443_USERNAME": "envuser",
-                "KPI_DB_TEST_HOST_443_PASSWORD": "envpass",
+                "KPI_DB_TEST_HOST_443_PASSWORD": "envpassword123",
             },
         ):
             manager = create_default_credential_manager()
@@ -556,7 +556,7 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
 
             self.assertIsNotNone(credentials)
             self.assertEqual(credentials.username, "envuser")
-            self.assertEqual(credentials.password, "envpass")
+            self.assertEqual(credentials.password, "envpassword123")
 
     def test_default_manager_fallback(self):
         """Test default manager fallback to config file."""

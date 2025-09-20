@@ -92,21 +92,19 @@ class TestAssetProperties:
         assert asset.power == power
         assert asset.cop == cop
 
-    @given(
-        power=st.floats().filter(lambda x: x < 0 or x > 1e12 or not (x == x))
-    )  # < 0, > 1e12, or NaN
+    @given(power=st.floats().filter(lambda x: x < 0 or x > 1e12 or x != x))  # < 0, > 1e12, or NaN
     def test_invalid_power_values_always_fail(self, power: float):
         """Test that invalid power values always raise ValidationError."""
         with pytest.raises(ValidationError):
             AssetProperties(id="test_id", name="test_name", asset_type="test_type", power=power)
 
-    @given(cop=st.floats().filter(lambda x: x < 0 or x > 10 or not (x == x)))  # < 0, > 10, or NaN
+    @given(cop=st.floats().filter(lambda x: x < 0 or x > 10 or x != x))  # < 0, > 10, or NaN
     def test_invalid_cop_values_always_fail(self, cop: float):
         """Test that invalid COP values always raise ValidationError."""
         with pytest.raises(ValidationError):
             AssetProperties(id="test_id", name="test_name", asset_type="test_type", cop=cop)
 
-    @given(cost=st.floats().filter(lambda x: x < 0 or not (x == x)))  # Negative or NaN
+    @given(cost=st.floats().filter(lambda x: x < 0 or x != x))  # Negative or NaN
     def test_negative_costs_always_fail(self, cost: float):
         """Test that negative cost values always raise ValidationError."""
         with pytest.raises(ValidationError):

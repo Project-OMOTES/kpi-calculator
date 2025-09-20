@@ -136,7 +136,7 @@ class AssetProperties(BaseModel):
             return v
 
         if v > 1e9:  # Warning for very large values (>1 GW)
-            warnings.warn(f"Very large power value: {v:,.0f} W", UserWarning)
+            warnings.warn(f"Very large power value: {v:,.0f} W", UserWarning, stacklevel=2)
 
         return v
 
@@ -148,7 +148,9 @@ class AssetProperties(BaseModel):
             return v
 
         if v > 50:  # Warning for unusually long lifetimes
-            warnings.warn(f"Unusually long technical lifetime: {v} years", UserWarning)
+            warnings.warn(
+                f"Unusually long technical lifetime: {v} years", UserWarning, stacklevel=2
+            )
 
         return v
 
@@ -186,6 +188,4 @@ class TimeSeriesData(BaseModel):
 
         return v
 
-    model_config = ConfigDict(
-        validate_assignment=True
-    )
+    model_config = ConfigDict(validate_assignment=True)

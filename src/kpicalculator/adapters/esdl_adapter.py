@@ -194,7 +194,7 @@ class EsdlAdapter(BaseAdapter):
             errors.append(f"ESDL file does not exist: {source}")
         elif not file_path.is_file():
             errors.append(f"ESDL path is not a file: {source}")
-        elif not file_path.suffix.lower() == ".esdl":
+        elif file_path.suffix.lower() != ".esdl":
             warnings.append(f"File does not have .esdl extension: {source}")
 
         return ValidationResult(len(errors) == 0, errors, warnings)
@@ -255,10 +255,7 @@ class EsdlAdapter(BaseAdapter):
 
         # Get cost properties from CSV files if provided
         if pipe_costs is not None or asset_costs is not None:
-            if isinstance(esdl_element, esdl.Pipe):
-                cost_df = pipe_costs
-            else:
-                cost_df = asset_costs
+            cost_df = pipe_costs if isinstance(esdl_element, esdl.Pipe) else asset_costs
 
             if cost_df is not None:
                 try:
@@ -395,11 +392,7 @@ class EsdlAdapter(BaseAdapter):
         Returns:
             Power in watts or 0.0 if not applicable
         """
-        if (
-            (isinstance(esdl_element, esdl.Producer))
-            or (isinstance(esdl_element, esdl.Consumer))
-            or (isinstance(esdl_element, esdl.Conversion))
-        ):
+        if isinstance(esdl_element, (esdl.Producer, esdl.Consumer, esdl.Conversion)):
             if esdl_element.power is None:
                 return 0.0
             return float(esdl_element.power)

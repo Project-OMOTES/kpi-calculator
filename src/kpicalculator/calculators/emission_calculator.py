@@ -121,10 +121,7 @@ class EmissionCalculator:
             return 0.0
 
         # Calculate time factor for annualization
-        if annualize:
-            time_factor = SECONDS_PER_YEAR / duration
-        else:
-            time_factor = 1
+        time_factor = SECONDS_PER_YEAR / duration if annualize else 1
 
         # Calculate energy sum
         energy_sum = sum(ts.values) * ts.time_step  # Joules
@@ -134,6 +131,4 @@ class EmissionCalculator:
         # We multiply directly by energy in Joules and time factor
         # The result is in kg, so we need to convert to tons
         emissions_kg = asset.emission_factor * energy_sum * time_factor  # kg
-        emissions_tons = emissions_kg * KG_TO_TONS
-
-        return emissions_tons
+        return emissions_kg * KG_TO_TONS

@@ -157,10 +157,7 @@ class PiXmlTimeSeries:
                         if (name == name_ET) & (prop == prop_ET):
                             self.time_series[name][prop].save_series(series_element)
 
-        if file is None:
-            output_file = self.time_series_xml_file
-        else:
-            output_file = file
+        output_file = self.time_series_xml_file if file is None else file
 
         line = ET.tostring(root).replace(b"\n", b"")
         line = line.replace(b"@", b"")
