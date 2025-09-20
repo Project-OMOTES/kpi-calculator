@@ -138,22 +138,25 @@ module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "
 check_untyped_defs = true
 ignore_missing_imports = true
 
+# Legacy dependency group - replaced by [project.optional-dependencies]
+# This section is maintained for compatibility but should use the modern approach above
 [dependency-groups]
 dev = [
-    "bandit>=1.8.6",
-    "black>=24.0.0",
-    "flake8>=6.0.0",
-    "isort>=5.13.2",
-    "mypy>=1.5.1",
-    "pytest>=7.3.2",
-    "pytest-cov>=4.0.0",
-    "pipdeptree>=2.0.0",  # For maintenance dependency analysis
-    "httpie>=3.0.0",      # For API testing and integration work
-    "codespell>=2.0.0",   # For typo detection in code and comments
-    "vulture>=2.0.0",     # For dead code detection and correctness review
-    "pylint>=3.0.0",      # For comprehensive bug and logic error detection
-    "radon>=6.0.0",       # For code complexity analysis
-    "xenon>=0.9.0",       # For complexity threshold monitoring
+    "ruff>=0.6.0",         # Modern linting and formatting (replaces black, flake8, isort)
+    "mypy>=1.5.1",         # Type checking
+    "pytest>=7.3.2",       # Testing framework
+    "pytest-cov>=4.0.0",   # Coverage reporting
+    "hypothesis>=6.0.0",    # Property-based testing
+    "interrogate>=1.7.0",   # Documentation coverage
+    "pytest-xdist>=3.0.0", # Parallel test execution
+    "bandit>=1.8.6",       # Security analysis
+    "pipdeptree>=2.0.0",   # Dependency analysis
+    "httpie>=3.0.0",       # API testing
+    "codespell>=2.0.0",    # Typo detection
+    "vulture>=2.0.0",      # Dead code detection
+    "pylint>=3.0.0",       # Comprehensive analysis
+    "radon>=6.0.0",        # Complexity analysis
+    "xenon>=0.9.0",        # Complexity monitoring
 ]
 
 # Interrogate configuration for documentation coverage
