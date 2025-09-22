@@ -326,34 +326,25 @@ class TestInputValidator(unittest.TestCase):
         self.assertEqual(credentials.database, long_db_name)
 
 
-    def test_validate_numeric_range_success(self) -> None:
-        """Test successful numeric range validation."""
-        result = InputValidator.validate_numeric_range(50, 0, 100, "test_value")
-        self.assertEqual(result, 50)
+    def test_validate_numeric_range_scenarios(self) -> None:
+        """Test numeric range validation with various input scenarios."""
+        test_cases = [
+            # (value, min_val, max_val, field_name, should_succeed, expected_result_or_error)
+            (50, 0, 100, "test_value", True, 50),
+            ("not_a_number", 0, 100, "test_value", False, "test_value must be numeric"),
+            (-10, 0, 100, "test_value", False, "test_value too small"),
+            (150, 0, 100, "test_value", False, "test_value too large"),
+        ]
 
-    def test_validate_numeric_range_non_numeric(self) -> None:
-        """Test numeric range validation with non-numeric value."""
-        with self.assertRaises(ValidationError) as context:
-            InputValidator.validate_numeric_range("not_a_number", 0, 100, "test_value")
-
-        error = context.exception
-        self.assertIn("test_value must be numeric", str(error))
-
-    def test_validate_numeric_range_below_minimum(self) -> None:
-        """Test numeric range validation below minimum."""
-        with self.assertRaises(ValidationError) as context:
-            InputValidator.validate_numeric_range(-10, 0, 100, "test_value")
-
-        error = context.exception
-        self.assertIn("test_value too small", str(error))
-
-    def test_validate_numeric_range_above_maximum(self) -> None:
-        """Test numeric range validation above maximum."""
-        with self.assertRaises(ValidationError) as context:
-            InputValidator.validate_numeric_range(150, 0, 100, "test_value")
-
-        error = context.exception
-        self.assertIn("test_value too large", str(error))
+        for value, min_val, max_val, field_name, should_succeed, expected in test_cases:
+            with self.subTest(value=value, expected=expected):
+                if should_succeed:
+                    result = InputValidator.validate_numeric_range(value, min_val, max_val, field_name)
+                    self.assertEqual(result, expected)
+                else:
+                    with self.assertRaises(ValidationError) as context:
+                        InputValidator.validate_numeric_range(value, min_val, max_val, field_name)
+                    self.assertIn(expected, str(context.exception))
 
     def test_validate_asset_properties_success(self) -> None:
         """Test successful asset property validation."""
@@ -461,29 +452,27 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("Asset id cannot be empty or whitespace", str(context.exception))
 
-    def test_sanitize_xml_input_success(self) -> None:
-        """Test successful XML input sanitization."""
+    def test_sanitize_xml_input_scenarios(self) -> None:
+        """Test XML sanitization with various input scenarios."""
+        # Test successful case
         clean_xml = "<root><element>value</element></root>"
-
         result = InputValidator.sanitize_xml_input(clean_xml)
         self.assertEqual(result, clean_xml)
 
-    def test_sanitize_xml_input_empty(self) -> None:
-        """Test XML sanitization with empty input."""
-        with self.assertRaises(ValidationError) as context:
-            InputValidator.sanitize_xml_input("")
+        # Test invalid inputs
+        invalid_cases = [
+            ("", ValidationError, "XML input must be non-empty string"),
+            (123, ValidationError, "XML input must be non-empty string"),
+            ("a" * (51 * 1024 * 1024), ValidationError, "XML input too large"),  # Exceeds 50MB limit
+        ]
 
-        self.assertIn("XML input must be non-empty string", str(context.exception))
+        for invalid_input, expected_exception, expected_message in invalid_cases:
+            with self.subTest(input=str(invalid_input)[:50]):
+                with self.assertRaises(expected_exception) as context:
+                    InputValidator.sanitize_xml_input(invalid_input)
+                self.assertIn(expected_message, str(context.exception))
 
-    def test_sanitize_xml_input_non_string(self) -> None:
-        """Test XML sanitization with non-string input."""
-        with self.assertRaises(ValidationError) as context:
-            InputValidator.sanitize_xml_input(123)
-
-        self.assertIn("XML input must be non-empty string", str(context.exception))
-
-    def test_sanitize_xml_input_xxe_attack_detection(self) -> None:
-        """Test XML sanitization detects XXE attack patterns."""
+        # Test XXE attack detection
         xxe_payloads = [
             '<!ENTITY xxe "malicious">',
             "<!ELEMENT root ANY>",
@@ -497,19 +486,7 @@ class TestInputValidator(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaises(SecurityError) as context:
                     InputValidator.sanitize_xml_input(payload)
-
-                error = context.exception
-                self.assertIn("Suspicious XML content detected", str(error))
-
-    def test_sanitize_xml_input_too_large(self) -> None:
-        """Test XML sanitization with input too large."""
-        large_xml = "a" * (51 * 1024 * 1024)  # Exceeds 50MB limit
-
-        with self.assertRaises(ValidationError) as context:
-            InputValidator.sanitize_xml_input(large_xml)
-
-        error = context.exception
-        self.assertIn("XML input too large", str(error))
+                self.assertIn("Suspicious XML content detected", str(context.exception))
 
     def test_validate_time_series_data_success(self) -> None:
         """Test successful time series data validation."""
