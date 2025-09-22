@@ -337,10 +337,8 @@ class PiXmlEvent:
 
 
 def main() -> None:
-    pixml = (
-        r"d:\repos\warmingUp\KPI_calculator\kpi-calculator\KPI_calculator_server"
-        r"\swagger_server\test\test_case\alpha1\to_kpicalculator\power_timeseries2.xml"
-    )
+    # Example usage - replace with actual file path
+    pixml = "example_power_timeseries.xml"
     pixml_object = PiXmlTimeSeries(pixml, "locationId", "parameterId")
     timeseries = pixml_object.add_timer_series(
         "continuous",

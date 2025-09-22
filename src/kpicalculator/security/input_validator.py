@@ -615,4 +615,8 @@ class InputValidator:
             return f"{identifier[:3]}{'*' * (len(identifier) - 3)} (len={len(identifier)})"
 
         # For very long identifiers, truncate and show pattern
-        return f"{identifier[:3]}{'*' * (max_length - 6)}... (len={len(identifier)})"
+        # Calculate available space: max_length - prefix(3) - suffix("... (len=X)")
+        len_suffix = f"... (len={len(identifier)})"
+        available_space = max_length - 3 - len(len_suffix)
+        asterisk_count = max(1, available_space)  # Ensure at least 1 asterisk
+        return f"{identifier[:3]}{'*' * asterisk_count}{len_suffix}"

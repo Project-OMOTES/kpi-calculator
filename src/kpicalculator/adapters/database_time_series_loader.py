@@ -414,9 +414,10 @@ class DatabaseTimeSeriesLoader:
                 time_series_data.profile_data_list[i + 1][0]
                 - time_series_data.profile_data_list[i][0]
             )
-            if time_resolution.seconds != SECONDS_PER_HOUR:
+            if int(time_resolution.total_seconds()) != SECONDS_PER_HOUR:
+                actual_seconds = int(time_resolution.total_seconds())
                 raise ValueError(
-                    f"Expected {SECONDS_PER_HOUR}s time resolution, got {time_resolution.seconds}s "
+                    f"Expected {SECONDS_PER_HOUR}s time resolution, got {actual_seconds}s "
                     f"for profile {profile.measurement}-{profile.field}"
                 )
 
