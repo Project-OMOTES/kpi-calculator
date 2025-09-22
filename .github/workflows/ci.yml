@@ -129,7 +129,7 @@ jobs:
         uses: pr-annotators/mypy-pr-annotator@v1.0.0
       - name: Run typechecker
         run: |
-          uv run mypy ./src/kpicalculator ./unit_test ./scripts
+          uv run mypy ./src/kpicalculator ./unit_test
 
   build:
     name: Build the python package

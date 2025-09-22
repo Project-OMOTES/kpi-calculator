@@ -463,7 +463,9 @@ class DatabaseTimeSeriesLoader:
         self.credential_manager = credential_manager
         self.db_logger.debug("Credential manager updated")
 
-    def _validate_profile_field(self, profile: InfluxDBProfileProtocol, field_name: str, field_value: str) -> None:
+    def _validate_profile_field(
+        self, profile: InfluxDBProfileProtocol, field_name: str, field_value: str
+    ) -> None:
         """Validate a single profile field with enhanced error context.
 
         Args:
@@ -483,7 +485,7 @@ class DatabaseTimeSeriesLoader:
                     "field": field_name,
                     "profile_host": profile.host,
                     "profile_port": profile.port,
-                    "profile_database": getattr(profile, 'database', None),
+                    "profile_database": getattr(profile, "database", None),
                     "profile_measurement": profile.measurement,
                     "profile_field": profile.field,
                     "validation_error": str(e),
