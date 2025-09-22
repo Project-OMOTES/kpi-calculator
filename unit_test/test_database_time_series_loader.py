@@ -573,6 +573,51 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(len(result_data), 0)
         self.assertIn("Critical system error", validation_result.errors[0])
 
+    def test_categorize_profile_error_message_format(self) -> None:
+        """Test exception categorization helper method message formatting."""
+        # Test new error types not covered by existing integration tests
+        test_cases = [
+            # Connection errors (not tested elsewhere)
+            (ConnectionError("Connection failed"), "Database connection failed for profile test_field: Connection failed"),
+            (TimeoutError("Request timeout"), "Database connection failed for profile test_field: Request timeout"),
+
+            # Data processing errors (not tested elsewhere)
+            (ValueError("Invalid value"), "Data processing error for profile test_field: Invalid value"),
+            (KeyError("Missing key"), "Data processing error for profile test_field: 'Missing key'"),
+            (AttributeError("Missing attribute"), "Data processing error for profile test_field: Missing attribute"),
+
+            # Unexpected errors (not tested elsewhere)
+            (RuntimeError("Runtime error"), "Unexpected error loading profile test_field: Runtime error"),
+        ]
+
+        for error, expected_message in test_cases:
+            with self.subTest(error_type=type(error).__name__):
+                result = self.loader._categorize_profile_error(error, "test_field")
+                self.assertEqual(result, expected_message)
+
+    def test_handle_query_error_logging_behavior(self) -> None:
+        """Test query error handling helper method logging behavior."""
+        # Test that all error types are properly logged (distinct from existing tests)
+        test_errors = [
+            ConnectionError("Connection failed"),
+            TimeoutError("Request timeout"),
+            ValueError("Invalid value"),
+            RuntimeError("Runtime error"),
+        ]
+
+        for error in test_errors:
+            with self.subTest(error_type=type(error).__name__):
+                # Mock the database logger to verify it gets called
+                with patch.object(self.loader.db_logger, 'log_query_error') as mock_log:
+                    # Should not raise exception (graceful degradation)
+                    result = self.loader._handle_query_error(error, "test_measurement", "test_field")
+
+                    # Should return None for graceful degradation
+                    self.assertIsNone(result)
+
+                    # Should log the error with correct parameters
+                    mock_log.assert_called_once_with("test_measurement", "test_field", error)
+
 
 if __name__ == "__main__":
     unittest.main()

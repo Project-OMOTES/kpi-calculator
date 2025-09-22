@@ -53,6 +53,30 @@ class DatabaseTimeSeriesLoader:
     This follows the MESIDO pattern for InfluxDB connectivity, supporting
     InfluxDBProfile elements embedded in ESDL files with connection details.
     Uses secure credential management with no hard-coded credentials.
+
+    Exception Handling Strategy:
+    ===========================
+    This class implements a systematic exception categorization and graceful
+    degradation strategy to ensure robust time series loading:
+
+    1. Exception Categories:
+       - Configuration: Credential, security, validation errors
+       - Connection: Network timeouts, database connectivity issues
+       - Data Processing: Value errors, missing keys/attributes
+       - Unexpected: All other unforeseen errors
+
+    2. Graceful Degradation:
+       - Individual profile failures do not crash entire loading process
+       - Failed profiles result in None values rather than exceptions
+       - Partial data loading succeeds when some profiles are accessible
+       - All errors are logged with detailed context for troubleshooting
+
+    3. Helper Methods:
+       - _categorize_profile_error(): Categorizes exceptions and formats messages
+       - _handle_query_error(): Provides consistent error logging and degradation
+
+    This design ensures system stability while providing clear error reporting
+    for debugging and monitoring database connectivity issues.
     """
 
     def __init__(self, credential_manager: CredentialManager | None = None):
@@ -163,7 +187,7 @@ class DatabaseTimeSeriesLoader:
 
                 except Exception as e:
                     failed_loads += 1
-                    error_msg = f"Failed to load profile for field {profile.field}: {str(e)}"
+                    error_msg = self._categorize_profile_error(e, profile.field)
                     errors.append(error_msg)
 
                     self.db_logger.error(
@@ -284,7 +308,7 @@ class DatabaseTimeSeriesLoader:
             return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
 
         except Exception as e:
-            self.db_logger.log_query_error(measurement, field, e)
+            self._handle_query_error(e, measurement, field)
             return None
 
     def _get_credentials_for_profile(self, profile: esdl.InfluxDBProfile) -> DatabaseCredentials:
@@ -498,3 +522,78 @@ class DatabaseTimeSeriesLoader:
                 f"(Context: host={profile.host}, port={profile.port}, "
                 f"security_check=database_identifier_validation)"
             ) from e
+
+    def _categorize_profile_error(self, error: Exception, profile_field: str) -> str:
+        """Categorize profile loading errors with appropriate error messages.
+
+        This method implements a systematic exception categorization strategy
+        for database time series loading, providing clear error classification
+        and consistent error message formatting.
+
+        Exception Categories:
+        1. Configuration Errors: Issues with credentials, security, or validation
+           - CredentialError: Missing or invalid database credentials
+           - SecurityError: Security validation failures (paths, hosts, etc.)
+           - ValidationError: Data validation failures
+
+        2. Connection Errors: Network/database connectivity issues
+           - ConnectionError: Database connection failures
+           - TimeoutError: Request timeout during database operations
+
+        3. Data Processing Errors: Issues with data format or access
+           - ValueError: Invalid data values or format issues
+           - KeyError: Missing expected data keys
+           - AttributeError: Missing object attributes during processing
+
+        4. Unexpected Errors: All other exceptions not in above categories
+           - RuntimeError, Exception, etc.: Unforeseen errors
+
+        Args:
+            error: The exception that occurred
+            profile_field: The profile field being processed
+
+        Returns:
+            Appropriate error message based on exception type
+
+        Note:
+            All errors result in graceful degradation with descriptive messages
+            that help identify the root cause and appropriate resolution steps.
+        """
+        if isinstance(error, (CredentialError, SecurityError, ValidationError)):
+            return f"Configuration error loading profile {profile_field}: {str(error)}"
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            return f"Database connection failed for profile {profile_field}: {str(error)}"
+        if isinstance(error, (ValueError, KeyError, AttributeError)):
+            return f"Data processing error for profile {profile_field}: {str(error)}"
+        return f"Unexpected error loading profile {profile_field}: {str(error)}"
+
+    def _handle_query_error(self, error: Exception, measurement: str, field: str) -> None:
+        """Handle query execution errors with graceful degradation.
+
+        This method implements a consistent error handling strategy for database
+        query operations, ensuring that all errors are properly logged while
+        maintaining graceful degradation behavior.
+
+        Strategy:
+        - All exceptions are logged with detailed context (measurement, field, error)
+        - All exceptions result in graceful degradation (caller returns None)
+        - No exceptions are re-raised to ensure system stability
+        - Consistent logging format for troubleshooting and monitoring
+
+        This approach ensures that individual profile loading failures do not
+        crash the entire time series loading process, allowing partial data
+        loading when some profiles are accessible.
+
+        Args:
+            error: The exception that occurred during query execution
+            measurement: The InfluxDB measurement being queried
+            field: The specific field being queried
+
+        Note:
+            After calling this method, the caller should return None to indicate
+            failed loading. This preserves the original graceful degradation
+            behavior where all loading failures result in None rather than
+            exceptions being propagated.
+        """
+        self.db_logger.log_query_error(measurement, field, error)
+        # All errors result in graceful degradation (return None from caller)

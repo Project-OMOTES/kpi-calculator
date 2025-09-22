@@ -2,7 +2,7 @@ import datetime
 import os
 import pathlib
 import xml.etree.ElementTree as ET
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from xml.dom import minidom
 
 import xmltodict  # type: ignore[import-untyped]
@@ -39,9 +39,9 @@ class PiXmlTimeSeries:
             line = ET.tostring(root).replace(b"\n", b"")
             line = line.replace(b"@", b"")
             xmlstr = minidom.parseString(line).toprettyxml(indent="   ")
-            with open(self.time_series_xml_file, "w") as f:
+            with open(self.time_series_xml_file, "w", encoding="utf-8") as f:
                 f.write(xmlstr)
-        with open(self.time_series_xml_file) as fd:
+        with open(self.time_series_xml_file, encoding="utf-8") as fd:
             xml_dict = xmltodict.parse(fd.read())
         self.time_zone = float(xml_dict["TimeSeries"]["timeZone"])
 
@@ -162,7 +162,7 @@ class PiXmlTimeSeries:
         line = ET.tostring(root).replace(b"\n", b"")
         line = line.replace(b"@", b"")
         xmlstr = minidom.parseString(line).toprettyxml(indent="   ")
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(xmlstr)
 
 
