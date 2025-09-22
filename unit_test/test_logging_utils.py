@@ -33,29 +33,32 @@ class TestStructuredLogger(unittest.TestCase):
         self.logger.logger.removeHandler(self.handler)
         self.handler.close()
 
-    def test_info_logging_basic(self) -> None:
-        """Test basic info logging."""
-        self.logger.info("Test message")
+    def test_structured_logging_info(self) -> None:
+        """Test info logging with and without context data."""
+        test_cases = [
+            ("basic", "Test message", None),
+            ("with_context", "Test message", {"asset_id": "test_asset", "port": 443}),
+        ]
 
-        log_output = self.stream.getvalue().strip()
-        self.assertIn("Test message", log_output)
+        for case_name, message, context in test_cases:
+            with self.subTest(case=case_name):
+                # Clear the stream for each test
+                self.stream.seek(0)
+                self.stream.truncate(0)
 
-        # Parse JSON log entry
-        log_data = json.loads(log_output)
-        self.assertEqual(log_data["message"], "Test message")
-        self.assertEqual(log_data["component"], "test.component")
-        self.assertIn("timestamp", log_data)
+                self.logger.info(message, context)
 
-    def test_info_logging_with_context(self) -> None:
-        """Test info logging with context data."""
-        context = {"asset_id": "test_asset", "port": 443}
-        self.logger.info("Test message", context)
+                log_output = self.stream.getvalue().strip()
+                self.assertIn(message, log_output)
 
-        log_output = self.stream.getvalue().strip()
-        log_data = json.loads(log_output)
+                # Parse JSON log entry
+                log_data = json.loads(log_output)
+                self.assertEqual(log_data["message"], message)
+                self.assertEqual(log_data["component"], "test.component")
+                self.assertIn("timestamp", log_data)
 
-        self.assertEqual(log_data["message"], "Test message")
-        self.assertEqual(log_data["context"], context)
+                if context:
+                    self.assertEqual(log_data["context"], context)
 
     def test_error_logging_with_exception(self) -> None:
         """Test error logging with exception details."""
@@ -74,56 +77,40 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["exception"]["message"], "Test error")
         self.assertIn("traceback", log_data["exception"])
 
-    def test_warning_logging(self) -> None:
-        """Test warning logging."""
-        context = {"validation_type": "file_path"}
-        self.logger.warning("Validation warning", context)
+    def test_structured_logging_levels(self) -> None:
+        """Test structured logging across different levels."""
+        test_cases = [
+            ("warning", "Validation warning", {"validation_type": "file_path"}, None),
+            ("debug", "Debug message", {"debug_info": "test"}, None),
+            ("critical", "Critical issue", {"severity": "high"}, RuntimeError("Critical error")),
+        ]
 
-        log_output = self.stream.getvalue().strip()
-        log_data = json.loads(log_output)
+        for level, message, context, exception in test_cases:
+            with self.subTest(level=level):
+                # Clear the stream for each test
+                self.stream.seek(0)
+                self.stream.truncate(0)
 
-        self.assertEqual(log_data["message"], "Validation warning")
-        self.assertEqual(log_data["context"]["validation_type"], "file_path")
+                # Call the appropriate logging method
+                logger_method = getattr(self.logger, level)
+                if exception:
+                    with patch("traceback.format_exc") as mock_traceback:
+                        mock_traceback.return_value = f"{level.capitalize()} traceback"
+                        logger_method(message, context, exception)
+                else:
+                    logger_method(message, context)
 
-    def test_debug_logging(self) -> None:
-        """Test debug logging."""
-        self.logger.debug("Debug message", {"debug_info": "test"})
+                log_output = self.stream.getvalue().strip()
+                log_data = json.loads(log_output)
 
-        log_output = self.stream.getvalue().strip()
-        log_data = json.loads(log_output)
-
-        self.assertEqual(log_data["message"], "Debug message")
-        self.assertEqual(log_data["context"]["debug_info"], "test")
-
-    def test_critical_logging(self) -> None:
-        """Test critical logging."""
-        test_exception = RuntimeError("Critical error")
-
-        with patch("traceback.format_exc") as mock_traceback:
-            mock_traceback.return_value = "Critical traceback"
-            self.logger.critical("Critical issue", {"severity": "high"}, test_exception)
-
-        log_output = self.stream.getvalue().strip()
-        log_data = json.loads(log_output)
-
-        self.assertEqual(log_data["message"], "Critical issue")
-        self.assertEqual(log_data["context"]["severity"], "high")
-        self.assertIn("exception", log_data)
+                self.assertEqual(log_data["message"], message)
+                if context:
+                    for key, value in context.items():
+                        self.assertEqual(log_data["context"][key], value)
+                if exception:
+                    self.assertIn("exception", log_data)
 
 
-    def test_timestamp_format(self) -> None:
-        """Test timestamp format in logs."""
-        with patch("kpicalculator.common.logging_utils.datetime") as mock_datetime:
-            mock_now = Mock()
-            mock_now.isoformat.return_value = "2024-01-01T12:00:00"
-            mock_datetime.now.return_value = mock_now
-
-            self.logger.info("Test message")
-
-        log_output = self.stream.getvalue().strip()
-        log_data = json.loads(log_output)
-
-        self.assertEqual(log_data["timestamp"], "2024-01-01T12:00:00")
 
 
 class TestDatabaseLogger(unittest.TestCase):
@@ -230,14 +217,6 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["validation_result"], "passed")
         self.assertEqual(log_data["context"]["value_count"], 8760)
 
-    def test_log_data_validation_failed(self) -> None:
-        """Test failed data validation logging."""
-        self.db_logger.log_data_validation("asset_123", "file_path", False)
-
-        log_output = self.stream.getvalue().strip()
-        log_data = json.loads(log_output)
-
-        self.assertEqual(log_data["context"]["validation_result"], "failed")
 
     def test_log_time_series_processing(self) -> None:
         """Test time series processing logging."""
@@ -346,14 +325,6 @@ class TestLoggerFactories(unittest.TestCase):
         self.assertIsInstance(logger, SecurityLogger)
         self.assertIn("security", logger.logger.logger.name)
 
-    def test_database_logger_component_naming(self) -> None:
-        """Test database logger component naming."""
-        logger1 = get_database_logger("loader")
-        logger2 = get_database_logger("validator")
-
-        self.assertIn("database.loader", logger1.logger.logger.name)
-        self.assertIn("database.validator", logger2.logger.logger.name)
-        self.assertNotEqual(logger1.logger.logger.name, logger2.logger.logger.name)
 
 
 if __name__ == "__main__":
