@@ -4,6 +4,7 @@
 import os
 import re
 import socket
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -197,7 +198,12 @@ class InputValidator:
         # Check for suspicious username patterns
         if credentials.username.lower() in SUSPICIOUS_USERNAMES:
             # Warning, not error - these might be legitimate in development
-            pass  # Could log a warning here
+            warnings.warn(
+                f"Suspicious username detected: {credentials.username}. "
+                f"This may be acceptable in development but should be avoided in production.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         # Validate password
         if not credentials.password:
@@ -618,5 +624,9 @@ class InputValidator:
         # Calculate available space: max_length - prefix(3) - suffix("... (len=X)")
         len_suffix = f"... (len={len(identifier)})"
         available_space = max_length - 3 - len(len_suffix)
-        asterisk_count = max(1, available_space)  # Ensure at least 1 asterisk
+
+        if available_space < 1:
+            # Not enough space for even one asterisk; return truncated suffix only
+            return len_suffix[:max_length]
+        asterisk_count = available_space
         return f"{identifier[:3]}{'*' * asterisk_count}{len_suffix}"

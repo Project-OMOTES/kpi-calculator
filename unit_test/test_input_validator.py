@@ -1,26 +1,23 @@
 # unit_test/test_input_validator.py
 """Tests for security input validation.
 
-ARCHITECTURAL NOTE: Dual-Layer Validation Approach (TEMPORARY)
-==============================================================
+ARCHITECTURAL NOTE: Dual-Layer Validation Approach
+==================================================
 
-This test file demonstrates a TEMPORARY dual-layer validation approach:
+Input validation uses a dual-layer approach:
+
+- **Layer 1**: Pydantic models handle basic data validation (types, lengths, patterns)
+- **Layer 2**: InputValidator adds security-specific validation on top
 
 1. **Pydantic Layer** (Data Integrity):
    - Automatic field validation (types, formats, constraints)
    - Tests create DatabaseCredentials objects and expect PydanticValidationError
    - Example: Empty strings, invalid port ranges, password length
 
-2. **InputValidator Layer** (Business Logic):
+2. **InputValidator Layer** (Security & Business Logic):
    - Security rules and domain-specific validation
    - Tests call InputValidator methods and expect custom ValidationError
-   - Example: Dangerous ports, hostname security checks
-
-IMPORTANT: This dual-layer approach is TEMPORARY per ARCHITECTURAL_TODO.md
-Future implementation will use Option A: Pydantic-Primary with Business Layer
-- Enhanced Pydantic models for data integrity
-- InputValidator for security/domain rules only
-- No redundant validation logic
+   - Example: Dangerous ports, hostname security checks, path traversal prevention
 
 See TestIntegratedValidation class for examples of both layers working together.
 """

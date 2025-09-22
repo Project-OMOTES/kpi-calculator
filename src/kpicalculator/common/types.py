@@ -58,7 +58,12 @@ class DatabaseCredentials(BaseModel):
 
         if v not in common_db_ports and v < 1024:
             # Log warning for unusual ports (but don't fail)
-            pass
+            warnings.warn(
+                f"Port {v} is unusual for database connections. "
+                "Consider using a standard port unless you have a specific reason.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         return v
 

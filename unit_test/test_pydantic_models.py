@@ -1,7 +1,9 @@
 # unit_test/test_pydantic_models.py
 """Property-based tests for Pydantic models using Hypothesis.
 
-This demonstrates how to use Hypothesis for automatic test case generation
+This module tests the following Pydantic models:
+DatabaseCredentials, AssetProperties, and TimeSeriesData.
+It demonstrates how to use Hypothesis for automatic test case generation
 to find edge cases and ensure robust validation across all input ranges.
 """
 
