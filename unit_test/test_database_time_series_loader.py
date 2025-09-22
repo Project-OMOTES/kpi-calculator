@@ -25,6 +25,10 @@ class MockCredentialManager(CredentialManager):
         key = f"{host}: {port}"
         return self.credentials.get(key)
 
+    def supports_environment_credentials(self) -> bool:
+        """Return False for mock - not environment-based."""
+        return False
+
 
 class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     """Test database time series loader functionality."""

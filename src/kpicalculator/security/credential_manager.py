@@ -29,6 +29,15 @@ class CredentialManager(ABC):
         """
         pass
 
+    @abstractmethod
+    def supports_environment_credentials(self) -> bool:
+        """Return True if this manager supports environment-based credentials.
+
+        Returns:
+            True if manager can read from environment variables
+        """
+        pass
+
 
 class SecureCredentialManager(CredentialManager):
     """Secure credential management using environment variables."""
@@ -89,6 +98,10 @@ class SecureCredentialManager(CredentialManager):
             ssl=ssl,
             verify_ssl=verify_ssl,
         )
+
+    def supports_environment_credentials(self) -> bool:
+        """Return True since this manager reads from environment variables."""
+        return True
 
 
 class ConfigFileCredentialManager(CredentialManager):
@@ -220,6 +233,10 @@ class ConfigFileCredentialManager(CredentialManager):
                 "low",
             )
 
+    def supports_environment_credentials(self) -> bool:
+        """Return False since this manager reads from config files, not environment."""
+        return False
+
 
 class ChainedCredentialManager(CredentialManager):
     """Chain multiple credential managers with fallback priority."""
@@ -253,6 +270,10 @@ class ChainedCredentialManager(CredentialManager):
 
         self.db_logger.warning("No credentials found in any manager", {"host": host, "port": port})
         return None
+
+    def supports_environment_credentials(self) -> bool:
+        """Return True if any of the chained managers supports environment credentials."""
+        return any(manager.supports_environment_credentials() for manager in self.managers)
 
 
 def create_default_credential_manager() -> CredentialManager:

@@ -37,6 +37,16 @@ class TimeSeriesDataProtocol(Protocol):
     profile_data_list: list[tuple[datetime, float]]
 
 
+class InfluxDBProfileProtocol(Protocol):
+    """Protocol for InfluxDB profile objects with database connection details."""
+
+    host: str
+    port: int
+    database: str
+    measurement: str
+    field: str
+
+
 class DatabaseTimeSeriesLoader:
     """Load time series data from database references in ESDL files.
 
@@ -84,7 +94,7 @@ class DatabaseTimeSeriesLoader:
             # Determine credential source for logging
             source = (
                 "environment"
-                if hasattr(self.credential_manager, "_get_env_credentials")
+                if self.credential_manager.supports_environment_credentials()
                 else "config_file"
             )
             self.db_logger.log_credential_load(host, port, source)
@@ -307,9 +317,9 @@ class DatabaseTimeSeriesLoader:
 
             # CRITICAL SECURITY FIX: Validate database identifiers to prevent injection
             if profile.database:
-                InputValidator.validate_database_identifier(profile.database, "database")
-            InputValidator.validate_database_identifier(profile.measurement, "measurement")
-            InputValidator.validate_database_identifier(profile.field, "field")
+                self._validate_profile_field(profile, "database", profile.database)
+            self._validate_profile_field(profile, "measurement", profile.measurement)
+            self._validate_profile_field(profile, "field", profile.field)
 
             self.db_logger.debug(
                 f"Validated database identifiers for {validated_host}: {validated_port}"
@@ -452,3 +462,36 @@ class DatabaseTimeSeriesLoader:
         """
         self.credential_manager = credential_manager
         self.db_logger.debug("Credential manager updated")
+
+    def _validate_profile_field(self, profile: InfluxDBProfileProtocol, field_name: str, field_value: str) -> None:
+        """Validate a single profile field with enhanced error context.
+
+        Args:
+            profile: InfluxDB profile containing context information
+            field_name: Name of the field being validated
+            field_value: Value of the field to validate
+
+        Raises:
+            CredentialError: If validation fails with detailed context
+        """
+        try:
+            InputValidator.validate_database_identifier(field_value, field_name)
+        except (ValidationError, SecurityError) as e:
+            self.db_logger.error(
+                f"Database identifier validation failed for '{field_name}' - security risk",
+                {
+                    "field": field_name,
+                    "profile_host": profile.host,
+                    "profile_port": profile.port,
+                    "profile_database": getattr(profile, 'database', None),
+                    "profile_measurement": profile.measurement,
+                    "profile_field": profile.field,
+                    "validation_error": str(e),
+                },
+                e,
+            )
+            raise CredentialError(
+                f"Security validation failed for InfluxDB profile '{field_name}': {e} "
+                f"(Context: host={profile.host}, port={profile.port}, "
+                f"security_check=database_identifier_validation)"
+            ) from e

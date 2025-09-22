@@ -220,8 +220,9 @@ class InputValidator:
         if credentials.database and not InputValidator.DATABASE_NAME_PATTERN.match(
             credentials.database
         ):
+            sanitized_db = InputValidator.sanitize_for_logging(credentials.database)
             raise ValidationError(
-                f"Database name contains invalid characters: {credentials.database}. "
+                f"Database name contains invalid characters: {sanitized_db}. "
                 "Only letters, numbers, underscore, and hyphen allowed."
             )
 
@@ -559,8 +560,9 @@ class InputValidator:
 
         # CRITICAL: Only allow alphanumeric + underscore (prevent SQL injection)
         if not InputValidator.DATABASE_IDENTIFIER_PATTERN.match(identifier):
+            sanitized_id = InputValidator.sanitize_for_logging(identifier)
             raise SecurityError(
-                f"Database {identifier_type} contains invalid characters: {identifier}. "
+                f"Database {identifier_type} contains invalid characters: {sanitized_id}. "
                 "Only letters, numbers, and underscores allowed (security requirement)"
             )
 
@@ -569,15 +571,48 @@ class InputValidator:
         identifier_lower = identifier.lower()
         for pattern in suspicious_patterns:
             if pattern in identifier_lower:
+                sanitized_id = InputValidator.sanitize_for_logging(identifier)
                 raise SecurityError(
                     f"Database {identifier_type} contains suspicious pattern: "
-                    f"{identifier} (pattern: {pattern})"
+                    f"{sanitized_id} (pattern: {pattern})"
                 )
 
         # Must start with letter or underscore (SQL best practice)
         if not identifier[0].isalpha() and identifier[0] != "_":
+            sanitized_id = InputValidator.sanitize_for_logging(identifier)
             raise ValidationError(
-                f"Database {identifier_type} must start with letter or underscore: {identifier}"
+                f"Database {identifier_type} must start with letter or underscore: {sanitized_id}"
             )
 
         return identifier
+
+    @staticmethod
+    def sanitize_for_logging(identifier: str, max_length: int = 20) -> str:
+        """Sanitize identifier for safe logging to prevent information leakage.
+
+        Args:
+            identifier: Identifier to sanitize
+            max_length: Maximum length to show before truncating
+
+        Returns:
+            Sanitized identifier safe for logging
+
+        Examples:
+            >>> InputValidator.sanitize_for_logging("users")
+            "use** (len=5)"
+            >>> InputValidator.sanitize_for_logging("secret_table_name")
+            "sec*************** (len=17)"
+        """
+        if not identifier or not isinstance(identifier, str):
+            return "[empty]"
+
+        # For very short identifiers, show first char + asterisks
+        if len(identifier) <= 3:
+            return f"{identifier[0]}{'*' * (len(identifier)-1)} (len={len(identifier)})"
+
+        # For longer identifiers, show first 3 chars + asterisks
+        if len(identifier) <= max_length:
+            return f"{identifier[:3]}{'*' * (len(identifier)-3)} (len={len(identifier)})"
+
+        # For very long identifiers, truncate and show pattern
+        return f"{identifier[:3]}{'*' * (max_length-6)}... (len={len(identifier)})"
