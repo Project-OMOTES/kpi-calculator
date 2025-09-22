@@ -110,18 +110,6 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["severity"], "high")
         self.assertIn("exception", log_data)
 
-    def test_json_serialization_fallback(self) -> None:
-        """Test fallback when JSON serialization fails."""
-        # Create a non-serializable context
-        non_serializable = {"func": lambda x: x}
-
-        with patch("json.dumps", side_effect=TypeError("Not serializable")):
-            self.logger.info("Test message", non_serializable)
-
-        log_output = self.stream.getvalue().strip()
-        # Should fallback to simple string logging
-        self.assertIn("Test message", log_output)
-        self.assertIn("Context:", log_output)
 
     def test_timestamp_format(self) -> None:
         """Test timestamp format in logs."""

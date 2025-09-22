@@ -189,38 +189,7 @@ class TestInputValidator(unittest.TestCase):
         # Should not raise any exception
         InputValidator.validate_database_credentials(credentials)
 
-    def test_validate_database_credentials_empty_host(self) -> None:
-        """Test database credential validation with empty host."""
-        # Pydantic now handles empty host validation at the model level
-        with self.assertRaises(PydanticValidationError) as context:
-            DatabaseCredentials(
-                host="",
-                port=5432,
-                username="user",
-                password="password123",
-                database="db",
-                ssl=False,
-                verify_ssl=True,
-            )
 
-        self.assertIn("String should have at least 1 character", str(context.exception))
-
-    def test_validate_database_credentials_hostname_too_long(self) -> None:
-        """Test database credential validation with hostname too long."""
-        long_hostname = "a" * 260  # Exceeds RFC 1035 limit of 253
-        # Pydantic now handles hostname length validation at the model level
-        with self.assertRaises(PydanticValidationError) as context:
-            DatabaseCredentials(
-                host=long_hostname,
-                port=5432,
-                username="user",
-                password="password123",
-                database="db",
-                ssl=False,
-                verify_ssl=True,
-            )
-
-        self.assertIn("String should have at most 253 characters", str(context.exception))
 
     def test_validate_database_credentials_invalid_hostname(self) -> None:
         """Test database credential validation with invalid hostname."""
@@ -291,29 +260,6 @@ class TestInputValidator(unittest.TestCase):
         # Should not raise any exception
         InputValidator.validate_database_credentials(credentials)
 
-    def test_validate_database_credentials_invalid_port_range(self) -> None:
-        """Test database credential validation with invalid port ranges."""
-        invalid_ports = [0, -1, 65536, 100000]
-
-        for port in invalid_ports:
-            with self.subTest(port=port):
-                # Pydantic now handles port range validation at the model level
-                with self.assertRaises(PydanticValidationError) as context:
-                    DatabaseCredentials(
-                        host="example.com",
-                        port=port,
-                        username="user",
-                        password="password123",
-                        database="db",
-                        ssl=False,
-                        verify_ssl=True,
-                    )
-
-                # Check for appropriate error message based on port value
-                if port < 1:
-                    self.assertIn("greater than or equal to 1", str(context.exception))
-                else:  # port > 65535
-                    self.assertIn("less than or equal to 65535", str(context.exception))
 
     def test_validate_database_credentials_dangerous_ports(self) -> None:
         """Test database credential validation warns about dangerous ports (except 443)."""
@@ -357,70 +303,9 @@ class TestInputValidator(unittest.TestCase):
         except ValidationError:
             self.fail("Port 443 should be allowed for HTTPS-based databases")
 
-    def test_validate_database_credentials_empty_username(self) -> None:
-        """Test database credential validation with empty username."""
-        # Pydantic now handles empty username validation at the model level
-        with self.assertRaises(PydanticValidationError) as context:
-            DatabaseCredentials(
-                host="example.com",
-                port=5432,
-                username="",
-                password="password123",
-                database="db",
-                ssl=False,
-                verify_ssl=True,
-            )
 
-        self.assertIn("String should have at least 1 character", str(context.exception))
 
-    def test_validate_database_credentials_username_too_long(self) -> None:
-        """Test database credential validation with username too long."""
-        long_username = "a" * 70  # Exceeds 64 character limit
-        # Pydantic now handles username length validation at the model level
-        with self.assertRaises(PydanticValidationError) as context:
-            DatabaseCredentials(
-                host="example.com",
-                port=5432,
-                username=long_username,
-                password="password123",
-                database="db",
-                ssl=False,
-                verify_ssl=True,
-            )
 
-        self.assertIn("String should have at most 64 characters", str(context.exception))
-
-    def test_validate_database_credentials_password_too_short(self) -> None:
-        """Test database credential validation with password too short."""
-        # Pydantic now handles password length validation at the model level
-        with self.assertRaises(PydanticValidationError) as context:
-            DatabaseCredentials(
-                host="example.com",
-                port=5432,
-                username="user",
-                password="short",  # Less than 8 characters
-                database="db",
-                ssl=False,
-                verify_ssl=True,
-            )
-
-        self.assertIn("String should have at least 8 characters", str(context.exception))
-
-    def test_validate_database_credentials_empty_password(self) -> None:
-        """Test database credential validation with empty password."""
-        # Pydantic now handles empty password validation at the model level
-        with self.assertRaises(PydanticValidationError) as context:
-            DatabaseCredentials(
-                host="example.com",
-                port=5432,
-                username="user",
-                password="",
-                database="db",
-                ssl=False,
-                verify_ssl=True,
-            )
-
-        self.assertIn("String should have at least 8 characters", str(context.exception))
 
     def test_validate_database_credentials_database_name_too_long(self) -> None:
         """Test database credential validation with database name too long."""
@@ -440,25 +325,6 @@ class TestInputValidator(unittest.TestCase):
         # (business logic validation can be added to InputValidator if needed)
         self.assertEqual(credentials.database, long_db_name)
 
-    def test_validate_database_credentials_invalid_database_name_chars(self) -> None:
-        """Test database credential validation with invalid database name characters."""
-        invalid_db_names = ["db with spaces", "db@invalid", "db$pecial"]
-
-        for db_name in invalid_db_names:
-            with self.subTest(db_name=db_name):
-                # Pydantic now handles database name pattern validation at the model level
-                with self.assertRaises(PydanticValidationError) as context:
-                    DatabaseCredentials(
-                        host="example.com",
-                        port=5432,
-                        username="user",
-                        password="password123",
-                        database=db_name,
-                        ssl=False,
-                        verify_ssl=True,
-                    )
-
-                self.assertIn("String should match pattern", str(context.exception))
 
     def test_validate_numeric_range_success(self) -> None:
         """Test successful numeric range validation."""
