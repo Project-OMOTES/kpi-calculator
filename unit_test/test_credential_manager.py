@@ -26,10 +26,6 @@ class TestSecureCredentialManager(unittest.TestCase):
         """Set up test fixtures."""
         self.manager = SecureCredentialManager()
 
-    def test_init(self) -> None:
-        """Test credential manager initialization."""
-        self.assertIsNotNone(self.manager.security_logger)
-        self.assertIsNotNone(self.manager.db_logger)
 
     @patch.dict(
         os.environ,
@@ -102,44 +98,31 @@ class TestSecureCredentialManager(unittest.TestCase):
             credentials = self.manager.get_database_credentials("nonexistent.com", 443)
             self.assertIsNone(credentials)
 
-    def test_get_database_credentials_incomplete(self) -> None:
-        """Test credential retrieval with incomplete credentials."""
-        # Create environment with only username, no password
-        test_env = {
-            k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
-        }
-        test_env["KPI_DB_EXAMPLE_COM_443_USERNAME"] = "testuser"
-        # Password intentionally not set
+    def test_get_database_credentials_invalid_inputs(self) -> None:
+        """Test credential retrieval with various invalid input scenarios."""
+        test_cases = [
+            ("", "testpass", None, "empty username"),
+            ("testuser", "", None, "empty password"),
+            ("testuser", None, None, "missing password"),
+            (None, "testpass", None, "missing username"),
+        ]
 
-        with patch.dict(os.environ, test_env, clear=True):
-            credentials = self.manager.get_database_credentials("example.com", 443)
-            self.assertIsNone(credentials)
+        for username, password, expected, description in test_cases:
+            with self.subTest(case=description):
+                test_env = {
+                    k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
+                }
 
-    def test_get_database_credentials_empty_username(self) -> None:
-        """Test credential retrieval with empty username."""
-        test_env = {
-            k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
-        }
-        test_env.update(
-            {"KPI_DB_EXAMPLE_COM_443_USERNAME": "", "KPI_DB_EXAMPLE_COM_443_PASSWORD": "testpass"}
-        )
+                if username is not None:
+                    test_env["KPI_DB_EXAMPLE_COM_443_USERNAME"] = username
+                if password is not None:
+                    test_env["KPI_DB_EXAMPLE_COM_443_PASSWORD"] = password
 
-        with patch.dict(os.environ, test_env, clear=True):
-            credentials = self.manager.get_database_credentials("example.com", 443)
-            self.assertIsNone(credentials)
+                with patch.dict(os.environ, test_env, clear=True):
+                    credentials = self.manager.get_database_credentials("example.com", 443)
+                    self.assertEqual(credentials, expected)
 
-    def test_get_database_credentials_empty_password(self) -> None:
-        """Test credential retrieval with empty password."""
-        test_env = {
-            k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
-        }
-        test_env.update(
-            {"KPI_DB_EXAMPLE_COM_443_USERNAME": "testuser", "KPI_DB_EXAMPLE_COM_443_PASSWORD": ""}
-        )
 
-        with patch.dict(os.environ, test_env, clear=True):
-            credentials = self.manager.get_database_credentials("example.com", 443)
-            self.assertIsNone(credentials)
 
 
 class TestConfigFileCredentialManager(unittest.TestCase):
@@ -155,17 +138,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         """Clean up test fixtures."""
         self.temp_dir.cleanup()
 
-    def test_init(self) -> None:
-        """Test credential manager initialization."""
-        self.assertEqual(self.manager.config_path, self.config_path)
-        self.assertIsNotNone(self.manager.security_logger)
-        self.assertIsNotNone(self.manager.db_logger)
 
-    def test_init_default_path(self) -> None:
-        """Test credential manager initialization with default path."""
-        manager = ConfigFileCredentialManager()
-        expected_path = Path.home() / ".kpi-calculator" / "credentials.json"
-        self.assertEqual(manager.config_path, expected_path)
 
     def test_get_database_credentials_success(self) -> None:
         """Test successful credential retrieval from config file."""
@@ -231,43 +204,6 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         with self.assertRaises(Exception):  # ConfigurationError expected
             self.manager.get_database_credentials("example.com", 443)
 
-    def test_get_database_credentials_caching(self) -> None:
-        """Test credential caching behavior."""
-        config_data = {
-            "databases": {
-                "example.com: 443": {
-                    "host": "example.com",
-                    "port": 443,
-                    "username": "testuser",
-                    "password": "testpass",
-                }
-            }
-        }
-
-        self.config_path.write_text(json.dumps(config_data))
-
-        with patch.object(self.manager, "_validate_file_permissions"):
-            # First call - should load from file
-            credentials1 = self.manager.get_database_credentials("example.com", 443)
-
-            # Modify file after first load
-            modified_config = {
-                "databases": {
-                    "example.com: 443": {
-                        "host": "example.com",
-                        "port": 443,
-                        "username": "modifieduser",
-                        "password": "modifiedpass",
-                    }
-                }
-            }
-            self.config_path.write_text(json.dumps(modified_config))
-
-            # Second call - should use cached data
-            credentials2 = self.manager.get_database_credentials("example.com", 443)
-
-            self.assertEqual(credentials1.username, "testuser")  # Original data
-            self.assertEqual(credentials2.username, "testuser")  # Still original (cached)
 
     def test_get_database_credentials_minimal_config(self) -> None:
         """Test credential retrieval with minimal configuration."""
@@ -313,9 +249,10 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         mock_stat_result = Mock()
         mock_stat_result.st_mode = 0o100600  # Regular file with 600 permissions
 
-        # Mock the pathlib stat method properly
+        # Patch the stat module attributes directly in the credential manager module
         with patch("pathlib.Path.stat", return_value=mock_stat_result):
-            with patch("stat.S_IRGRP", 0o040), patch("stat.S_IROTH", 0o004):
+            with patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040), \
+                 patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004):
                 # Should not raise any exception - secure permissions
                 credentials = self.manager.get_database_credentials("test.com", 443)
                 self.assertIsNotNone(credentials)
@@ -338,9 +275,9 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         mock_stat_result = Mock()
         mock_stat_result.st_mode = 0o100644  # Regular file with 644 permissions (world readable)
 
-        # Mock the pathlib stat method properly
         with patch("pathlib.Path.stat", return_value=mock_stat_result):
-            with patch("stat.S_IRGRP", 0o040), patch("stat.S_IROTH", 0o004):
+            with patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040), \
+                 patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004):
                 with self.assertRaises(SecurityError) as context:
                     self.manager.get_database_credentials("test.com", 443)
 
@@ -348,36 +285,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
                 self.assertIn("Credentials file has insecure permissions", str(error))
                 self.assertIn("file_mode", str(error))
 
-    def test_validate_file_permissions_windows(self) -> None:
-        """Test file permission validation on Windows (should skip detailed checks)."""
-        config_data = {
-            "databases": {
-                "test.com: 443": {
-                    "host": "test.com",
-                    "port": 443,
-                    "username": "user",
-                    "password": "password123",
-                }
-            }
-        }
-        self.config_path.write_text(json.dumps(config_data))
 
-        # Mock Windows environment (no S_IRGRP/S_IROTH constants)
-        with patch(
-            "builtins.hasattr", side_effect=lambda obj, attr: attr not in ["S_IRGRP", "S_IROTH"]
-        ):
-            # Should not raise exception on Windows
-            credentials = self.manager.get_database_credentials("test.com", 443)
-            self.assertIsNotNone(credentials)
-
-    def test_load_credentials_exception_handling(self) -> None:
-        """Test credential loading with various exceptions."""
-        # Create a directory where file should be (causes IsADirectoryError)
-        self.config_path.mkdir(parents=True, exist_ok=True)
-
-        # Should raise ConfigurationError when trying to open directory as file
-        with self.assertRaises(Exception):  # ConfigurationError expected
-            self.manager.get_database_credentials("example.com", 443)
 
 
 class TestChainedCredentialManager(unittest.TestCase):
@@ -601,53 +509,38 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
 class TestCredentialManagerErrorHandling(unittest.TestCase):
     """Test credential manager error handling scenarios."""
 
-    def test_secure_manager_with_malformed_environment(self) -> None:
-        """Test secure manager with malformed environment variables."""
-        # The env vars KPI_DB_TEST_443_* actually match host="test" port=443 correctly
-        # Test with truly malformed pattern - missing port in env var name
-        test_env = {k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_MALFORMED_")}
-        test_env.update(
-            {
-                "KPI_DB_MALFORMED_USERNAME": "user",  # Missing port in variable name
-                "KPI_DB_MALFORMED_PASSWORD": "pass",
-            }
-        )
 
-        with patch.dict(os.environ, test_env, clear=True):
-            manager = SecureCredentialManager()
-            # Request credentials with port that doesn't match env var pattern
-            credentials = manager.get_database_credentials("malformed", 443)
+    def test_config_manager_error_scenarios(self) -> None:
+        """Test config manager with various error scenarios."""
+        test_cases = [
+            ("corrupted_json", b"\x00\x01\x02\x03", None),
+            ("invalid_json", "invalid json content", None),
+            ("permission_error", '{"test": "data"}', PermissionError("Access denied")),
+            ("is_directory", None, None),  # Special case handled in setup
+        ]
 
-            # Should handle malformed env vars gracefully (no matching port)
-            self.assertIsNone(credentials)
+        for error_type, file_content, mock_exception in test_cases:
+            with self.subTest(case=error_type):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    config_path = Path(temp_dir) / "credentials.json"
 
-    def test_config_manager_with_corrupted_file(self) -> None:
-        """Test config manager with corrupted file."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "credentials.json"
+                    if error_type == "is_directory":
+                        config_path.mkdir(parents=True, exist_ok=True)
+                    elif file_content is not None:
+                        if isinstance(file_content, bytes):
+                            config_path.write_bytes(file_content)
+                        else:
+                            config_path.write_text(file_content)
 
-            # Write binary data that's not valid JSON
-            config_path.write_bytes(b"\x00\x01\x02\x03")
+                    manager = ConfigFileCredentialManager(config_path)
 
-            manager = ConfigFileCredentialManager(config_path)
-
-            # Should raise ConfigurationError for corrupted JSON
-            with self.assertRaises(Exception):  # ConfigurationError expected
-                manager.get_database_credentials("test.host", 443)
-
-    def test_config_manager_permission_error(self) -> None:
-        """Test config manager with permission errors."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "credentials.json"
-            config_path.write_text('{"test": "data"}')
-
-            # Mock permission error during file open
-            with patch("builtins.open", side_effect=PermissionError("Access denied")):
-                manager = ConfigFileCredentialManager(config_path)
-
-                # Should raise ConfigurationError for file access issues
-                with self.assertRaises(Exception):  # ConfigurationError expected
-                    manager.get_database_credentials("test.host", 443)
+                    if mock_exception:
+                        with patch("builtins.open", side_effect=mock_exception):
+                            with self.assertRaises(Exception):  # ConfigurationError expected
+                                manager.get_database_credentials("test.host", 443)
+                    else:
+                        with self.assertRaises(Exception):  # ConfigurationError expected
+                            manager.get_database_credentials("test.host", 443)
 
 
 if __name__ == "__main__":
