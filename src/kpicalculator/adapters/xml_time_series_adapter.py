@@ -1,6 +1,5 @@
 import datetime
 import os
-import pathlib
 import xml.etree.ElementTree as ET
 from typing import Any
 from xml.dom import minidom
@@ -20,10 +19,6 @@ class PiXmlTimeSeries:
         remove_name: bool = True,
     ) -> None:
         self.time_series_xml_file: str = time_series_xml_file
-        fname = pathlib.Path(time_series_xml_file)
-        self.time_data_file: datetime.datetime = datetime.datetime.fromtimestamp(
-            fname.stat().st_mtime
-        )
         self.name_at: str = name_at
         self.property_at: str = property_at
         self.station_name: str | None = None
@@ -43,7 +38,6 @@ class PiXmlTimeSeries:
                 f.write(xmlstr)
         with open(self.time_series_xml_file, encoding="utf-8") as fd:
             xml_dict = xmltodict.parse(fd.read())
-        self.time_zone = float(xml_dict["TimeSeries"]["timeZone"])
 
         # parsing timeseries
         # if there is only one time series or multiple.
@@ -310,9 +304,6 @@ class TimeSeries:
             return DEFAULT_WEEK_TIME_STEP
         return (time2 - time1).total_seconds()
 
-    def get_series_as_list(self) -> list[float]:
-        return [event.value for event in self.events]
-
 
 # class for PiXmlevent, which is in the Timerseries
 class PiXmlEvent:
@@ -328,12 +319,10 @@ class PiXmlEvent:
     def save_event(self, element: ET.Element) -> None:
         if self.new_event:
             event_element = ET.SubElement(element, "event")
-            event_element.attrib = {
-                "date": str(self.date),
-                "flag": str(self.flag),
-                "time": str(self.time),
-                "value": str(self.value),
-            }
+            event_element.set("date", str(self.date))
+            event_element.set("flag", str(self.flag))
+            event_element.set("time", str(self.time))
+            event_element.set("value", str(self.value))
 
 
 def main() -> None:
