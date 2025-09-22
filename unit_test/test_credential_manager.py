@@ -26,7 +26,6 @@ class TestSecureCredentialManager(unittest.TestCase):
         """Set up test fixtures."""
         self.manager = SecureCredentialManager()
 
-
     @patch.dict(
         os.environ,
         {
@@ -110,7 +109,9 @@ class TestSecureCredentialManager(unittest.TestCase):
         for username, password, expected, description in test_cases:
             with self.subTest(case=description):
                 test_env = {
-                    k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
+                    k: v
+                    for k, v in os.environ.items()
+                    if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
                 }
 
                 if username is not None:
@@ -121,8 +122,6 @@ class TestSecureCredentialManager(unittest.TestCase):
                 with patch.dict(os.environ, test_env, clear=True):
                     credentials = self.manager.get_database_credentials("example.com", 443)
                     self.assertEqual(credentials, expected)
-
-
 
 
 class TestConfigFileCredentialManager(unittest.TestCase):
@@ -137,8 +136,6 @@ class TestConfigFileCredentialManager(unittest.TestCase):
     def tearDown(self) -> None:
         """Clean up test fixtures."""
         self.temp_dir.cleanup()
-
-
 
     def test_get_database_credentials_success(self) -> None:
         """Test successful credential retrieval from config file."""
@@ -204,7 +201,6 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         with self.assertRaises(Exception):  # ConfigurationError expected
             self.manager.get_database_credentials("example.com", 443)
 
-
     def test_get_database_credentials_minimal_config(self) -> None:
         """Test credential retrieval with minimal configuration."""
         config_data = {
@@ -251,8 +247,10 @@ class TestConfigFileCredentialManager(unittest.TestCase):
 
         # Patch the stat module attributes directly in the credential manager module
         with patch("pathlib.Path.stat", return_value=mock_stat_result):
-            with patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040), \
-                 patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004):
+            with (
+                patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040),
+                patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004),
+            ):
                 # Should not raise any exception - secure permissions
                 credentials = self.manager.get_database_credentials("test.com", 443)
                 self.assertIsNotNone(credentials)
@@ -276,16 +274,16 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         mock_stat_result.st_mode = 0o100644  # Regular file with 644 permissions (world readable)
 
         with patch("pathlib.Path.stat", return_value=mock_stat_result):
-            with patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040), \
-                 patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004):
+            with (
+                patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040),
+                patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004),
+            ):
                 with self.assertRaises(SecurityError) as context:
                     self.manager.get_database_credentials("test.com", 443)
 
                 error = context.exception
                 self.assertIn("Credentials file has insecure permissions", str(error))
                 self.assertIn("file_mode", str(error))
-
-
 
 
 class TestChainedCredentialManager(unittest.TestCase):
@@ -508,7 +506,6 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
 
 class TestCredentialManagerErrorHandling(unittest.TestCase):
     """Test credential manager error handling scenarios."""
-
 
     def test_config_manager_error_scenarios(self) -> None:
         """Test config manager with various error scenarios."""

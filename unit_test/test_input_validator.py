@@ -189,8 +189,6 @@ class TestInputValidator(unittest.TestCase):
         # Should not raise any exception
         InputValidator.validate_database_credentials(credentials)
 
-
-
     def test_validate_database_credentials_invalid_hostname(self) -> None:
         """Test database credential validation with invalid hostname."""
         invalid_hostname = "invalid_hostname_with_underscores_everywhere"
@@ -260,7 +258,6 @@ class TestInputValidator(unittest.TestCase):
         # Should not raise any exception
         InputValidator.validate_database_credentials(credentials)
 
-
     def test_validate_database_credentials_dangerous_ports(self) -> None:
         """Test database credential validation warns about dangerous ports (except 443)."""
         # Port 443 is excluded as it's commonly used for HTTPS-based databases
@@ -303,10 +300,6 @@ class TestInputValidator(unittest.TestCase):
         except ValidationError:
             self.fail("Port 443 should be allowed for HTTPS-based databases")
 
-
-
-
-
     def test_validate_database_credentials_database_name_too_long(self) -> None:
         """Test database credential validation with database name too long."""
         long_db_name = "a" * 70  # Exceeds reasonable database name limit
@@ -325,7 +318,6 @@ class TestInputValidator(unittest.TestCase):
         # (business logic validation can be added to InputValidator if needed)
         self.assertEqual(credentials.database, long_db_name)
 
-
     def test_validate_numeric_range_scenarios(self) -> None:
         """Test numeric range validation with various input scenarios."""
         test_cases = [
@@ -339,7 +331,9 @@ class TestInputValidator(unittest.TestCase):
         for value, min_val, max_val, field_name, should_succeed, expected in test_cases:
             with self.subTest(value=value, expected=expected):
                 if should_succeed:
-                    result = InputValidator.validate_numeric_range(value, min_val, max_val, field_name)
+                    result = InputValidator.validate_numeric_range(
+                        value, min_val, max_val, field_name
+                    )
                     self.assertEqual(result, expected)
                 else:
                     with self.assertRaises(ValidationError) as context:
@@ -463,7 +457,8 @@ class TestInputValidator(unittest.TestCase):
         invalid_cases = [
             ("", ValidationError, "XML input must be non-empty string"),
             (123, ValidationError, "XML input must be non-empty string"),
-            ("a" * (51 * 1024 * 1024), ValidationError, "XML input too large"),  # Exceeds 50MB limit
+            # Exceeds 50MB limit
+            ("a" * (51 * 1024 * 1024), ValidationError, "XML input too large"),
         ]
 
         for invalid_input, expected_exception, expected_message in invalid_cases:

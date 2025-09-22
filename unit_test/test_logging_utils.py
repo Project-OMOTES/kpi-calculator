@@ -6,7 +6,7 @@ import logging
 import unittest
 from datetime import datetime
 from io import StringIO
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from kpicalculator.common.logging_utils import (
     DatabaseLogger,
@@ -109,8 +109,6 @@ class TestStructuredLogger(unittest.TestCase):
                         self.assertEqual(log_data["context"][key], value)
                 if exception:
                     self.assertIn("exception", log_data)
-
-
 
 
 class TestDatabaseLogger(unittest.TestCase):
@@ -216,7 +214,6 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["asset_id"], "asset_123")
         self.assertEqual(log_data["context"]["validation_result"], "passed")
         self.assertEqual(log_data["context"]["value_count"], 8760)
-
 
     def test_log_time_series_processing(self) -> None:
         """Test time series processing logging."""
@@ -324,7 +321,6 @@ class TestLoggerFactories(unittest.TestCase):
         logger = get_security_logger()
         self.assertIsInstance(logger, SecurityLogger)
         self.assertIn("security", logger.logger.logger.name)
-
 
 
 if __name__ == "__main__":
