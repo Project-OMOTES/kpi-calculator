@@ -608,11 +608,11 @@ class InputValidator:
 
         # For very short identifiers, show first char + asterisks
         if len(identifier) <= 3:
-            return f"{identifier[0]}{'*' * (len(identifier)-1)} (len={len(identifier)})"
+            return f"{identifier[0]}{'*' * (len(identifier) - 1)} (len={len(identifier)})"
 
         # For longer identifiers, show first 3 chars + asterisks
         if len(identifier) <= max_length:
-            return f"{identifier[:3]}{'*' * (len(identifier)-3)} (len={len(identifier)})"
+            return f"{identifier[:3]}{'*' * (len(identifier) - 3)} (len={len(identifier)})"
 
         # For very long identifiers, truncate and show pattern
-        return f"{identifier[:3]}{'*' * (max_length-6)}... (len={len(identifier)})"
+        return f"{identifier[:3]}{'*' * (max_length - 6)}... (len={len(identifier)})"

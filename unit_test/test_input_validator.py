@@ -40,16 +40,16 @@ from kpicalculator.security.input_validator import InputValidator
 class TestInputValidator(unittest.TestCase):
     """Test input validator functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.temp_dir = tempfile.TemporaryDirectory()
         self.temp_path = Path(self.temp_dir.name)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test fixtures."""
         self.temp_dir.cleanup()
 
-    def test_validate_file_path_success(self):
+    def test_validate_file_path_success(self) -> None:
         """Test successful file path validation."""
         # Create a test file
         test_file = self.temp_path / "test.esdl"
@@ -61,14 +61,14 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertEqual(result, test_file.resolve())
 
-    def test_validate_file_path_empty(self):
+    def test_validate_file_path_empty(self) -> None:
         """Test file path validation with empty path."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.validate_file_path("")
 
         self.assertIn("File path cannot be empty", str(context.exception))
 
-    def test_validate_file_path_invalid_format(self):
+    def test_validate_file_path_invalid_format(self) -> None:
         """Test file path validation with invalid format."""
         # This test is difficult to trigger reliably across platforms
         # The null character test may not always cause the expected exception
@@ -78,7 +78,7 @@ class TestInputValidator(unittest.TestCase):
         with contextlib.suppress(ValidationError, ValueError, OSError):
             InputValidator.validate_file_path("\x00invalid.esdl", must_exist=False)
 
-    def test_validate_file_path_too_long(self):
+    def test_validate_file_path_too_long(self) -> None:
         """Test file path validation with path too long."""
         long_path = "a" * 5000  # Exceeds MAX_PATH_LENGTH (4096)
 
@@ -88,7 +88,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("File path too long", str(error))
 
-    def test_validate_file_path_filename_too_long(self):
+    def test_validate_file_path_filename_too_long(self) -> None:
         """Test file path validation with filename too long."""
         long_filename = "a" * 300  # Exceeds MAX_FILENAME_LENGTH (255)
         test_path = self.temp_path / f"{long_filename}.esdl"
@@ -99,7 +99,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("Filename too long", str(error))
 
-    def test_validate_file_path_traversal_attack(self):
+    def test_validate_file_path_traversal_attack(self) -> None:
         """Test file path validation detects path traversal attacks."""
         malicious_paths = [
             "../../../etc/passwd",
@@ -117,7 +117,7 @@ class TestInputValidator(unittest.TestCase):
                 error = context.exception
                 self.assertIn("Path traversal attempt detected", str(error))
 
-    def test_validate_file_path_windows_reserved_names(self):
+    def test_validate_file_path_windows_reserved_names(self) -> None:
         """Test file path validation detects Windows reserved names."""
         reserved_names = ["con", "prn", "aux", "nul", "com1", "lpt1"]
 
@@ -131,7 +131,7 @@ class TestInputValidator(unittest.TestCase):
                 error = context.exception
                 self.assertIn("Suspicious filename detected", str(error))
 
-    def test_validate_file_path_invalid_extension(self):
+    def test_validate_file_path_invalid_extension(self) -> None:
         """Test file path validation with invalid extension."""
         test_path = self.temp_path / "test.exe"
 
@@ -143,7 +143,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("File extension not allowed", str(error))
 
-    def test_validate_file_path_does_not_exist(self):
+    def test_validate_file_path_does_not_exist(self) -> None:
         """Test file path validation when file doesn't exist."""
         non_existent = self.temp_path / "nonexistent.esdl"
 
@@ -152,7 +152,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("File does not exist", str(context.exception))
 
-    def test_validate_file_path_not_a_file(self):
+    def test_validate_file_path_not_a_file(self) -> None:
         """Test file path validation when path is a directory."""
         test_dir = (
             self.temp_path / "testdir.esdl"
@@ -164,7 +164,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("Path is not a file", str(context.exception))
 
-    def test_validate_file_path_symlink_security_check(self):
+    def test_validate_file_path_symlink_security_check(self) -> None:
         """Test file path validation with symlink security concerns."""
         # Create a normal file first
         real_file = self.temp_path / "real.esdl"
@@ -174,7 +174,7 @@ class TestInputValidator(unittest.TestCase):
         result = InputValidator.validate_file_path(str(real_file))
         self.assertTrue(result.exists())
 
-    def test_validate_database_credentials_success(self):
+    def test_validate_database_credentials_success(self) -> None:
         """Test successful database credential validation."""
         credentials = DatabaseCredentials(
             host="example.com",
@@ -189,7 +189,7 @@ class TestInputValidator(unittest.TestCase):
         # Should not raise any exception
         InputValidator.validate_database_credentials(credentials)
 
-    def test_validate_database_credentials_empty_host(self):
+    def test_validate_database_credentials_empty_host(self) -> None:
         """Test database credential validation with empty host."""
         # Pydantic now handles empty host validation at the model level
         with self.assertRaises(PydanticValidationError) as context:
@@ -205,7 +205,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("String should have at least 1 character", str(context.exception))
 
-    def test_validate_database_credentials_hostname_too_long(self):
+    def test_validate_database_credentials_hostname_too_long(self) -> None:
         """Test database credential validation with hostname too long."""
         long_hostname = "a" * 260  # Exceeds RFC 1035 limit of 253
         # Pydantic now handles hostname length validation at the model level
@@ -222,7 +222,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("String should have at most 253 characters", str(context.exception))
 
-    def test_validate_database_credentials_invalid_hostname(self):
+    def test_validate_database_credentials_invalid_hostname(self) -> None:
         """Test database credential validation with invalid hostname."""
         invalid_hostname = "invalid_hostname_with_underscores_everywhere"
         # Pydantic now handles basic hostname format validation
@@ -239,7 +239,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("Invalid hostname format", str(context.exception))
 
-    def test_validate_database_credentials_localhost_allowed(self):
+    def test_validate_database_credentials_localhost_allowed(self) -> None:
         """Test database credential validation allows localhost."""
         localhost_variants = ["localhost", "127.0.0.1", "::1"]
 
@@ -258,7 +258,7 @@ class TestInputValidator(unittest.TestCase):
                 # Should not raise any exception
                 InputValidator.validate_database_credentials(credentials)
 
-    def test_validate_database_credentials_valid_ipv4(self):
+    def test_validate_database_credentials_valid_ipv4(self) -> None:
         """Test database credential validation with valid IPv4."""
         credentials = DatabaseCredentials(
             host="192.168.1.100",
@@ -274,7 +274,7 @@ class TestInputValidator(unittest.TestCase):
         InputValidator.validate_database_credentials(credentials)
 
     @patch("socket.inet_pton")
-    def test_validate_database_credentials_valid_ipv6(self, mock_inet_pton):
+    def test_validate_database_credentials_valid_ipv6(self, mock_inet_pton) -> None:
         """Test database credential validation with valid IPv6."""
         mock_inet_pton.return_value = b"valid"  # Mock successful IPv6 parsing
 
@@ -291,7 +291,7 @@ class TestInputValidator(unittest.TestCase):
         # Should not raise any exception
         InputValidator.validate_database_credentials(credentials)
 
-    def test_validate_database_credentials_invalid_port_range(self):
+    def test_validate_database_credentials_invalid_port_range(self) -> None:
         """Test database credential validation with invalid port ranges."""
         invalid_ports = [0, -1, 65536, 100000]
 
@@ -315,7 +315,7 @@ class TestInputValidator(unittest.TestCase):
                 else:  # port > 65535
                     self.assertIn("less than or equal to 65535", str(context.exception))
 
-    def test_validate_database_credentials_dangerous_ports(self):
+    def test_validate_database_credentials_dangerous_ports(self) -> None:
         """Test database credential validation warns about dangerous ports (except 443)."""
         # Port 443 is excluded as it's commonly used for HTTPS-based databases
         # like InfluxDB over HTTPS
@@ -339,7 +339,7 @@ class TestInputValidator(unittest.TestCase):
                 error = context.exception
                 self.assertIn("typically not used for databases", str(error))
 
-    def test_validate_database_credentials_port_443_allowed(self):
+    def test_validate_database_credentials_port_443_allowed(self) -> None:
         """Test that port 443 is allowed for HTTPS-based databases."""
         credentials = DatabaseCredentials(
             host="example.com",
@@ -357,7 +357,7 @@ class TestInputValidator(unittest.TestCase):
         except ValidationError:
             self.fail("Port 443 should be allowed for HTTPS-based databases")
 
-    def test_validate_database_credentials_empty_username(self):
+    def test_validate_database_credentials_empty_username(self) -> None:
         """Test database credential validation with empty username."""
         # Pydantic now handles empty username validation at the model level
         with self.assertRaises(PydanticValidationError) as context:
@@ -373,7 +373,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("String should have at least 1 character", str(context.exception))
 
-    def test_validate_database_credentials_username_too_long(self):
+    def test_validate_database_credentials_username_too_long(self) -> None:
         """Test database credential validation with username too long."""
         long_username = "a" * 70  # Exceeds 64 character limit
         # Pydantic now handles username length validation at the model level
@@ -390,7 +390,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("String should have at most 64 characters", str(context.exception))
 
-    def test_validate_database_credentials_password_too_short(self):
+    def test_validate_database_credentials_password_too_short(self) -> None:
         """Test database credential validation with password too short."""
         # Pydantic now handles password length validation at the model level
         with self.assertRaises(PydanticValidationError) as context:
@@ -406,7 +406,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("String should have at least 8 characters", str(context.exception))
 
-    def test_validate_database_credentials_empty_password(self):
+    def test_validate_database_credentials_empty_password(self) -> None:
         """Test database credential validation with empty password."""
         # Pydantic now handles empty password validation at the model level
         with self.assertRaises(PydanticValidationError) as context:
@@ -422,7 +422,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("String should have at least 8 characters", str(context.exception))
 
-    def test_validate_database_credentials_database_name_too_long(self):
+    def test_validate_database_credentials_database_name_too_long(self) -> None:
         """Test database credential validation with database name too long."""
         long_db_name = "a" * 70  # Exceeds reasonable database name limit
         # Pydantic validation will catch this before InputValidator
@@ -440,7 +440,7 @@ class TestInputValidator(unittest.TestCase):
         # (business logic validation can be added to InputValidator if needed)
         self.assertEqual(credentials.database, long_db_name)
 
-    def test_validate_database_credentials_invalid_database_name_chars(self):
+    def test_validate_database_credentials_invalid_database_name_chars(self) -> None:
         """Test database credential validation with invalid database name characters."""
         invalid_db_names = ["db with spaces", "db@invalid", "db$pecial"]
 
@@ -460,12 +460,12 @@ class TestInputValidator(unittest.TestCase):
 
                 self.assertIn("String should match pattern", str(context.exception))
 
-    def test_validate_numeric_range_success(self):
+    def test_validate_numeric_range_success(self) -> None:
         """Test successful numeric range validation."""
         result = InputValidator.validate_numeric_range(50, 0, 100, "test_value")
         self.assertEqual(result, 50)
 
-    def test_validate_numeric_range_non_numeric(self):
+    def test_validate_numeric_range_non_numeric(self) -> None:
         """Test numeric range validation with non-numeric value."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.validate_numeric_range("not_a_number", 0, 100, "test_value")
@@ -473,7 +473,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("test_value must be numeric", str(error))
 
-    def test_validate_numeric_range_below_minimum(self):
+    def test_validate_numeric_range_below_minimum(self) -> None:
         """Test numeric range validation below minimum."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.validate_numeric_range(-10, 0, 100, "test_value")
@@ -481,7 +481,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("test_value too small", str(error))
 
-    def test_validate_numeric_range_above_maximum(self):
+    def test_validate_numeric_range_above_maximum(self) -> None:
         """Test numeric range validation above maximum."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.validate_numeric_range(150, 0, 100, "test_value")
@@ -489,7 +489,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("test_value too large", str(error))
 
-    def test_validate_asset_properties_success(self):
+    def test_validate_asset_properties_success(self) -> None:
         """Test successful asset property validation."""
         asset_data = {
             "id": "asset_123",
@@ -511,7 +511,7 @@ class TestInputValidator(unittest.TestCase):
         self.assertEqual(result["id"], "asset_123")
         self.assertEqual(result["power"], 1000.0)
 
-    def test_validate_asset_properties_missing_required_fields(self):
+    def test_validate_asset_properties_missing_required_fields(self) -> None:
         """Test asset property validation with missing required fields."""
         incomplete_data = {
             "id": "asset_123",
@@ -524,7 +524,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("Required asset field missing", str(error))
 
-    def test_validate_asset_properties_numeric_out_of_range(self):
+    def test_validate_asset_properties_numeric_out_of_range(self) -> None:
         """Test asset property validation with numeric values out of range."""
         asset_data = {
             "id": "asset_123",
@@ -539,7 +539,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("power too large", str(error))
 
-    def test_validate_asset_properties_negative_cost(self):
+    def test_validate_asset_properties_negative_cost(self) -> None:
         """Test asset property validation with negative cost."""
         asset_data = {
             "id": "asset_123",
@@ -554,7 +554,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("investment_cost too small", str(error))
 
-    def test_validate_asset_properties_string_validation(self):
+    def test_validate_asset_properties_string_validation(self) -> None:
         """Test asset property validation for string fields."""
         # Test non-string value
         asset_data = {
@@ -568,7 +568,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("Asset id must be string", str(context.exception))
 
-    def test_validate_asset_properties_string_too_long(self):
+    def test_validate_asset_properties_string_too_long(self) -> None:
         """Test asset property validation with string too long."""
         long_name = "a" * 300  # Exceeds 255 character limit
         asset_data = {
@@ -582,7 +582,7 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("Asset name too long", str(context.exception))
 
-    def test_validate_asset_properties_empty_string(self):
+    def test_validate_asset_properties_empty_string(self) -> None:
         """Test asset property validation with empty string."""
         asset_data = {
             "id": "   ",  # Whitespace only
@@ -595,28 +595,28 @@ class TestInputValidator(unittest.TestCase):
 
         self.assertIn("Asset id cannot be empty or whitespace", str(context.exception))
 
-    def test_sanitize_xml_input_success(self):
+    def test_sanitize_xml_input_success(self) -> None:
         """Test successful XML input sanitization."""
         clean_xml = "<root><element>value</element></root>"
 
         result = InputValidator.sanitize_xml_input(clean_xml)
         self.assertEqual(result, clean_xml)
 
-    def test_sanitize_xml_input_empty(self):
+    def test_sanitize_xml_input_empty(self) -> None:
         """Test XML sanitization with empty input."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.sanitize_xml_input("")
 
         self.assertIn("XML input must be non-empty string", str(context.exception))
 
-    def test_sanitize_xml_input_non_string(self):
+    def test_sanitize_xml_input_non_string(self) -> None:
         """Test XML sanitization with non-string input."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.sanitize_xml_input(123)
 
         self.assertIn("XML input must be non-empty string", str(context.exception))
 
-    def test_sanitize_xml_input_xxe_attack_detection(self):
+    def test_sanitize_xml_input_xxe_attack_detection(self) -> None:
         """Test XML sanitization detects XXE attack patterns."""
         xxe_payloads = [
             '<!ENTITY xxe "malicious">',
@@ -635,7 +635,7 @@ class TestInputValidator(unittest.TestCase):
                 error = context.exception
                 self.assertIn("Suspicious XML content detected", str(error))
 
-    def test_sanitize_xml_input_too_large(self):
+    def test_sanitize_xml_input_too_large(self) -> None:
         """Test XML sanitization with input too large."""
         large_xml = "a" * (51 * 1024 * 1024)  # Exceeds 50MB limit
 
@@ -645,28 +645,28 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("XML input too large", str(error))
 
-    def test_validate_time_series_data_success(self):
+    def test_validate_time_series_data_success(self) -> None:
         """Test successful time series data validation."""
         valid_data = [100.0, 200.0, 150.0, 300.0]
 
         result = InputValidator.validate_time_series_data(valid_data, "test_series")
         self.assertEqual(result, valid_data)
 
-    def test_validate_time_series_data_not_list(self):
+    def test_validate_time_series_data_not_list(self) -> None:
         """Test time series validation with non-list input."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.validate_time_series_data("not_a_list", "test_series")
 
         self.assertIn("test_series must be a list", str(context.exception))
 
-    def test_validate_time_series_data_empty(self):
+    def test_validate_time_series_data_empty(self) -> None:
         """Test time series validation with empty list."""
         with self.assertRaises(ValidationError) as context:
             InputValidator.validate_time_series_data([], "test_series")
 
         self.assertIn("test_series cannot be empty", str(context.exception))
 
-    def test_validate_time_series_data_too_long(self):
+    def test_validate_time_series_data_too_long(self) -> None:
         """Test time series validation with data too long."""
         # Create data longer than 10 years of hourly data (8760 * 10)
         long_data = [1.0] * (8760 * 11)  # 11 years
@@ -677,7 +677,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("test_series too long", str(error))
 
-    def test_validate_time_series_data_non_numeric_values(self):
+    def test_validate_time_series_data_non_numeric_values(self) -> None:
         """Test time series validation with non-numeric values."""
         invalid_data = [100.0, "not_a_number", 200.0]
 
@@ -687,7 +687,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("test_series[1] must be numeric", str(error))
 
-    def test_validate_time_series_data_extreme_values(self):
+    def test_validate_time_series_data_extreme_values(self) -> None:
         """Test time series validation with extreme values."""
         extreme_data = [1e15, 200.0, 150.0]  # First value exceeds ±1 TW
 
@@ -697,7 +697,7 @@ class TestInputValidator(unittest.TestCase):
         error = context.exception
         self.assertIn("test_series[0] value out of reasonable range", str(error))
 
-    def test_validate_time_series_data_negative_extreme(self):
+    def test_validate_time_series_data_negative_extreme(self) -> None:
         """Test time series validation with extreme negative values."""
         extreme_data = [100.0, -1e15, 150.0]  # Second value below -1 TW
 
@@ -718,7 +718,7 @@ class TestIntegratedValidation(unittest.TestCase):
     Future implementation will use Option A: Pydantic-Primary with Business Layer.
     """
 
-    def test_integrated_validation_pydantic_catches_basic_errors(self):
+    def test_integrated_validation_pydantic_catches_basic_errors(self) -> None:
         """Test that Pydantic catches basic validation errors before InputValidator."""
         # Pydantic should catch these basic data integrity issues
         with self.assertRaises(PydanticValidationError):
@@ -730,7 +730,7 @@ class TestIntegratedValidation(unittest.TestCase):
         with self.assertRaises(PydanticValidationError):
             DatabaseCredentials(host="valid.host", port=5432, username="user", password="short")
 
-    def test_integrated_validation_business_rules_on_valid_objects(self):
+    def test_integrated_validation_business_rules_on_valid_objects(self) -> None:
         """Test that InputValidator applies business rules to valid Pydantic objects."""
         # First, create a valid Pydantic object (passes data integrity validation)
         credentials = DatabaseCredentials(
@@ -749,7 +749,7 @@ class TestIntegratedValidation(unittest.TestCase):
 
         self.assertIn("typically not used for databases", str(context.exception))
 
-    def test_integrated_validation_success_path(self):
+    def test_integrated_validation_success_path(self) -> None:
         """Test successful validation through both layers."""
         # Create valid Pydantic object (passes data integrity validation)
         credentials = DatabaseCredentials(
@@ -768,7 +768,7 @@ class TestIntegratedValidation(unittest.TestCase):
         except (ValidationError, PydanticValidationError):
             self.fail("Valid credentials should pass both validation layers")
 
-    def test_integrated_validation_layer_separation(self):
+    def test_integrated_validation_layer_separation(self) -> None:
         """Test that each layer has distinct responsibilities."""
         # Test 1: Pydantic handles format validation
         with self.assertRaises(PydanticValidationError) as pydantic_context:

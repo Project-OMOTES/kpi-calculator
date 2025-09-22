@@ -18,10 +18,10 @@ from kpicalculator.security.credential_manager import CredentialManager
 class MockCredentialManager(CredentialManager):
     """Mock credential manager for testing."""
 
-    def __init__(self, credentials=None):
+    def __init__(self, credentials=None) -> None:
         self.credentials = credentials or {}
 
-    def get_database_credentials(self, host: str, port: int):
+    def get_database_credentials(self, host: str, port: int) -> None:
         key = f"{host}: {port}"
         return self.credentials.get(key)
 
@@ -33,7 +33,7 @@ class MockCredentialManager(CredentialManager):
 class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     """Test database time series loader functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         # Create test credentials
         self.test_credentials = DatabaseCredentials(
@@ -54,13 +54,13 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Create loader
         self.loader = DatabaseTimeSeriesLoader(self.credential_manager)
 
-    def test_init_with_credential_manager(self):
+    def test_init_with_credential_manager(self) -> None:
         """Test initialization with credential manager."""
         loader = DatabaseTimeSeriesLoader(self.credential_manager)
         self.assertEqual(loader.credential_manager, self.credential_manager)
         self.assertIsNotNone(loader.db_logger)
 
-    def test_init_with_default_credential_manager(self):
+    def test_init_with_default_credential_manager(self) -> None:
         """Test initialization with default credential manager."""
         with patch(
             "kpicalculator.adapters.database_time_series_loader.create_default_credential_manager"
@@ -73,7 +73,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             mock_create.assert_called_once()
             self.assertEqual(loader.credential_manager, mock_manager)
 
-    def test_get_secure_credentials_success(self):
+    def test_get_secure_credentials_success(self) -> None:
         """Test successful credential retrieval."""
         credentials = self.loader._get_secure_credentials("test.example.com", 443)
 
@@ -81,7 +81,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(credentials.host, "test.example.com")
         self.assertEqual(credentials.port, 443)
 
-    def test_get_secure_credentials_not_found(self):
+    def test_get_secure_credentials_not_found(self) -> None:
         """Test credential retrieval when credentials not found."""
         with self.assertRaises(CredentialError) as context:
             self.loader._get_secure_credentials("unknown.host.com", 8080)
@@ -93,7 +93,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertIn("port=8080", str(error))
         self.assertIn("env_prefix=KPI_DB_UNKNOWN_HOST_COM_8080", str(error))
 
-    def test_get_secure_credentials_exception_handling(self):
+    def test_get_secure_credentials_exception_handling(self) -> None:
         """Test credential retrieval with manager exception."""
         # Create manager that raises exception
         error_manager = Mock()
@@ -104,7 +104,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             loader._get_secure_credentials("test.example.com", 443)
 
-    def test_extract_asset_id_from_port(self):
+    def test_extract_asset_id_from_port(self) -> None:
         """Test asset ID extraction from energy asset port."""
         # Create mock profile with energy asset container
         profile = Mock(spec=esdl.InfluxDBProfile)
@@ -117,7 +117,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         asset_id = self.loader._extract_asset_id(profile)
         self.assertEqual(asset_id, "test_asset_123")
 
-    def test_extract_asset_id_from_carrier(self):
+    def test_extract_asset_id_from_carrier(self) -> None:
         """Test asset ID extraction from carrier when port fails."""
         # Create mock profile that fails on energyasset but has carrier
         profile = Mock(spec=esdl.InfluxDBProfile)
@@ -137,7 +137,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         asset_id = self.loader._extract_asset_id(profile)
         self.assertEqual(asset_id, "carrier_456")
 
-    def test_extract_asset_id_fallback_to_measurement(self):
+    def test_extract_asset_id_fallback_to_measurement(self) -> None:
         """Test asset ID extraction fallback to measurement."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.eContainer.side_effect = AttributeError("No container")
@@ -148,7 +148,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
     @patch("kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
     @patch("kpicalculator.adapters.database_time_series_loader.InputValidator")
-    def test_load_profile_data_success(self, mock_validator, mock_profile_manager):
+    def test_load_profile_data_success(self, mock_validator, mock_profile_manager) -> None:
         """Test successful profile data loading."""
         # Setup mocks
         profile = Mock(spec=esdl.InfluxDBProfile)
@@ -207,7 +207,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         mock_profile_manager.create_esdl_influxdb_profile_manager.assert_called_once()
         mock_validator.validate_time_series_data.assert_called_once()
 
-    def test_load_profile_data_exception_handling(self):
+    def test_load_profile_data_exception_handling(self) -> None:
         """Test profile data loading with exception."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.measurement = "power"
@@ -221,7 +221,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    def test_get_credentials_for_profile_https_prefix(self):
+    def test_get_credentials_for_profile_https_prefix(self) -> None:
         """Test credential extraction with HTTPS prefix in host."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.host = "https://test.example.com"
@@ -245,7 +245,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         mock_validator.validate_database_credentials.assert_called()
         self.assertEqual(result, self.test_credentials)
 
-    def test_get_credentials_for_profile_http_prefix(self):
+    def test_get_credentials_for_profile_http_prefix(self) -> None:
         """Test credential extraction with HTTP prefix in host."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.host = "http://test.example.com"
@@ -264,7 +264,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Should strip http:// prefix (7 characters) and use validated values
         mock_get_secure.assert_called_once_with("test.example.com", 8080)
 
-    def test_get_credentials_for_profile_ssl_port_443(self):
+    def test_get_credentials_for_profile_ssl_port_443(self) -> None:
         """Test SSL setting for port 443."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.host = "test.example.com"
@@ -294,7 +294,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Should be called twice - once for original, once for modified
         self.assertEqual(mock_validator.validate_database_credentials.call_count, 2)
 
-    def test_get_credentials_for_profile_credential_error(self):
+    def test_get_credentials_for_profile_credential_error(self) -> None:
         """Test credential profile error handling."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.host = "test.example.com"
@@ -318,7 +318,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertIn("profile_port=443", str(error))
         self.assertIn("profile_field=power", str(error))
 
-    def test_validate_profile_data_success(self):
+    def test_validate_profile_data_success(self) -> None:
         """Test successful profile data validation."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.endDate = datetime(2024, 1, 1, 1, 0)  # End at 1 hour
@@ -338,7 +338,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Should not raise any exception
         self.loader._validate_profile_data(profile, time_series_data)
 
-    def test_validate_profile_data_end_date_mismatch(self):
+    def test_validate_profile_data_end_date_mismatch(self) -> None:
         """Test profile data validation with end date mismatch."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.endDate = datetime(2024, 1, 2)
@@ -353,7 +353,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertIn("Profile end datetime mismatch", str(context.exception))
         self.assertIn("power", str(context.exception))
 
-    def test_validate_profile_data_invalid_time_resolution(self):
+    def test_validate_profile_data_invalid_time_resolution(self) -> None:
         """Test profile data validation with invalid time resolution."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.endDate = datetime(2024, 1, 1, 0, 30)  # End at 30 minutes
@@ -374,7 +374,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         self.assertIn("Expected 3600s time resolution", str(context.exception))
 
-    def test_convert_units_power(self):
+    def test_convert_units_power(self) -> None:
         """Test unit conversion for power quantities."""
         df = pd.DataFrame([100.0, 200.0, 150.0])
 
@@ -396,7 +396,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         expected_values = [150.0, 250.0, 200.0]
         self.assertEqual(result_df.iloc[0, 0], expected_values[0])
 
-    def test_convert_units_energy(self):
+    def test_convert_units_energy(self) -> None:
         """Test unit conversion for energy quantities."""
         df = pd.DataFrame([1000.0])
 
@@ -414,7 +414,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         mock_convert.assert_called_once()
 
-    def test_convert_units_no_reference(self):
+    def test_convert_units_no_reference(self) -> None:
         """Test unit conversion when no reference attribute."""
         df = pd.DataFrame([100.0])
 
@@ -433,7 +433,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         mock_convert.assert_called_once()
 
-    def test_convert_units_unsupported_quantity(self):
+    def test_convert_units_unsupported_quantity(self) -> None:
         """Test unit conversion with unsupported physical quantity."""
         df = pd.DataFrame([100.0])
 
@@ -450,7 +450,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         self.assertEqual(result_df.iloc[0, 0], 100.0)  # Original value
 
-    def test_convert_units_exception_handling(self):
+    def test_convert_units_exception_handling(self) -> None:
         """Test unit conversion with exception."""
         df = pd.DataFrame([100.0])
 
@@ -469,7 +469,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Should return original DataFrame on exception
         self.assertEqual(result_df.iloc[0, 0], 100.0)
 
-    def test_set_credential_manager(self):
+    def test_set_credential_manager(self) -> None:
         """Test credential manager setter."""
         new_manager = Mock()
 
@@ -478,7 +478,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(self.loader.credential_manager, new_manager)
 
     @patch("kpicalculator.adapters.database_time_series_loader.time")
-    def test_load_time_series_from_esdl_success(self, mock_time):
+    def test_load_time_series_from_esdl_success(self, mock_time) -> None:
         """Test successful ESDL time series loading."""
         # Mock time.time() for performance measurement
         # Use itertools.count() to provide unlimited mock time values
@@ -525,7 +525,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(mock_extract.call_count, 2)
         self.assertEqual(mock_load.call_count, 2)
 
-    def test_load_time_series_from_esdl_no_profiles(self):
+    def test_load_time_series_from_esdl_no_profiles(self) -> None:
         """Test ESDL loading with no InfluxDB profiles."""
         energy_system = Mock()
         energy_system.eAllContents.return_value = [Mock(), Mock()]  # No InfluxDB profiles
@@ -536,7 +536,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(len(result_data), 0)
         self.assertIn("No InfluxDB profiles found in ESDL file", validation_result.warnings)
 
-    def test_load_time_series_from_esdl_with_errors(self):
+    def test_load_time_series_from_esdl_with_errors(self) -> None:
         """Test ESDL loading with profile errors."""
         energy_system = Mock()
         profile1 = Mock(spec=esdl.InfluxDBProfile)
@@ -562,7 +562,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(len(validation_result.errors), 1)
         self.assertIn("Extract error", validation_result.errors[0])
 
-    def test_load_time_series_from_esdl_critical_exception(self):
+    def test_load_time_series_from_esdl_critical_exception(self) -> None:
         """Test ESDL loading with critical exception."""
         energy_system = Mock()
         energy_system.eAllContents.side_effect = RuntimeError("Critical system error")

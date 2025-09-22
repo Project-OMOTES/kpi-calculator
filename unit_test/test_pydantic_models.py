@@ -41,25 +41,25 @@ class TestDatabaseCredentials:
             pass
 
     @given(port=st.integers().filter(lambda x: x < 1 or x > 65535))
-    def test_invalid_ports_always_fail(self, port: int):
+    def test_invalid_ports_always_fail(self, port: int) -> None:
         """Test that invalid port numbers always raise ValidationError."""
         with pytest.raises(ValidationError):
             DatabaseCredentials(host="localhost", port=port)
 
     @given(password=st.text(max_size=7))
-    def test_short_passwords_always_fail(self, password: str):
+    def test_short_passwords_always_fail(self, password: str) -> None:
         """Test that passwords shorter than 8 characters always fail."""
         with pytest.raises(ValidationError):
             DatabaseCredentials(host="localhost", port=5432, password=password)
 
-    def test_valid_ip_addresses(self):
+    def test_valid_ip_addresses(self) -> None:
         """Test that common IP address formats work."""
         valid_ips = ["127.0.0.1", "192.168.1.1", "10.0.0.1", "172.16.0.1"]
         for ip in valid_ips:
             creds = DatabaseCredentials(host=ip, port=5432)
             assert creds.host == ip
 
-    def test_valid_hostnames(self):
+    def test_valid_hostnames(self) -> None:
         """Test that common hostname formats work."""
         valid_hosts = ["localhost", "database.local", "db-server", "postgres.company.com"]
         for host in valid_hosts:
@@ -93,19 +93,19 @@ class TestAssetProperties:
         assert asset.cop == cop
 
     @given(power=st.floats().filter(lambda x: x < 0 or x > 1e12 or x != x))  # < 0, > 1e12, or NaN
-    def test_invalid_power_values_always_fail(self, power: float):
+    def test_invalid_power_values_always_fail(self, power: float) -> None:
         """Test that invalid power values always raise ValidationError."""
         with pytest.raises(ValidationError):
             AssetProperties(id="test_id", name="test_name", asset_type="test_type", power=power)
 
     @given(cop=st.floats().filter(lambda x: x < 0 or x > 10 or x != x))  # < 0, > 10, or NaN
-    def test_invalid_cop_values_always_fail(self, cop: float):
+    def test_invalid_cop_values_always_fail(self, cop: float) -> None:
         """Test that invalid COP values always raise ValidationError."""
         with pytest.raises(ValidationError):
             AssetProperties(id="test_id", name="test_name", asset_type="test_type", cop=cop)
 
     @given(cost=st.floats().filter(lambda x: x < 0 or x != x))  # Negative or NaN
-    def test_negative_costs_always_fail(self, cost: float):
+    def test_negative_costs_always_fail(self, cost: float) -> None:
         """Test that negative cost values always raise ValidationError."""
         with pytest.raises(ValidationError):
             AssetProperties(
@@ -119,7 +119,7 @@ class TestAssetProperties:
             st.just("\t\n"),  # Tabs and newlines only
         )
     )
-    def test_empty_required_strings_always_fail(self, string_field: str):
+    def test_empty_required_strings_always_fail(self, string_field: str) -> None:
         """Test that empty or whitespace-only required strings always fail."""
         with pytest.raises(ValidationError):
             AssetProperties(id=string_field, name="valid_name", asset_type="valid_type")
@@ -141,13 +141,13 @@ class TestTimeSeriesData:
             max_size=1000,  # Smaller for test performance
         )
     )
-    def test_valid_time_series_always_pass(self, values: list[float]):
+    def test_valid_time_series_always_pass(self, values: list[float]) -> None:
         """Test that valid time series data always creates a valid TimeSeriesData object."""
         time_series = TimeSeriesData(values=values)
         assert time_series.values == values
         assert len(time_series.values) == len(values)
 
-    def test_invalid_time_series_values_always_fail(self):
+    def test_invalid_time_series_values_always_fail(self) -> None:
         """Test that invalid time series values always raise ValidationError."""
         # Test out of range values
         with pytest.raises(ValidationError):
@@ -160,12 +160,12 @@ class TestTimeSeriesData:
         with pytest.raises(ValidationError):
             TimeSeriesData(values=[1000, -2e6, 2000])  # One invalid value
 
-    def test_empty_time_series_always_fails(self):
+    def test_empty_time_series_always_fails(self) -> None:
         """Test that empty time series always raises ValidationError."""
         with pytest.raises(ValidationError):
             TimeSeriesData(values=[])
 
-    def test_non_numeric_values_always_fail(self):
+    def test_non_numeric_values_always_fail(self) -> None:
         """Test that non-numeric values in time series always raise ValidationError."""
         with pytest.raises(ValidationError):
             TimeSeriesData(values=["not_a_number", "text"])
@@ -193,7 +193,7 @@ class TestEdgeCaseDiscovery:
             }
         )
     )
-    def test_asset_dict_to_pydantic_conversion(self, data: dict[str, Any]):
+    def test_asset_dict_to_pydantic_conversion(self, data: dict[str, Any]) -> None:
         """Test converting dictionary data to Pydantic model finds edge cases."""
         try:
             # This is how you'd replace InputValidator.validate_asset_properties()

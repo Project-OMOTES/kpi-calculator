@@ -20,7 +20,7 @@ from kpicalculator.common.logging_utils import (
 class TestStructuredLogger(unittest.TestCase):
     """Test structured logger functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.logger = StructuredLogger("test.component")
         self.stream = StringIO()
@@ -28,12 +28,12 @@ class TestStructuredLogger(unittest.TestCase):
         self.logger.logger.addHandler(self.handler)
         self.logger.logger.setLevel(logging.DEBUG)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test fixtures."""
         self.logger.logger.removeHandler(self.handler)
         self.handler.close()
 
-    def test_info_logging_basic(self):
+    def test_info_logging_basic(self) -> None:
         """Test basic info logging."""
         self.logger.info("Test message")
 
@@ -46,7 +46,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["component"], "test.component")
         self.assertIn("timestamp", log_data)
 
-    def test_info_logging_with_context(self):
+    def test_info_logging_with_context(self) -> None:
         """Test info logging with context data."""
         context = {"asset_id": "test_asset", "port": 443}
         self.logger.info("Test message", context)
@@ -57,7 +57,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["message"], "Test message")
         self.assertEqual(log_data["context"], context)
 
-    def test_error_logging_with_exception(self):
+    def test_error_logging_with_exception(self) -> None:
         """Test error logging with exception details."""
         test_exception = ValueError("Test error")
 
@@ -74,7 +74,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["exception"]["message"], "Test error")
         self.assertIn("traceback", log_data["exception"])
 
-    def test_warning_logging(self):
+    def test_warning_logging(self) -> None:
         """Test warning logging."""
         context = {"validation_type": "file_path"}
         self.logger.warning("Validation warning", context)
@@ -85,7 +85,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["message"], "Validation warning")
         self.assertEqual(log_data["context"]["validation_type"], "file_path")
 
-    def test_debug_logging(self):
+    def test_debug_logging(self) -> None:
         """Test debug logging."""
         self.logger.debug("Debug message", {"debug_info": "test"})
 
@@ -95,7 +95,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["message"], "Debug message")
         self.assertEqual(log_data["context"]["debug_info"], "test")
 
-    def test_critical_logging(self):
+    def test_critical_logging(self) -> None:
         """Test critical logging."""
         test_exception = RuntimeError("Critical error")
 
@@ -110,7 +110,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["severity"], "high")
         self.assertIn("exception", log_data)
 
-    def test_json_serialization_fallback(self):
+    def test_json_serialization_fallback(self) -> None:
         """Test fallback when JSON serialization fails."""
         # Create a non-serializable context
         non_serializable = {"func": lambda x: x}
@@ -123,7 +123,7 @@ class TestStructuredLogger(unittest.TestCase):
         self.assertIn("Test message", log_output)
         self.assertIn("Context:", log_output)
 
-    def test_timestamp_format(self):
+    def test_timestamp_format(self) -> None:
         """Test timestamp format in logs."""
         with patch("kpicalculator.common.logging_utils.datetime") as mock_datetime:
             mock_now = Mock()
@@ -141,7 +141,7 @@ class TestStructuredLogger(unittest.TestCase):
 class TestDatabaseLogger(unittest.TestCase):
     """Test database-specific logging functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.db_logger = DatabaseLogger("test_component")
         self.stream = StringIO()
@@ -149,12 +149,12 @@ class TestDatabaseLogger(unittest.TestCase):
         self.db_logger.logger.logger.addHandler(self.handler)
         self.db_logger.logger.logger.setLevel(logging.DEBUG)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test fixtures."""
         self.db_logger.logger.logger.removeHandler(self.handler)
         self.handler.close()
 
-    def test_log_connection_attempt(self):
+    def test_log_connection_attempt(self) -> None:
         """Test connection attempt logging."""
         self.db_logger.log_connection_attempt("example.com", 443, "test_db")
 
@@ -166,7 +166,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["port"], 443)
         self.assertEqual(log_data["context"]["database"], "test_db")
 
-    def test_log_connection_success(self):
+    def test_log_connection_success(self) -> None:
         """Test connection success logging."""
         self.db_logger.log_connection_success("example.com", 443)
 
@@ -177,7 +177,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["host"], "example.com")
         self.assertEqual(log_data["context"]["port"], 443)
 
-    def test_log_connection_error(self):
+    def test_log_connection_error(self) -> None:
         """Test connection error logging."""
         error = ConnectionError("Connection failed")
 
@@ -194,7 +194,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["database"], "test_db")
         self.assertIn("exception", log_data)
 
-    def test_log_credential_load(self):
+    def test_log_credential_load(self) -> None:
         """Test credential loading logging."""
         self.db_logger.log_credential_load("example.com", 443, "environment")
 
@@ -204,7 +204,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["message"], "Loaded database credentials")
         self.assertEqual(log_data["context"]["credential_source"], "environment")
 
-    def test_log_query_execution(self):
+    def test_log_query_execution(self) -> None:
         """Test query execution logging."""
         time_range = (datetime(2024, 1, 1), datetime(2024, 1, 2))
         self.db_logger.log_query_execution("measurement", "field", time_range)
@@ -218,7 +218,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertIn("start_time", log_data["context"])
         self.assertIn("end_time", log_data["context"])
 
-    def test_log_query_success(self):
+    def test_log_query_success(self) -> None:
         """Test query success logging."""
         self.db_logger.log_query_success("measurement", "field", 100, 0.5)
 
@@ -229,7 +229,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["record_count"], 100)
         self.assertEqual(log_data["context"]["execution_time_ms"], 500.0)
 
-    def test_log_data_validation(self):
+    def test_log_data_validation(self) -> None:
         """Test data validation logging."""
         details = {"value_count": 8760, "measurement": "power"}
         self.db_logger.log_data_validation("asset_123", "time_series", True, details)
@@ -242,7 +242,7 @@ class TestDatabaseLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["validation_result"], "passed")
         self.assertEqual(log_data["context"]["value_count"], 8760)
 
-    def test_log_data_validation_failed(self):
+    def test_log_data_validation_failed(self) -> None:
         """Test failed data validation logging."""
         self.db_logger.log_data_validation("asset_123", "file_path", False)
 
@@ -251,7 +251,7 @@ class TestDatabaseLogger(unittest.TestCase):
 
         self.assertEqual(log_data["context"]["validation_result"], "failed")
 
-    def test_log_time_series_processing(self):
+    def test_log_time_series_processing(self) -> None:
         """Test time series processing logging."""
         self.db_logger.log_time_series_processing("asset_123", 8760, 3600.0, 0.25)
 
@@ -268,7 +268,7 @@ class TestDatabaseLogger(unittest.TestCase):
 class TestSecurityLogger(unittest.TestCase):
     """Test security-specific logging functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.security_logger = SecurityLogger()
         self.stream = StringIO()
@@ -276,12 +276,12 @@ class TestSecurityLogger(unittest.TestCase):
         self.security_logger.logger.logger.addHandler(self.handler)
         self.security_logger.logger.logger.setLevel(logging.DEBUG)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test fixtures."""
         self.security_logger.logger.logger.removeHandler(self.handler)
         self.handler.close()
 
-    def test_log_validation_attempt(self):
+    def test_log_validation_attempt(self) -> None:
         """Test validation attempt logging."""
         self.security_logger.log_validation_attempt("file_path", "/path/to/file")
 
@@ -292,7 +292,7 @@ class TestSecurityLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["validation_type"], "file_path")
         self.assertEqual(log_data["context"]["resource"], "/path/to/file")
 
-    def test_log_validation_success(self):
+    def test_log_validation_success(self) -> None:
         """Test validation success logging."""
         self.security_logger.log_validation_success("credentials", "user:pass@host:443")
 
@@ -302,7 +302,7 @@ class TestSecurityLogger(unittest.TestCase):
         self.assertEqual(log_data["message"], "Security validation passed")
         self.assertEqual(log_data["context"]["validation_type"], "credentials")
 
-    def test_log_validation_failure(self):
+    def test_log_validation_failure(self) -> None:
         """Test validation failure logging."""
         self.security_logger.log_validation_failure(
             "path_traversal", "/path/../../../etc/passwd", "Path traversal detected", "high"
@@ -316,7 +316,7 @@ class TestSecurityLogger(unittest.TestCase):
         self.assertEqual(log_data["context"]["failure_reason"], "Path traversal detected")
         self.assertEqual(log_data["context"]["severity"], "high")
 
-    def test_log_security_threat(self):
+    def test_log_security_threat(self) -> None:
         """Test security threat logging."""
         details = {"pattern_matched": r"\.\.\/", "ip_address": "192.168.1.100"}
         self.security_logger.log_security_threat("xxe_attack", "malicious.xml", details, "critical")
@@ -330,7 +330,7 @@ class TestSecurityLogger(unittest.TestCase):
         self.assertIn("pattern_matched", log_data["context"])
         self.assertIn("ip_address", log_data["context"])
 
-    def test_log_credential_access(self):
+    def test_log_credential_access(self) -> None:
         """Test credential access logging."""
         self.security_logger.log_credential_access("example.com", 443, "config_file")
 
@@ -346,19 +346,19 @@ class TestSecurityLogger(unittest.TestCase):
 class TestLoggerFactories(unittest.TestCase):
     """Test logger factory functions."""
 
-    def test_get_database_logger(self):
+    def test_get_database_logger(self) -> None:
         """Test database logger factory."""
         logger = get_database_logger("test_component")
         self.assertIsInstance(logger, DatabaseLogger)
         self.assertIn("database.test_component", logger.logger.logger.name)
 
-    def test_get_security_logger(self):
+    def test_get_security_logger(self) -> None:
         """Test security logger factory."""
         logger = get_security_logger()
         self.assertIsInstance(logger, SecurityLogger)
         self.assertIn("security", logger.logger.logger.name)
 
-    def test_database_logger_component_naming(self):
+    def test_database_logger_component_naming(self) -> None:
         """Test database logger component naming."""
         logger1 = get_database_logger("loader")
         logger2 = get_database_logger("validator")

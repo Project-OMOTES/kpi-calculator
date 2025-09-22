@@ -24,7 +24,7 @@ from kpicalculator.security.credential_manager import (
 class TestSecureCredentialManager(unittest.TestCase):
     """Test SecureCredentialManager functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.manager = SecureCredentialManager()
 
@@ -37,7 +37,7 @@ class TestSecureCredentialManager(unittest.TestCase):
             "KPI_DB_TEST_EXAMPLE_COM_8086_SSL": "true",
         },
     )
-    def test_get_credentials_from_environment(self):
+    def test_get_credentials_from_environment(self) -> None:
         """Test loading credentials from environment variables."""
         creds = self.manager.get_database_credentials("test.example.com", 8086)
 
@@ -49,7 +49,7 @@ class TestSecureCredentialManager(unittest.TestCase):
         self.assertEqual(creds.database, "test_db")
         self.assertTrue(creds.ssl)
 
-    def test_no_credentials_found(self):
+    def test_no_credentials_found(self) -> None:
         """Test behavior when no credentials are found."""
         creds = self.manager.get_database_credentials("nonexistent.example.com", 9999)
         self.assertIsNone(creds)
@@ -61,7 +61,7 @@ class TestSecureCredentialManager(unittest.TestCase):
             "KPI_DB_COMPLEX_HOST_NAME_443_PASSWORD": "complex_pass",
         },
     )
-    def test_host_normalization(self):
+    def test_host_normalization(self) -> None:
         """Test that host names are properly normalized for environment variables."""
         creds = self.manager.get_database_credentials("complex-host.name", 443)
 
@@ -74,13 +74,13 @@ class TestSecureCredentialManager(unittest.TestCase):
 class TestConfigFileCredentialManager(unittest.TestCase):
     """Test ConfigFileCredentialManager functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
         self.config_path = Path(self.temp_dir) / "credentials.json"
         self.manager = ConfigFileCredentialManager(self.config_path)
 
-    def test_no_config_file(self):
+    def test_no_config_file(self) -> None:
         """Test behavior when config file doesn't exist."""
         creds = self.manager.get_database_credentials("test.example.com", 8086)
         self.assertIsNone(creds)
@@ -89,7 +89,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         "kpicalculator.security.credential_manager"
         ".ConfigFileCredentialManager._validate_file_permissions"
     )
-    def test_valid_config_file(self, mock_validate_permissions):
+    def test_valid_config_file(self, mock_validate_permissions) -> None:
         """Test loading credentials from valid config file."""
         config = {
             "databases": {
@@ -120,7 +120,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         "kpicalculator.security.credential_manager"
         ".ConfigFileCredentialManager._validate_file_permissions"
     )
-    def test_invalid_json_config(self, mock_validate_permissions):
+    def test_invalid_json_config(self, mock_validate_permissions) -> None:
         """Test handling of invalid JSON config file."""
         with self.config_path.open("w") as f:
             f.write("{ invalid json")
@@ -132,7 +132,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         "kpicalculator.security.credential_manager"
         ".ConfigFileCredentialManager._validate_file_permissions"
     )
-    def test_missing_required_fields(self, mock_validate_permissions):
+    def test_missing_required_fields(self, mock_validate_permissions) -> None:
         """Test handling of config with missing required fields."""
         config = {
             "databases": {
@@ -154,12 +154,12 @@ class TestConfigFileCredentialManager(unittest.TestCase):
 class TestChainedCredentialManager(unittest.TestCase):
     """Test ChainedCredentialManager functionality."""
 
-    def test_empty_managers_list(self):
+    def test_empty_managers_list(self) -> None:
         """Test that empty managers list raises error."""
         with self.assertRaises(ValueError):
             ChainedCredentialManager()
 
-    def test_fallback_priority(self):
+    def test_fallback_priority(self) -> None:
         """Test that managers are tried in priority order."""
         # Create mock managers
         primary_manager = Mock()
@@ -184,7 +184,7 @@ class TestChainedCredentialManager(unittest.TestCase):
         primary_manager.get_database_credentials.assert_called_once_with("test.example.com", 8086)
         secondary_manager.get_database_credentials.assert_called_once_with("test.example.com", 8086)
 
-    def test_first_manager_success(self):
+    def test_first_manager_success(self) -> None:
         """Test that first manager's credentials are used when available."""
         # Create mock managers
         primary_creds = DatabaseCredentials(
@@ -220,7 +220,7 @@ class TestCredentialManagerIntegration(unittest.TestCase):
             "KPI_DB_INTEGRATION_TEST_COM_8086_PASSWORD": "integration_pass",
         },
     )
-    def test_database_loader_integration(self):
+    def test_database_loader_integration(self) -> None:
         """Test integration with DatabaseTimeSeriesLoader."""
         from kpicalculator.adapters.database_time_series_loader import (
             DatabaseTimeSeriesLoader,
@@ -235,7 +235,7 @@ class TestCredentialManagerIntegration(unittest.TestCase):
         self.assertEqual(creds.username, "integration_user")
         self.assertEqual(creds.password, "integration_pass")
 
-    def test_credential_error_on_missing_credentials(self):
+    def test_credential_error_on_missing_credentials(self) -> None:
         """Test that CredentialError is raised when credentials are missing."""
         from kpicalculator.adapters.database_time_series_loader import (
             DatabaseTimeSeriesLoader,
@@ -249,7 +249,7 @@ class TestCredentialManagerIntegration(unittest.TestCase):
         self.assertIn("No credentials found", str(context.exception))
         self.assertIn("missing.example.com: 9999", str(context.exception))
 
-    def test_default_credential_manager_creation(self):
+    def test_default_credential_manager_creation(self) -> None:
         """Test default credential manager creation."""
         manager = create_default_credential_manager()
 

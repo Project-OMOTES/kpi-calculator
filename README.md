@@ -6,7 +6,7 @@ A Python package for calculating Key Performance Indicators (KPIs) for heat netw
 
 ## Current Status
 
-⚠️ **Development Version**: This package is currently under active development. The initial architecture has been implemented with ESDL support.
+**Development Version**: This package is currently under active development. The initial architecture has been implemented with ESDL support.
 
 ## Features
 

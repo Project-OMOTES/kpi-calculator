@@ -22,10 +22,10 @@ class TestBaseAdapter(unittest.TestCase):
 
         # Since BaseAdapter is abstract, we need to create a concrete implementation
         class ConcreteAdapter(BaseAdapter):
-            def load_data(self, source, **kwargs) -> None:
+            def load_data(self, source, **kwargs):
                 return Mock()
 
-            def validate_source(self, source) -> None:
+            def validate_source(self, source):
                 return ValidationResult(True)
 
             def get_supported_source_type(self) -> None:
@@ -104,7 +104,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         },
     )
     @patch("kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
-    def test_load_profile_data_success(self, mock_influx) -> None:
+    def test_load_profile_data_success(self, mock_influx):
         """Test successful profile data loading."""
         # Create mock profile
         mock_profile = Mock()
@@ -232,7 +232,7 @@ class TestEsdlAdapterDatabaseIntegration(unittest.TestCase):
         self.assertIsInstance(self.adapter.database_loader, DatabaseTimeSeriesLoader)
 
     @patch("kpicalculator.adapters.esdl_adapter.EnergySystemHandler")
-    def test_load_data_database_priority(self, mock_handler) -> None:
+    def test_load_data_database_priority(self, mock_handler):
         """Test that database profiles have priority over XML files."""
         # Create mock ESDL structure
         mock_es = Mock()
