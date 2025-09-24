@@ -67,10 +67,7 @@ def main() -> None:
             --pipes-cost pipes.csv --assets-cost assets.csv
     """
     # Set up basic logging for CLI usage
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(levelname)s: %(message)s'
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     parser = argparse.ArgumentParser(description="Calculate KPIs from ESDL files")
 
@@ -92,7 +89,7 @@ def main() -> None:
             pipes_cost=args.pipes_cost,
             assets_cost=args.assets_cost,
             unit_conversion=args.unit_conversion,
-            system_lifetime=args.system_lifetime
+            system_lifetime=args.system_lifetime,
         )
 
         # Output results as JSON for CLI

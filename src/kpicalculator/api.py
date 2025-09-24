@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 
 from .exceptions import KpiCalculatorError
-from .kpi_manager import KpiManager
+from .kpi_manager import KpiManager, KpiResults
 
 
 def calculate_kpis(
@@ -28,8 +28,8 @@ def calculate_kpis(
     pipes_cost: str | Path,
     assets_cost: str | Path,
     unit_conversion: str | Path | None = None,
-    system_lifetime: int = 30
-) -> dict:
+    system_lifetime: int = 30,
+) -> KpiResults:
     """Calculate KPIs from ESDL files with supporting data.
 
     This is the main library function that can be called programmatically.
@@ -43,7 +43,7 @@ def calculate_kpis(
         system_lifetime: System lifetime in years (default: 30)
 
     Returns:
-        Dictionary containing calculated KPIs
+        KpiResults containing calculated KPIs
 
     Raises:
         KpiCalculatorError: For any calculation or validation errors
