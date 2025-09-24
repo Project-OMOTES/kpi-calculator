@@ -15,7 +15,14 @@
 
 """KPI Calculator package for energy systems."""
 
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
+
 from .adapters.common_model import Asset, AssetType, EnergySystem, TimeSeries
+from .api import calculate_kpis
 from .exceptions import (
     CalculationError,
     CredentialError,
@@ -34,6 +41,7 @@ __all__ = [
     "EnergySystem",
     "TimeSeries",
     "KpiManager",
+    "calculate_kpis",
     "KpiCalculatorError",
     "ValidationError",
     "SecurityError",
@@ -47,3 +55,54 @@ __all__ = [
 
 # Version information
 __version__ = "0.1.0"
+
+
+def main() -> None:
+    """CLI entry point for KPI Calculator.
+
+    Calculate KPIs from ESDL files with required supporting data.
+
+    Example:
+        kpicalculator system.esdl --time-series data.xml \\
+            --pipes-cost pipes.csv --assets-cost assets.csv
+    """
+    # Set up basic logging for CLI usage
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s: %(message)s'
+    )
+
+    parser = argparse.ArgumentParser(description="Calculate KPIs from ESDL files")
+
+    parser.add_argument("esdl_file", type=Path, help="Path to ESDL file")
+    parser.add_argument("--unit-conversion", type=Path, help="Path to unit conversion CSV file")
+    parser.add_argument("--time-series", type=Path, required=True, help="Path to time series XML")
+    parser.add_argument("--pipes-cost", type=Path, required=True, help="Path to pipes cost CSV")
+    parser.add_argument("--assets-cost", type=Path, required=True, help="Path to assets cost CSV")
+    parser.add_argument(
+        "--system-lifetime", type=int, default=30, help="System lifetime in years (default: 30)"
+    )
+
+    args = parser.parse_args()
+
+    try:
+        results = calculate_kpis(
+            esdl_file=args.esdl_file,
+            time_series=args.time_series,
+            pipes_cost=args.pipes_cost,
+            assets_cost=args.assets_cost,
+            unit_conversion=args.unit_conversion,
+            system_lifetime=args.system_lifetime
+        )
+
+        # Output results as JSON for CLI
+        print(json.dumps(results, indent=2))  # noqa: T201
+
+    except KpiCalculatorError as e:
+        print(f"Error: {e}", file=sys.stderr)  # noqa: T201
+        sys.exit(1)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)  # noqa: T201
+        sys.exit(1)

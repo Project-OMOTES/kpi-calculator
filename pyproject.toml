@@ -33,21 +33,33 @@ dependencies = [
     "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
 ]
 
-[project.optional-dependencies]
-dev = [
+[dependency-groups]
+test = [
+    "pytest ~=7.3.1",
+    "pytest-cov ~=4.0.0",
+    "hypothesis>=6.0.0", # Property-based testing
+    "pytest-xdist>=3.0.0", # Parallel test execution
+]
+lint = [
+    "ruff>=0.6.0",
+    "mypy ~= 1.5.1",
+    "pre-commit ~= 3.6.0",
+]
+docs = [
+    "interrogate>=1.7.0", # Documentation coverage
+]
+build = [
     "setuptools ~= 69.0.3",
     "wheel ~= 0.40.0",
     "setuptools-git-versioning < 2",
-    "ruff>=0.6.0",
-    "pytest ~=7.3.1",
-    "pytest-cov ~=4.0.0",
-    "bump2version==1.0.1",
-    "mypy ~= 1.5.1",
     "build ~= 1.0.3",
-    "pre-commit ~= 3.6.0",
-    "hypothesis>=6.0.0", # Property-based testing
-    "interrogate>=1.7.0", # Documentation coverage
-    "pytest-xdist>=3.0.0", # Parallel test execution
+    "bump2version==1.0.1",
+]
+dev = [
+    {include-group = "test"},
+    {include-group = "lint"},
+    {include-group = "docs"},
+    {include-group = "build"},
 ]
 
 [project.urls]
@@ -138,26 +150,6 @@ module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "
 check_untyped_defs = true
 ignore_missing_imports = true
 
-# Legacy dependency group - replaced by [project.optional-dependencies]
-# This section is maintained for compatibility but should use the modern approach above
-[dependency-groups]
-dev = [
-    "ruff>=0.6.0",         # Modern linting and formatting (replaces black, flake8, isort)
-    "mypy>=1.5.1",         # Type checking
-    "pytest>=7.3.2",       # Testing framework
-    "pytest-cov>=4.0.0",   # Coverage reporting
-    "hypothesis>=6.0.0",    # Property-based testing
-    "interrogate>=1.7.0",   # Documentation coverage
-    "pytest-xdist>=3.0.0", # Parallel test execution
-    "bandit>=1.8.6",       # Security analysis
-    "pipdeptree>=2.0.0",   # Dependency analysis
-    "httpie>=3.0.0",       # API testing
-    "codespell>=2.0.0",    # Typo detection
-    "vulture>=2.0.0",      # Dead code detection
-    "pylint>=3.0.0",       # Comprehensive analysis
-    "radon>=6.0.0",        # Complexity analysis
-    "xenon>=0.9.0",        # Complexity monitoring
-]
 
 # Interrogate configuration for documentation coverage
 [tool.interrogate]
