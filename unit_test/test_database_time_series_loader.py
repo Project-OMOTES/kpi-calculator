@@ -21,7 +21,7 @@ class MockCredentialManager(CredentialManager):
     def __init__(self, credentials=None) -> None:
         self.credentials = credentials or {}
 
-    def get_database_credentials(self, host: str, port: int) -> None:
+    def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         key = f"{host}: {port}"
         return self.credentials.get(key)
 

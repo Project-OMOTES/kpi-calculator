@@ -557,6 +557,10 @@ class InputValidator:
 
         identifier = identifier.strip()
 
+        # Defensive check: ensure identifier is still not empty after strip
+        if not identifier:
+            raise ValidationError(f"Database {identifier_type} cannot be empty after normalization")
+
         # Length check
         max_length = MAX_DATABASE_NAME_LENGTH if identifier_type == "database" else 100
         if len(identifier) > max_length:
