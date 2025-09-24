@@ -1,6 +1,5 @@
 # unit_test/test_secure_credentials.py
 """
-# unit_test/test_secure_credentials.py
 Tests for secure credential management system.
 """
 

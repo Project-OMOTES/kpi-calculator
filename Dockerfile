@@ -10,11 +10,18 @@ ENV UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Copy dependency files (uv.lock optional - uv will generate if missing)
+COPY pyproject.toml ./
+COPY uv.lock* ./
 
 # Create virtual environment and install dependencies
-RUN set -e && uv sync --frozen --no-dev
+# Use --frozen if lockfile exists for reproducible builds, otherwise allow resolution
+RUN set -e; \
+    if [ -f uv.lock ]; then \
+        uv sync --no-dev --frozen; \
+    else \
+        uv sync --no-dev; \
+    fi
 
 # Production stage with minimal attack surface
 FROM python:3.11-slim-bookworm AS production

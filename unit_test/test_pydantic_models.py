@@ -25,7 +25,7 @@ class TestDatabaseCredentials:
         host=st.text(min_size=1, max_size=50).filter(lambda x: x.strip()),
         port=st.integers(min_value=1, max_value=65535),
         username=st.one_of(st.none(), st.text(min_size=1, max_size=20)),
-        password=st.one_of(st.none(), st.text(min_size=8, max_size=20)),
+        password=st.one_of(st.none(), st.text(min_size=8, max_size=64)),
     )
     def test_valid_credentials_always_pass(
         self, host: str, port: int, username: str | None, password: str | None

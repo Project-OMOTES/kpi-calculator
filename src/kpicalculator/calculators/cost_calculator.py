@@ -303,8 +303,9 @@ class CostCalculator:
                 return 0.0
 
             # Get the first time series (assuming it's the relevant one)
-            ts_name = next(iter(asset.time_series))
-            ts = asset.time_series[ts_name]
+            ts = next(iter(asset.time_series.values()), None)
+            if ts is None:
+                return 0.0
 
             # Calculate annual energy
             duration = ts.time_step * len(ts.values)
@@ -379,8 +380,9 @@ class CostCalculator:
                 return 0.0
 
             # Get the first time series (assuming it's the relevant one)
-            ts_name = next(iter(asset.time_series))
-            ts = asset.time_series[ts_name]
+            ts = next(iter(asset.time_series.values()), None)
+            if ts is None:
+                return 0.0
 
             # Calculate annual energy
             duration = ts.time_step * len(ts.values)

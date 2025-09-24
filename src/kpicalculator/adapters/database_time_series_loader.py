@@ -289,8 +289,9 @@ class DatabaseTimeSeriesLoader:
             # Convert units to standard format
             df = self._convert_units(df, profile)
 
-            # Apply multiplier
-            df = df * profile.multiplier
+            # Apply multiplier with safe default
+            multiplier = getattr(profile, "multiplier", 1.0) or 1.0
+            df = df * multiplier
 
             # Validate time series data before creating TimeSeries
             values_list = df.values.flatten().tolist()

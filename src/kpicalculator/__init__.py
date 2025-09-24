@@ -92,7 +92,15 @@ def main() -> None:
             system_lifetime=args.system_lifetime,
         )
 
-        # Output results as JSON for CLI
+        # TODO: Export results to ESDL file instead of printing JSON
+        # This should write KPI results back to the ESDL file or create a new one
+        logger = logging.getLogger(__name__)
+        logger.info("KPI calculation completed successfully")
+        logger.info(f"Total CAPEX: {results['costs']['capex']['All']:.2f} EUR")
+        logger.info(f"Total emissions: {results['emissions']['total']:.3f} tons CO2")
+        logger.info(f"Energy consumption: {results['energy']['consumption']:.0f} J")
+
+        # Temporary: Print results until ESDL export is implemented
         print(json.dumps(results, indent=2))  # noqa: T201
 
     except KpiCalculatorError as e:
