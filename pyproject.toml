@@ -26,7 +26,7 @@ dependencies = [
     "numpy>=1.24.3,<2.0", # Compatible with pandas
     "pandas>=2.0.0,<3.0", # Use modern pandas with numpy 2.x support
     "pandas-stubs", # Type stubs for pandas
-    "pyesdl==25.5.1",
+    "pyesdl==25.7",
     "xmltodict==0.14.2",
     "types-xmltodict", # Type stubs for xmltodict
     "influxdb>=5.3.2",
