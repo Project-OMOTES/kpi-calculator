@@ -7,10 +7,11 @@ from xml.dom import minidom
 import xmltodict  # type: ignore[import-untyped]
 
 from ..common.constants import DEFAULT_WEEK_TIME_STEP, HTTP_SCHEMA_URL
+from .time_series_protocols import TimeSeriesProvider
 
 
 # Class to load and read from and to PiXml files
-class PiXmlTimeSeries:
+class PiXmlTimeSeries(TimeSeriesProvider):
     def __init__(
         self,
         time_series_xml_file: str,
@@ -22,7 +23,7 @@ class PiXmlTimeSeries:
         self.name_at: str = name_at
         self.property_at: str = property_at
         self.station_name: str | None = None
-        self.time_series: dict[str, Any] = {}
+        self._time_series_internal: dict[str, Any] = {}
         # check if file exist
         if not os.path.exists(self.time_series_xml_file):
             # create new xml file
@@ -54,7 +55,7 @@ class PiXmlTimeSeries:
             )
             if "event" in xml_dict["TimeSeries"]["series"]:
                 time_series.parse_time_series(xml_dict["TimeSeries"]["series"]["event"])
-            self.time_series[name] = {prop_name: time_series}
+            self._time_series_internal[name] = {prop_name: time_series}
         else:
             for time_serie in xml_dict["TimeSeries"]["series"]:
                 name = time_serie["header"][name_at]
@@ -63,16 +64,84 @@ class PiXmlTimeSeries:
                 series.parse_existing(time_serie["header"], name_at, property_at)
                 if "event" in time_serie:
                     series.parse_time_series(time_serie["event"])
-                if name in self.time_series:
-                    self.time_series[name][prop_name] = series
+                if name in self._time_series_internal:
+                    self._time_series_internal[name][prop_name] = series
                 else:
-                    self.time_series[name] = {prop_name: series}
+                    self._time_series_internal[name] = {prop_name: series}
 
                 if remove_name:
                     ind = series.header_dict["locationId"].rfind("_")
                     self.station_name = series.header_dict["locationId"][0:ind]
                 else:
                     self.station_name = series.header_dict["locationId"]
+
+    def get_time_series(self, asset_id: str) -> list[float] | None:
+        """Get time series data for a specific asset.
+
+        Args:
+            asset_id: Asset identifier to retrieve time series for
+
+        Returns:
+            List of numeric values if data exists, None otherwise
+        """
+        # Check if asset_id exists in the nested structure
+        if asset_id in self._time_series_internal:
+            asset_data = self._time_series_internal[asset_id]
+            if isinstance(asset_data, dict) and asset_data:
+                # TimeSeries constructor guarantees 'events' attribute exists
+                first_prop = next(iter(asset_data.values()))
+                if first_prop.events:  # Check if events list is non-empty
+                    return [float(event.value) for event in first_prop.events]
+        return None
+
+    @property
+    def time_series(self) -> dict[str, list[float]]:
+        """Access to all available time series data.
+
+        Returns:
+            Dictionary mapping asset IDs to their time series data as lists of floats
+        """
+        result: dict[str, list[float]] = {}
+
+        for asset_id, asset_data in self._time_series_internal.items():
+            if isinstance(asset_data, dict) and asset_data:
+                # TimeSeries constructor guarantees 'events' attribute exists
+                first_prop = next(iter(asset_data.values()))
+                if first_prop.events:  # Check if events list is non-empty
+                    try:
+                        result[asset_id] = [float(event.value) for event in first_prop.events]
+                    except (ValueError, TypeError):
+                        # Skip assets with invalid numeric conversion
+                        continue
+
+        return result
+
+    def get_time_series_with_parameters(self) -> dict[str, dict[str, tuple[list[float], float]]]:
+        """Get all time series data organized by asset and parameter with time step info.
+
+        Returns:
+            Dictionary mapping asset_id -> parameter_name -> (values, time_step)
+            Example: {"asset_1": {"ThermalConsumption": ([10.0, 20.0], 3600.0)}}
+        """
+        result: dict[str, dict[str, tuple[list[float], float]]] = {}
+
+        for asset_id, prop_data in self._time_series_internal.items():
+            if isinstance(prop_data, dict) and prop_data:
+                asset_parameters: dict[str, tuple[list[float], float]] = {}
+                for parameter_name, series in prop_data.items():
+                    if hasattr(series, "events") and series.events:
+                        try:
+                            values = [float(event.value) for event in series.events]
+                            time_step = series.get_time_step()
+                            asset_parameters[parameter_name] = (values, time_step)
+                        except (ValueError, TypeError):
+                            # Skip parameters with invalid numeric conversion
+                            continue
+
+                if asset_parameters:
+                    result[asset_id] = asset_parameters
+
+        return result
 
     def add_timer_series(
         self,
@@ -118,11 +187,11 @@ class PiXmlTimeSeries:
         time_series.name = time_series.header_dict[self.name_at]
         time_series.prop = time_series.header_dict[self.property_at]
         if time_series.name is not None and time_series.prop is not None:
-            if time_series.name in self.time_series:
-                self.time_series[time_series.name][time_series.prop] = time_series
+            if time_series.name in self._time_series_internal:
+                self._time_series_internal[time_series.name][time_series.prop] = time_series
             else:
-                self.time_series[time_series.name] = {time_series.prop: time_series}
-            return self.time_series[time_series.name][time_series.prop]
+                self._time_series_internal[time_series.name] = {time_series.prop: time_series}
+            return self._time_series_internal[time_series.name][time_series.prop]
         return time_series
 
     def save_to_XML(self, file: str | None = None) -> None:
@@ -132,11 +201,11 @@ class PiXmlTimeSeries:
         tree = ET.parse(self.time_series_xml_file)
         root = tree.getroot()
         # finding location to save the KPI
-        for name in self.time_series:
-            for prop in self.time_series[name]:
-                if self.time_series[name][prop].new_element:
+        for name in self._time_series_internal:
+            for prop in self._time_series_internal[name]:
+                if self._time_series_internal[name][prop].new_element:
                     series_element = ET.SubElement(root, "series")
-                    self.time_series[name][prop].save_series(series_element)
+                    self._time_series_internal[name][prop].save_series(series_element)
                 else:
                     for series_element in root.iter("{http://www.wldelft.nl/fews/PI}series"):
                         name_element = series_element[0].find(
@@ -148,8 +217,8 @@ class PiXmlTimeSeries:
 
                         name_ET = name_element.text if name_element is not None else None
                         prop_ET = prop_element.text if prop_element is not None else None
-                        if (name == name_ET) & (prop == prop_ET):
-                            self.time_series[name][prop].save_series(series_element)
+                        if (name == name_ET) and (prop == prop_ET):
+                            self._time_series_internal[name][prop].save_series(series_element)
 
         output_file = self.time_series_xml_file if file is None else file
 

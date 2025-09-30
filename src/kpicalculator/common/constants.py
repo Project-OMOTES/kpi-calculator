@@ -41,6 +41,10 @@ MIN_PORT_NUMBER = 1
 MAX_PORT_NUMBER = 65535
 MINIMUM_PASSWORD_LENGTH = 8
 
+# Time series composite key format
+COMPOSITE_KEY_SEPARATOR = "|"
+COMPOSITE_KEY_FORMAT = "{asset_id}" + COMPOSITE_KEY_SEPARATOR + "{field_name}"
+
 # Security-related ports to validate against
 DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM
 # Secure database ports (allowed for SSL/TLS connections)

@@ -24,7 +24,9 @@ class NewKpiCalculatorTest(unittest.TestCase):
         assets = DATA_DIR / "nodes_kpi_factors.csv"
         series = DATA_DIR / "power_timeseries.xml"
 
-        self.kpi_manager.load_from_esdl(str(esdl), str(series), str(pipes), str(assets))
+        self.kpi_manager.load_from_esdl(
+            str(esdl), str(pipes), str(assets), time_series_file=str(series)
+        )
 
     def test_calculate_all_kpis(self) -> None:
         # Calculate KPIs

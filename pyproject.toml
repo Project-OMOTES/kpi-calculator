@@ -45,6 +45,16 @@ lint = [
     "mypy ~= 1.5.1",
     "pre-commit ~= 3.6.0",
 ]
+analysis = [
+    "codespell>=2.0.0",    # Spell checking for code, comments, and docs
+    "vulture>=2.0.0",      # Dead code detection
+    "bandit>=1.7.0",       # Security vulnerability scanner (Python code)
+    "radon>=6.0.0",        # Code complexity analysis
+    "pipdeptree>=2.0.0",   # Dependency analysis and visualization
+    "safety>=3.0.0",       # Python dependency vulnerability scanner
+    "pip-audit>=2.0.0",    # Official Python package vulnerability scanner
+    # Note: For tree functionality, use native OS tree command or ls for basic listing
+]
 docs = [
     "interrogate>=1.7.0", # Documentation coverage
 ]
@@ -62,6 +72,7 @@ dev = [
     {include-group = "lint"},
     {include-group = "docs"},
     {include-group = "build"},
+    {include-group = "analysis"},
 ]
 
 [project.urls]

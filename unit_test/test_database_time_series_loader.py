@@ -10,6 +10,7 @@ from esdl import esdl
 
 from kpicalculator.adapters.common_model import TimeSeries
 from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
+from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
 from kpicalculator.common.types import DatabaseCredentials
 from kpicalculator.exceptions import CredentialError
 from kpicalculator.security.credential_manager import CredentialManager
@@ -518,8 +519,14 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Verify results
         self.assertTrue(validation_result.is_valid)
         self.assertEqual(len(result_data), 2)
-        self.assertEqual(result_data["asset_1"], time_series1)
-        self.assertEqual(result_data["asset_2"], time_series2)
+        # Results now use composite keys: asset_id|field_name
+        expected_keys = {
+            f"asset_1{COMPOSITE_KEY_SEPARATOR}power",
+            f"asset_2{COMPOSITE_KEY_SEPARATOR}flow",
+        }
+        self.assertEqual(set(result_data.keys()), expected_keys)
+        self.assertEqual(result_data[f"asset_1{COMPOSITE_KEY_SEPARATOR}power"], time_series1)
+        self.assertEqual(result_data[f"asset_2{COMPOSITE_KEY_SEPARATOR}flow"], time_series2)
 
         # Verify mock calls
         self.assertEqual(mock_extract.call_count, 2)

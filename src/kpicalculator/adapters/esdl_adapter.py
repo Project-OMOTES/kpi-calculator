@@ -7,6 +7,7 @@ from esdl import esdl  # type: ignore[import-untyped]
 from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped]
 
 from ..common.constants import (
+    COMPOSITE_KEY_SEPARATOR,
     DEFAULT_TECHNICAL_LIFETIME_YEARS,
     MOD_SUFFIX_LENGTH,
     OPTIMAL_TOPOLOGY_SUFFIX,
@@ -23,6 +24,7 @@ from .base_adapter import (
 )
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .database_time_series_loader import DatabaseTimeSeriesLoader
+from .time_series_manager import TimeSeriesManager
 from .xml_time_series_adapter import PiXmlTimeSeries
 
 
@@ -46,6 +48,10 @@ class EsdlAdapter(BaseAdapter):
         """
         super().__init__(unit_conversions)
         self.database_loader = DatabaseTimeSeriesLoader(credential_manager)
+        # Session-level warning tracking to prevent log spam
+        self._logged_warnings: set[str] = set()
+        self._legacy_asset_count = 0
+        self.time_series_manager = TimeSeriesManager(credential_manager)
         self.logger = logging.getLogger(__name__)
 
     def load_data(
@@ -54,6 +60,7 @@ class EsdlAdapter(BaseAdapter):
         time_series_file: str | None = None,
         pipes_cost_file: str | None = None,
         assets_cost_file: str | None = None,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
         use_database_profiles: bool = True,
         validation_mode: bool = False,
     ) -> EnergySystem:
@@ -64,6 +71,9 @@ class EsdlAdapter(BaseAdapter):
             time_series_file: Optional XML time series file path (testing only)
             pipes_cost_file: Optional pipes cost CSV file path
             assets_cost_file: Optional assets cost CSV file path
+            timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
+                with time-indexed energy/power data. When provided, takes precedence
+                over database loading and time_series_file parameter.
             use_database_profiles: Whether to load InfluxDB profiles
             validation_mode: Whether to validate existing KPIs
 
@@ -96,33 +106,36 @@ class EsdlAdapter(BaseAdapter):
         esh = EnergySystemHandler()
         es = esh.load_file(esdl_file)
 
-        # Load time series data
-        time_series_dict = {}
-
-        # Priority 1: Load InfluxDB profiles from ESDL (production)
+        # Load time series data using centralized TimeSeriesManager
+        source_priority = ["dataframes"]
         if use_database_profiles:
-            try:
-                db_time_series, db_validation = self.database_loader.load_time_series_from_esdl(es)
-                time_series_dict.update(db_time_series)
+            source_priority.append("database")
+        if time_series_file:
+            source_priority.append("xml")
+        source_priority.append("empty")
 
-                if not db_validation.is_valid:
-                    self.logger.warning(f"Database profile issues: {db_validation.errors}")
+        time_series_dict, ts_validation = self.time_series_manager.load_time_series(
+            es,
+            timeseries_dataframes=timeseries_dataframes,
+            xml_file=time_series_file,
+            source_priority=source_priority,
+        )
 
-                if db_validation.warnings:
-                    for warning in db_validation.warnings:
-                        self.logger.warning(warning)
+        # Log time series loading results
+        if not ts_validation.is_valid:
+            for error in ts_validation.errors:
+                self.logger.error(f"Time series loading error: {error}")
+        for warning in ts_validation.warnings:
+            self.logger.warning(f"Time series loading warning: {warning}")
 
-            except Exception as e:
-                self.logger.warning(f"Failed to load database profiles: {e}")
-
-        # Priority 2: Load XML time series (testing/fallback)
+        # Create XML time series adapter for asset processing (legacy compatibility)
         xml_time_series = None
         if time_series_file:
             try:
                 xml_time_series = PiXmlTimeSeries(time_series_file, "locationId", "parameterId")
-                self.logger.info("Loaded XML time series for testing")
+                self.logger.debug("Created XML time series adapter for legacy compatibility")
             except Exception as e:
-                self.logger.warning(f"Failed to load XML time series: {e}")
+                self.logger.warning(f"Failed to create XML time series adapter: {e}")
 
         # Load cost data if provided
         pipe_costs = None
@@ -167,6 +180,9 @@ class EsdlAdapter(BaseAdapter):
 
                 if asset:
                     energy_system.assets.append(asset)
+
+        # Log summary of any session warnings to provide final context
+        self._log_session_summary()
 
         return energy_system
 
@@ -216,7 +232,7 @@ class EsdlAdapter(BaseAdapter):
     def _create_asset_from_esdl(
         self,
         esdl_element: esdl.Asset,
-        db_time_series_dict: dict[str, TimeSeries],
+        time_series_dict: dict[str, TimeSeries],
         xml_time_series_dict: PiXmlTimeSeries | None,
         pipe_costs: pd.DataFrame | None,
         asset_costs: pd.DataFrame | None,
@@ -300,36 +316,33 @@ class EsdlAdapter(BaseAdapter):
         time_series_data = {}
 
         # Priority 1: Database time series (production)
-        if esdl_element.id in db_time_series_dict:
-            time_series_data["DatabaseProfile"] = db_time_series_dict[esdl_element.id]
-            self.logger.debug(f"Using database profile for asset {esdl_element.id}")
+        # Check for any time series with composite keys (asset_id|field_name)
+        for composite_key, ts_data in time_series_dict.items():
+            if COMPOSITE_KEY_SEPARATOR in composite_key:
+                asset_id, field_name = composite_key.split(COMPOSITE_KEY_SEPARATOR, 1)
+                if asset_id == esdl_element.id:
+                    # Use the field name from InfluxDBProfile as the time series key
+                    time_series_data[field_name] = ts_data
+                    self.logger.debug(
+                        f"Using database profile for asset {esdl_element.id} "
+                        f"parameter '{field_name}'"
+                    )
 
-        # Priority 2: XML time series (testing/fallback)
-        elif xml_time_series_dict is not None:
-            name = f"{model_name}_{esdl_element.id}"
-            if name in xml_time_series_dict.time_series:
-                ts_data = xml_time_series_dict.time_series[name]
+        # Fallback: check for direct asset_id key (legacy single-parameter systems)
+        if not time_series_data and esdl_element.id in time_series_dict:
+            # For legacy systems that don't specify parameter names, we cannot arbitrarily
+            # assign parameter types. Log a warning once per session and track count.
+            self._legacy_asset_count += 1
+            warning_key = "legacy_time_series_without_parameters"
 
-                # Determine which time series to use based on asset type
-                ts_mapping = {
-                    AssetType.PRODUCER: ["ThermalProduction"],
-                    AssetType.CONSUMER: ["ThermalConsumption"],
-                    AssetType.PUMP: ["ElectricalConsumption"],
-                    AssetType.PIPE: ["Speed"],
-                    AssetType.CONVERSION: ["ElectricalConsumption", "ThermalProduction"],
-                    AssetType.STORAGE: ["ElectricalConsumption"],
-                }
-
-                if asset_type in ts_mapping:
-                    for ts_name in ts_mapping[asset_type]:
-                        if ts_name in ts_data:
-                            values = [event.value for event in ts_data[ts_name].events]
-                            time_step = ts_data[ts_name].get_time_step()
-
-                            time_series_data[ts_name] = TimeSeries(
-                                time_step=time_step, values=values
-                            )
-                            break
+            if warning_key not in self._logged_warnings:
+                self.logger.warning(
+                    f"Found assets with time series data but no parameter information. "
+                    f"Use InfluxDBProfile.field or XML parameterId for proper parameter mapping. "
+                    f"(First occurrence: asset {esdl_element.id})"
+                )
+                self._logged_warnings.add(warning_key)
+            # Don't add arbitrary mappings - let the system work without time series for this asset
 
         if time_series_data:
             asset_dict["time_series"] = time_series_data
@@ -475,3 +488,12 @@ class EsdlAdapter(BaseAdapter):
                     return float(port.carrier.emission) / 1e9  # Convert to match old implementation
                 return 0.0
         return 0.0
+
+    def _log_session_summary(self) -> None:
+        """Log summary of session warnings to provide context without spam."""
+        if self._legacy_asset_count > 0:
+            self.logger.info(
+                f"Session summary: {self._legacy_asset_count} assets had time series data "
+                f"without parameter information. Consider upgrading to InfluxDBProfile "
+                f"with field names for proper parameter mapping."
+            )

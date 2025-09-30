@@ -18,27 +18,35 @@
 import logging
 from pathlib import Path
 
+import pandas as pd
+
 from .exceptions import KpiCalculatorError
 from .kpi_manager import KpiManager, KpiResults
 
 
 def calculate_kpis(
     esdl_file: str | Path,
-    time_series: str | Path,
     pipes_cost: str | Path,
     assets_cost: str | Path,
+    time_series: str | Path | None = None,
+    timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     unit_conversion: str | Path | None = None,
     system_lifetime: int = 30,
 ) -> KpiResults:
     """Calculate KPIs from ESDL files with supporting data.
 
     This is the main library function that can be called programmatically.
+    Supports both traditional file-based time series and pandas DataFrames
+    for simulator-worker integration.
 
     Args:
         esdl_file: Path to ESDL file
-        time_series: Path to time series XML
         pipes_cost: Path to pipes cost CSV
         assets_cost: Path to assets cost CSV
+        time_series: Optional path to time series XML (when timeseries_dataframes not provided)
+        timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
+            with time-indexed energy/power data. When provided, takes precedence
+            over database loading and time_series file parameter.
         unit_conversion: Optional path to unit conversion CSV file
         system_lifetime: System lifetime in years (default: 30)
 
@@ -63,7 +71,11 @@ def calculate_kpis(
     try:
         kpi_manager = KpiManager(unit_conversion_path)
         kpi_manager.load_from_esdl(
-            str(esdl_path), str(time_series), str(pipes_cost), str(assets_cost)
+            str(esdl_path),
+            str(pipes_cost),
+            str(assets_cost),
+            time_series_file=str(time_series) if time_series else None,
+            timeseries_dataframes=timeseries_dataframes,
         )
 
         logger.info("Calculating KPIs...")

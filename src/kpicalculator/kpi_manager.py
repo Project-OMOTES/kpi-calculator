@@ -66,15 +66,24 @@ class KpiManager:
             self.unit_conversion[row["Unit"]] = row["Factor"]
 
     def load_from_esdl(
-        self, esdl_file: str, time_series_file: str, pipes_cost_file: str, assets_cost_file: str
+        self,
+        esdl_file: str,
+        pipes_cost_file: str,
+        assets_cost_file: str,
+        time_series_file: str | None = None,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     ) -> None:
         """Load energy system data from ESDL file.
 
         Args:
             esdl_file: Path to ESDL file
-            time_series_file: Path to time series file
             pipes_cost_file: Path to pipes cost CSV file
             assets_cost_file: Path to assets cost CSV file
+            time_series_file: Optional path to time series file (when
+                timeseries_dataframes not provided)
+            timeseries_dataframes: Optional dict mapping asset IDs to pandas
+                DataFrames with time-indexed energy/power data. When provided,
+                takes precedence over database loading and time_series_file.
         """
         from .adapters.esdl_adapter import EsdlAdapter
 
@@ -84,6 +93,7 @@ class KpiManager:
             time_series_file=time_series_file,
             pipes_cost_file=pipes_cost_file,
             assets_cost_file=assets_cost_file,
+            timeseries_dataframes=timeseries_dataframes,
             use_database_profiles=False,  # Disable database profiles for testing
         )
 

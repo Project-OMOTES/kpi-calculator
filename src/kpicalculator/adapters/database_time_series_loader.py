@@ -11,6 +11,7 @@ from esdl.profiles.influxdbprofilemanager import InfluxDBProfileManager
 from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 
 from ..common.constants import (
+    COMPOSITE_KEY_SEPARATOR,
     DEFAULT_DATABASE_SSL_PORT,
     DEFAULT_TIME_STEP_SECONDS,
     HTTP_PREFIX_LENGTH,
@@ -170,17 +171,31 @@ class DatabaseTimeSeriesLoader:
                     # Extract asset ID associated with this profile
                     asset_id = self._extract_asset_id(profile)
 
+                    # Extract field name (parameter) from profile
+                    field_name = profile.field
+                    if not field_name:
+                        self.db_logger.warning(
+                            f"InfluxDB profile for asset {asset_id} has no field name, skipping"
+                        )
+                        failed_loads += 1
+                        continue
+
                     # Load time series data
                     profile_start = time.time()
                     time_series = self._load_profile_data(profile)
                     profile_time = time.time() - profile_start
 
                     if time_series:
-                        time_series_data[asset_id] = time_series
+                        # Create composite key: asset_id|field_name to preserve parameter info
+                        composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{field_name}"
+                        time_series_data[composite_key] = time_series
                         successful_loads += 1
 
                         self.db_logger.log_time_series_processing(
                             asset_id, len(time_series.values), time_series.time_step, profile_time
+                        )
+                        self.db_logger.debug(
+                            f"Loaded {field_name} time series for asset {asset_id}"
                         )
                     else:
                         failed_loads += 1
