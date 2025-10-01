@@ -31,7 +31,7 @@ class TestDatabaseCredentials:
         self, host: str, port: int, username: str | None, password: str | None
     ):
         """Test that valid credentials always create a valid DatabaseCredentials object."""
-        # Skip invalid hosts for this test (tested separately)
+        # Note: Invalid host validation is tested separately in other test methods
         try:
             creds = DatabaseCredentials(host=host, port=port, username=username, password=password)
             assert creds.host.strip() == host.strip()

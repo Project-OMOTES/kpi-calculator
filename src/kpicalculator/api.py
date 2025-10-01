@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
 from .exceptions import KpiCalculatorError
 from .kpi_manager import KpiManager, KpiResults
 
@@ -31,7 +32,7 @@ def calculate_kpis(
     time_series: str | Path | None = None,
     timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     unit_conversion: str | Path | None = None,
-    system_lifetime: int = 30,
+    system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
 ) -> KpiResults:
     """Calculate KPIs from ESDL files with supporting data.
 
@@ -48,7 +49,7 @@ def calculate_kpis(
             with time-indexed energy/power data. When provided, takes precedence
             over database loading and time_series file parameter.
         unit_conversion: Optional path to unit conversion CSV file
-        system_lifetime: System lifetime in years (default: 30)
+        system_lifetime: System lifetime in years
 
     Returns:
         KpiResults containing calculated KPIs

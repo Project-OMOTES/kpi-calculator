@@ -153,7 +153,10 @@ class EsdlAdapter(BaseAdapter):
             model_name = model_name[:-MOD_SUFFIX_LENGTH]
 
         energy_system = EnergySystem(
-            name=model_name, assets=[], unit_conversion=self.unit_conversions or {}
+            name=model_name,
+            assets=[],
+            unit_conversion=self.unit_conversions or {},
+            source_metadata={"esdl_file": str(esdl_file)},
         )
 
         # Process assets

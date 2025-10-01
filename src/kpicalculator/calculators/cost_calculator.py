@@ -2,7 +2,11 @@
 import math
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
-from ..common.constants import PERCENTAGE_TO_DECIMAL, SECONDS_PER_YEAR
+from ..common.constants import (
+    DEFAULT_DISCOUNT_RATE_PERCENT,
+    PERCENTAGE_TO_DECIMAL,
+    SECONDS_PER_YEAR,
+)
 
 
 class CostCalculator:
@@ -44,7 +48,9 @@ class CostCalculator:
 
         return result
 
-    def calculate_npv(self, system_lifetime: int, discount_rate: float = 5.0) -> float:
+    def calculate_npv(
+        self, system_lifetime: float, discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT
+    ) -> float:
         """Calculate Net Present Value for the energy system.
 
         Args:
@@ -78,17 +84,17 @@ class CostCalculator:
             )
 
             opex_npv = opex_annual * sum(
-                [
-                    1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, n)
-                    for n in range(system_lifetime)
-                ]
+                1.0 / math.pow(1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, n)
+                for n in range(int(system_lifetime))
             )
 
             npv += capex_npv + opex_npv
 
         return npv
 
-    def calculate_lcoe(self, system_lifetime: int, discount_rate: float = 5.0) -> float:
+    def calculate_lcoe(
+        self, system_lifetime: float, discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT
+    ) -> float:
         """Calculate Levelized Cost of Energy.
 
         Args:
@@ -112,7 +118,7 @@ class CostCalculator:
 
         # Calculate discounted energy production
         discounted_energy = 0.0
-        for year in range(system_lifetime):
+        for year in range(int(system_lifetime)):
             discounted_energy += annual_energy / math.pow(
                 1.0 + discount_rate * PERCENTAGE_TO_DECIMAL, year
             )

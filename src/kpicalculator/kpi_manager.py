@@ -2,6 +2,7 @@
 from typing import Any, TypedDict
 
 import pandas as pd  # type: ignore[import-untyped]
+from esdl import esdl
 
 from .adapters.common_model import EnergySystem
 from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
@@ -51,6 +52,7 @@ class KpiManager:
         """
         self.energy_system: EnergySystem | None = None
         self.unit_conversion: dict[str, float] = {}
+        self.source_esdl_file: str | None = None
 
         if unit_conversion_file:
             self.load_unit_conversion(unit_conversion_file)
@@ -96,6 +98,7 @@ class KpiManager:
             timeseries_dataframes=timeseries_dataframes,
             use_database_profiles=False,  # Disable database profiles for testing
         )
+        self.source_esdl_file = esdl_file
 
     def load_from_simulator(self, simulator_data: Any) -> None:
         """Load energy system data from simulator data structure.
@@ -116,7 +119,7 @@ class KpiManager:
         raise NotImplementedError("Mesido adapter not implemented yet")
 
     def calculate_all_kpis(
-        self, system_lifetime: int = DEFAULT_SYSTEM_LIFETIME_YEARS
+        self, system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS
     ) -> KpiResults:
         """Calculate all KPIs for the energy system.
 
@@ -157,6 +160,55 @@ class KpiManager:
         }
 
         return results
+
+    def export_to_esdl(
+        self, results: KpiResults, output_file: str | None = None, level: str = "system"
+    ) -> bool | esdl.EnergySystem:
+        """Export KPI results to ESDL format.
+
+        Args:
+            results: KPI calculation results from calculate_all_kpis()
+            output_file: Output ESDL file path. If None, returns data structure.
+            level: KPI level ('system', 'area', 'asset')
+
+        Returns:
+            bool: True if file export succeeded (when output_file provided)
+            esdl.EnergySystem: ESDL data structure (when output_file is None)
+
+        Raises:
+            ValueError: If no energy system is loaded or invalid parameters
+        """
+        if not self.energy_system:
+            raise ValueError("No energy system loaded. Call one of the load methods first.")
+
+        from .reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        exporter = EsdlKpiExporter()
+        return exporter.export(
+            results,
+            self.energy_system,
+            output_file,
+            level=level,
+            source_esdl_file=self.source_esdl_file,
+        )
+
+    def get_esdl_with_kpis(self, results: KpiResults, level: str = "system") -> esdl.EnergySystem:
+        """Get ESDL energy system with KPIs added as data structure.
+
+        Args:
+            results: KPI calculation results from calculate_all_kpis()
+            level: KPI level ('system', 'area', 'asset')
+
+        Returns:
+            esdl.EnergySystem: ESDL data structure with KPIs
+
+        Raises:
+            ValueError: If no energy system is loaded or invalid parameters
+        """
+        result = self.export_to_esdl(results, output_file=None, level=level)
+        if not isinstance(result, esdl.EnergySystem):
+            raise ValueError("Failed to generate ESDL data structure")
+        return result
 
 
 # TODO: Add method to save the results

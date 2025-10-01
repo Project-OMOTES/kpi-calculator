@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from enum import Enum
 
+from ..common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_TECHNICAL_LIFETIME_YEARS
+
 
 class AssetType(Enum):
     PRODUCER = "Producer"
@@ -47,8 +49,8 @@ class Asset:
     variable_maintenance_cost_unit: str = "EUR/MWh"
 
     # Lifecycle properties
-    technical_lifetime: float = 30.0  # years
-    discount_rate: float = 5.0  # %
+    technical_lifetime: float = DEFAULT_TECHNICAL_LIFETIME_YEARS  # years
+    discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT  # %
     emission_factor: float = 0.0  # kg/GJ
 
     # Aggregation
@@ -63,3 +65,4 @@ class EnergySystem:
     name: str
     assets: list[Asset]
     unit_conversion: dict[str, float] = field(default_factory=dict)
+    source_metadata: dict[str, str] = field(default_factory=dict)

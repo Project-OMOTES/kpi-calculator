@@ -27,6 +27,7 @@ ENV/
 .coverage
 htmlcov/
 test-results.xml
+unit_test/temp_test_outputs/
 
 # Environment files
 .env
