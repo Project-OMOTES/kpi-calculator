@@ -70,17 +70,25 @@ class KpiManager:
     def load_from_esdl(
         self,
         esdl_file: str,
-        pipes_cost_file: str,
-        assets_cost_file: str,
+        pipes_cost_file: str | None = None,
+        assets_cost_file: str | None = None,
         time_series_file: str | None = None,
         timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     ) -> None:
         """Load energy system data from ESDL file.
 
+        Production Mode:
+            When pipes_cost_file and assets_cost_file are not provided, cost data
+            is extracted directly from ESDL costInformation elements.
+
+        Override Mode:
+            When CSV cost files are provided, they override any cost data found
+            in the ESDL file.
+
         Args:
             esdl_file: Path to ESDL file
-            pipes_cost_file: Path to pipes cost CSV file
-            assets_cost_file: Path to assets cost CSV file
+            pipes_cost_file: Optional path to pipes cost CSV (overrides ESDL costs if provided)
+            assets_cost_file: Optional path to assets cost CSV (overrides ESDL costs if provided)
             time_series_file: Optional path to time series file (when
                 timeseries_dataframes not provided)
             timeseries_dataframes: Optional dict mapping asset IDs to pandas

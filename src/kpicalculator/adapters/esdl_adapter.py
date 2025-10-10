@@ -1,4 +1,6 @@
 # src/kpicalculator/adapters/esdl_adapter.py
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
@@ -272,48 +274,55 @@ class EsdlAdapter(BaseAdapter):
             "emission_factor": self._get_emission_factor(esdl_element),
         }
 
-        # Get cost properties from CSV files if provided
+        # Extract costs: CSV files take priority over ESDL costInformation
+        # Skip ESDL extraction if CSV files will override anyway (performance optimization)
+        cost_df = None
         if pipe_costs is not None or asset_costs is not None:
             cost_df = pipe_costs if isinstance(esdl_element, esdl.Pipe) else asset_costs
 
-            if cost_df is not None:
-                try:
-                    cost_row = cost_df[cost_df["esdlId"] == esdl_element.id].iloc[0]
+        if cost_df is not None:
+            # Priority 1: Use CSV cost data (testing/override mode)
+            try:
+                cost_row = cost_df[cost_df["esdlId"] == esdl_element.id].iloc[0]
 
-                    asset_dict.update(
-                        {
-                            "investment_cost": float(cost_row["investmentCosts"]),
-                            "investment_cost_unit": cost_row["investmentCostsUnit"],
-                            "installation_cost": float(cost_row["installationCosts"]),
-                            "installation_cost_unit": cost_row["installationCostsUnit"],
-                            "fixed_operational_cost": float(cost_row["fixedOperationalCosts"]),
-                            "fixed_operational_cost_unit": cost_row["fixedOperationalCostsUnit"],
-                            "variable_operational_cost": float(
-                                cost_row["variableOperationalCosts"]
-                            ),
-                            "variable_operational_cost_unit": cost_row[
-                                "variableOperationalCostsUnit"
-                            ],
-                            "fixed_maintenance_cost": float(cost_row["fixedMaintenanceCosts"]),
-                            "fixed_maintenance_cost_unit": cost_row["fixedMaintenanceCostsUnit"],
-                            "variable_maintenance_cost": float(
-                                cost_row["variableMaintenanceCosts"]
-                            ),
-                            "variable_maintenance_cost_unit": cost_row[
-                                "variableMaintenanceCostsUnit"
-                            ],
-                            "discount_rate": (
-                                float(cost_row["discountRate"])
-                                if "discountRate" in cost_row
-                                else 5.0
-                            ),
-                        }
-                    )
-                except (IndexError, KeyError) as e:
-                    self.logger.warning(
-                        f"Could not find cost data for asset {esdl_element.name}: {e}"
-                    )
-                    # Don't return None - continue without cost data
+                asset_dict.update(
+                    {
+                        "investment_cost": float(cost_row["investmentCosts"]),
+                        "investment_cost_unit": cost_row["investmentCostsUnit"],
+                        "installation_cost": float(cost_row["installationCosts"]),
+                        "installation_cost_unit": cost_row["installationCostsUnit"],
+                        "fixed_operational_cost": float(cost_row["fixedOperationalCosts"]),
+                        "fixed_operational_cost_unit": cost_row["fixedOperationalCostsUnit"],
+                        "variable_operational_cost": float(
+                            cost_row["variableOperationalCosts"]
+                        ),
+                        "variable_operational_cost_unit": cost_row[
+                            "variableOperationalCostsUnit"
+                        ],
+                        "fixed_maintenance_cost": float(cost_row["fixedMaintenanceCosts"]),
+                        "fixed_maintenance_cost_unit": cost_row["fixedMaintenanceCostsUnit"],
+                        "variable_maintenance_cost": float(
+                            cost_row["variableMaintenanceCosts"]
+                        ),
+                        "variable_maintenance_cost_unit": cost_row[
+                            "variableMaintenanceCostsUnit"
+                        ],
+                        "discount_rate": (
+                            float(cost_row["discountRate"])
+                            if "discountRate" in cost_row
+                            else 5.0
+                        ),
+                    }
+                )
+            except (IndexError, KeyError) as e:
+                self.logger.warning(
+                    f"Could not find cost data for asset {esdl_element.name}: {e}"
+                )
+                # Don't return None - continue without cost data
+        else:
+            # Priority 2: Extract costs from ESDL costInformation (production mode)
+            costs_from_esdl = self._extract_costs_from_esdl(esdl_element)
+            asset_dict.update(costs_from_esdl)
 
         # Get time series data - priority to database profiles
         time_series_data = {}
@@ -491,6 +500,226 @@ class EsdlAdapter(BaseAdapter):
                     return float(port.carrier.emission) / 1e9  # Convert to match old implementation
                 return 0.0
         return 0.0
+
+    def _extract_costs_from_esdl(self, esdl_asset: esdl.Asset) -> dict[str, float | str | None]:
+        """Extract cost information from ESDL costInformation element.
+
+        Uses standard PyEcore attribute access to extract cost data from ESDL schema.
+        Handles diverse unit patterns via _convert_cost_value().
+
+        Args:
+            esdl_asset: ESDL asset element
+
+        Returns:
+            Dictionary with cost fields and units, or empty dict if no costInformation
+        """
+        costs: dict[str, float | str | None] = {}
+
+        # Check if asset has costInformation
+        if not (hasattr(esdl_asset, "costInformation") and esdl_asset.costInformation):
+            return costs
+
+        cost_info = esdl_asset.costInformation
+
+        # Mapping of ESDL cost fields to asset dict keys
+        cost_mappings = {
+            "investmentCosts": ("investment_cost", "investment_cost_unit"),
+            "installationCosts": ("installation_cost", "installation_cost_unit"),
+            "fixedOperationalCosts": ("fixed_operational_cost", "fixed_operational_cost_unit"),
+            "variableOperationalCosts": (
+                "variable_operational_cost",
+                "variable_operational_cost_unit",
+            ),
+            "fixedMaintenanceCosts": ("fixed_maintenance_cost", "fixed_maintenance_cost_unit"),
+            "variableMaintenanceCosts": (
+                "variable_maintenance_cost",
+                "variable_maintenance_cost_unit",
+            ),
+        }
+
+        # Extract each cost type
+        for esdl_field, (cost_key, unit_key) in cost_mappings.items():
+            if hasattr(cost_info, esdl_field):
+                cost_element = getattr(cost_info, esdl_field)
+                if cost_element and hasattr(cost_element, "value") and cost_element.value:
+                    # Extract unit specification
+                    unit_spec = None
+                    if hasattr(cost_element, "profileQuantityAndUnit"):
+                        unit_spec = cost_element.profileQuantityAndUnit
+
+                    # Convert cost value based on units
+                    converted_value = self._convert_cost_value(
+                        cost_element.value, unit_spec, esdl_asset
+                    )
+
+                    if converted_value is not None:
+                        costs[cost_key] = converted_value
+                        # Store unit information for reference
+                        if unit_spec:
+                            costs[unit_key] = self._extract_unit_string(unit_spec)
+
+        return costs
+
+    def _convert_cost_value(
+        self,
+        value: float,
+        unit_spec: esdl.QuantityAndUnitType | None,
+        esdl_asset: esdl.Asset,
+    ) -> float | None:
+        """Convert cost value based on ESDL unit specification.
+
+        Delegates conversion to specialized helper methods for each unit type.
+        Supports: EUR/m, EUR/kW, EUR/MW, EUR/kWh, EUR/MWh, %, EUR/yr, EUR
+
+        Args:
+            value: Cost value from ESDL
+            unit_spec: QuantityAndUnitType with unit specifications
+            esdl_asset: Asset for context (length, power, etc.)
+
+        Returns:
+            Converted cost value in EUR, or None if conversion fails
+        """
+        try:
+            if not unit_spec:
+                return float(value)
+
+            unit = getattr(unit_spec, "unit", None)
+            per_unit = getattr(unit_spec, "perUnit", None)
+            per_multiplier = getattr(unit_spec, "perMultiplier", None)
+
+            if self._is_percent_unit(unit):
+                return self._convert_percent_value(value)
+
+            if self._is_length_unit(per_unit):
+                return self._convert_length_value(value, esdl_asset)
+
+            if self._is_power_unit(per_unit):
+                return self._convert_power_value(value, per_multiplier, esdl_asset)
+
+            if self._is_energy_unit(per_unit):
+                return self._convert_energy_value(value)
+
+            if self._is_annual_unit(unit_spec):
+                return self._convert_annual_value(value)
+
+            return float(value)
+
+        except (AttributeError, ValueError, TypeError) as e:
+            self.logger.warning(f"Could not convert cost value for asset {esdl_asset.id}: {e}")
+            return None
+
+    def _is_percent_unit(self, unit) -> bool:
+        """Check if unit is percentage."""
+        return unit and hasattr(unit, "name") and unit.name == "PERCENT"
+
+    def _convert_percent_value(self, value: float) -> float:
+        """Convert percentage value (stored as-is for now)."""
+        # TODO: Calculate actual cost based on investment percentage
+        return float(value)
+
+    def _is_length_unit(self, per_unit) -> bool:
+        """Check if unit is length-based (EUR/m)."""
+        return per_unit and hasattr(per_unit, "name") and per_unit.name == "METRE"
+
+    def _convert_length_value(self, value: float, esdl_asset: esdl.Asset) -> float:
+        """Convert EUR/m to total EUR by multiplying by asset length."""
+        length = self._get_length(esdl_asset)
+        if length > 0:
+            return float(value * length)
+        return float(value)
+
+    def _is_power_unit(self, per_unit) -> bool:
+        """Check if unit is power-based (EUR/kW, EUR/MW)."""
+        return per_unit and hasattr(per_unit, "name") and per_unit.name == "WATT"
+
+    def _convert_power_value(
+        self, value: float, per_multiplier, esdl_asset: esdl.Asset
+    ) -> float:
+        """Convert EUR/kW or EUR/MW to total EUR by multiplying by asset power."""
+        power = self._get_power(esdl_asset)
+        if power > 0:
+            multiplier = self._get_multiplier_value(per_multiplier)
+            power_in_specified_unit = power / multiplier
+            return float(value * power_in_specified_unit)
+        return float(value)
+
+    def _is_energy_unit(self, per_unit) -> bool:
+        """Check if unit is energy-based (EUR/kWh, EUR/MWh)."""
+        return per_unit and hasattr(per_unit, "name") and per_unit.name == "WATTHOUR"
+
+    def _convert_energy_value(self, value: float) -> float:
+        """Convert energy-based unit cost (stored as-is, applied to time series)."""
+        return float(value)
+
+    def _is_annual_unit(self, unit_spec) -> bool:
+        """Check if unit is annual (EUR/yr)."""
+        return (
+            hasattr(unit_spec, "perTimeUnit")
+            and unit_spec.perTimeUnit
+            and hasattr(unit_spec.perTimeUnit, "name")
+            and unit_spec.perTimeUnit.name == "YEAR"
+        )
+
+    def _convert_annual_value(self, value: float) -> float:
+        """Convert annual cost value (already in EUR/yr)."""
+        return float(value)
+
+    def _get_multiplier_value(self, multiplier: esdl.MultiplierEnum | None) -> float:
+        """Convert ESDL multiplier enum to numeric value.
+
+        Args:
+            multiplier: ESDL multiplier enum (KILO, MEGA, etc.)
+
+        Returns:
+            Numeric multiplier value
+        """
+        if not multiplier or not hasattr(multiplier, "name"):
+            return 1.0
+
+        multiplier_map = {
+            "KILO": 1000.0,
+            "MEGA": 1000000.0,
+            "GIGA": 1000000000.0,
+            "MILLI": 0.001,
+            "MICRO": 0.000001,
+        }
+
+        return multiplier_map.get(multiplier.name, 1.0)
+
+    def _extract_unit_string(self, unit_spec: esdl.QuantityAndUnitType) -> str:
+        """Extract human-readable unit string from QuantityAndUnitType.
+
+        Args:
+            unit_spec: ESDL QuantityAndUnitType
+
+        Returns:
+            Human-readable unit string (e.g., "EUR/m", "EUR/kW")
+        """
+        try:
+            parts = ["EUR"]
+
+            # Add perUnit if present and has a meaningful name (not NONE)
+            if hasattr(unit_spec, "perUnit") and unit_spec.perUnit:
+                per_unit = unit_spec.perUnit
+                if hasattr(per_unit, "name") and per_unit.name and per_unit.name != "NONE":
+                    unit_name = per_unit.name
+                    # Add per_multiplier if present and has a meaningful name (not NONE)
+                    if hasattr(unit_spec, "perMultiplier") and unit_spec.perMultiplier:
+                        per_mult = unit_spec.perMultiplier
+                        if hasattr(per_mult, "name") and per_mult.name and per_mult.name != "NONE":
+                            unit_name = f"{per_mult.name.lower()}{unit_name.lower()}"
+                    parts.append(unit_name.lower())
+
+            # Add perTimeUnit if present and has a meaningful name (not NONE)
+            if hasattr(unit_spec, "perTimeUnit") and unit_spec.perTimeUnit:
+                per_time = unit_spec.perTimeUnit
+                if hasattr(per_time, "name") and per_time.name and per_time.name != "NONE":
+                    parts.append(per_time.name.lower())
+
+            return "/".join(parts)
+
+        except (AttributeError, TypeError):
+            return "EUR"
 
     def _log_session_summary(self) -> None:
         """Log summary of session warnings to provide context without spam."""
