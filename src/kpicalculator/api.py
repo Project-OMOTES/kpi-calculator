@@ -27,8 +27,6 @@ from .kpi_manager import KpiManager, KpiResults
 
 def calculate_kpis(
     esdl_file: str | Path,
-    pipes_cost: str | Path | None = None,
-    assets_cost: str | Path | None = None,
     time_series: str | Path | None = None,
     timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     unit_conversion: str | Path | None = None,
@@ -40,20 +38,10 @@ def calculate_kpis(
     Supports both traditional file-based time series and pandas DataFrames
     for simulator-worker integration.
 
-    Production Mode:
-        When pipes_cost and assets_cost are not provided, cost data is extracted
-        directly from ESDL costInformation elements. This is the recommended
-        approach for production systems.
-
-    Override Mode:
-        When pipes_cost and assets_cost CSV files are provided, they override
-        any cost data found in the ESDL file. This is useful for testing or
-        when external cost databases are preferred.
+    Cost data is extracted from ESDL costInformation elements.
 
     Args:
         esdl_file: Path to ESDL file
-        pipes_cost: Optional path to pipes cost CSV (overrides ESDL cost data if provided)
-        assets_cost: Optional path to assets cost CSV (overrides ESDL cost data if provided)
         time_series: Optional path to time series XML (when timeseries_dataframes not provided)
         timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
             with time-indexed energy/power data. When provided, takes precedence
@@ -78,21 +66,13 @@ def calculate_kpis(
 
     # Convert paths to strings for KpiManager
     unit_conversion_path = str(unit_conversion) if unit_conversion else None
-    pipes_cost_path = str(pipes_cost) if pipes_cost else None
-    assets_cost_path = str(assets_cost) if assets_cost else None
 
-    # Log mode
-    if pipes_cost_path or assets_cost_path:
-        logger.info("Running in override mode: CSV cost data will override ESDL costs")
-    else:
-        logger.info("Running in production mode: Extracting costs from ESDL file")
+    logger.info("Extracting costs from ESDL costInformation elements")
 
     try:
         kpi_manager = KpiManager(unit_conversion_path)
         kpi_manager.load_from_esdl(
             str(esdl_path),
-            pipes_cost_path,
-            assets_cost_path,
             time_series_file=str(time_series) if time_series else None,
             timeseries_dataframes=timeseries_dataframes,
         )

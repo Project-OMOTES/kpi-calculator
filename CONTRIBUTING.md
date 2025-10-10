@@ -49,3 +49,58 @@ of code being tested is too big. The amount of code being tested is referred to 
 - Coverage percentage should be >80%. This is a guideline, not a hard rule. Breaking this guideline is allowed if the 
   arguments has swayed the developersteam and not just the developer and reviewer.
 
+
+### Development Installation
+```bash
+git clone https://github.com/Project-OMOTES/kpi-calculator.git
+cd kpi-calculator
+
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
+# or: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+
+# Set up development environment
+uv sync --dev
+```
+
+
+### Development Dependencies
+- **ruff** (≥0.6.0) - Modern linting and formatting (replaces black, flake8, isort)
+- **pytest** (~7.3.1) with pytest-cov (~4.0.0) - Testing framework with coverage
+- **mypy** (~1.5.1) - Static type checking
+- **hypothesis** (≥6.0.0) - Property-based testing for edge case discovery
+- **interrogate** (≥1.7.0) - Documentation coverage tracking
+- **pytest-xdist** (≥3.0.0) - Parallel test execution
+- **pre-commit** (~3.6.0) - Git hook management
+
+## Development Commands
+
+### Modern Development Workflow
+
+The project uses modern Python tooling for development:
+
+```bash
+# Run tests with coverage (89% coverage achieved)
+uv run pytest --cov=src/kpicalculator --cov-report html --cov-report term-missing unit_test/
+
+# Code quality pipeline (replaces black, flake8, isort)
+uv run ruff check --fix src/ unit_test/  # Linting with auto-fixes
+uv run ruff format src/ unit_test/        # Code formatting
+uv run mypy src/kpicalculator             # Type checking
+
+# Documentation coverage (86.6% achieved)
+uv run interrogate src/ --fail-under=80
+
+# Parallel testing
+uv run pytest -n auto unit_test/
+
+# Complete validation pipeline
+uv run ruff check --fix src/ unit_test/ && uv run ruff format src/ unit_test/ && uv run mypy src/kpicalculator && uv run pytest --cov=src/kpicalculator --cov-report term-missing unit_test/
+
+# Build package
+uv build
+
+# Update dependencies
+uv lock --upgrade
+```
+

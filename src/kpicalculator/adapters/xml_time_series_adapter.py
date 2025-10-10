@@ -392,35 +392,3 @@ class PiXmlEvent:
             event_element.set("flag", str(self.flag))
             event_element.set("time", str(self.time))
             event_element.set("value", str(self.value))
-
-
-def main() -> None:
-    # Example usage - replace with actual file path
-    pixml = "example_power_timeseries.xml"
-    pixml_object = PiXmlTimeSeries(pixml, "locationId", "parameterId")
-    timeseries = pixml_object.add_timer_series(
-        "continuous",
-        "somewhere",
-        "something",
-        "OK",
-        200,
-        "20-10-2020",
-        "21-10-2020",
-        "20-10-2020",
-        -999,
-        "hello",
-        0,
-        0,
-        10,
-        -10,
-        50,
-        "m3/h",
-        "20-10-2020",
-        "10:00",
-    )
-    timeseries.add_event("10", "10:00", 100, 1)
-    pixml_object.save_to_XML("klaas.xml")
-
-
-if __name__ == "__main__":
-    main()

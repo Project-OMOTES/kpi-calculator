@@ -28,13 +28,9 @@ class TestEsdlKpiExport(unittest.TestCase):
 
         # Load ESDL data
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
-        pipes = DATA_DIR / "pipes_kpi_factors.csv"
-        assets = DATA_DIR / "nodes_kpi_factors.csv"
         series = DATA_DIR / "power_timeseries.xml"
 
-        self.kpi_manager.load_from_esdl(
-            str(esdl_file), str(pipes), str(assets), time_series_file=str(series)
-        )
+        self.kpi_manager.load_from_esdl(str(esdl_file), time_series_file=str(series))
 
         # Calculate KPIs for testing
         self.kpi_results = self.kpi_manager.calculate_all_kpis(system_lifetime=30)

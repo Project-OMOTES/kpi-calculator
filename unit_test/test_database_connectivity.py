@@ -182,10 +182,8 @@ class TestEsdlAdapterDatabaseIntegration(unittest.TestCase):
         params = self.adapter.get_supported_parameters()
         expected_params = [
             "time_series_file",
-            "pipes_cost_file",
-            "assets_cost_file",
+            "timeseries_dataframes",
             "use_database_profiles",
-            "validation_mode",
         ]
 
         for param in expected_params:

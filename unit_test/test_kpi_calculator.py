@@ -18,15 +18,11 @@ class NewKpiCalculatorTest(unittest.TestCase):
         unit_conv = DATA_DIR / "unit_conversion.csv"
         self.kpi_manager = KpiManager(str(unit_conv))
 
-        # Load ESDL data
+        # Load ESDL data (CSV costs not provided since ESDL has complete cost information)
         esdl = DATA_DIR / "Unit_test_ESDL.esdl"
-        pipes = DATA_DIR / "pipes_kpi_factors.csv"
-        assets = DATA_DIR / "nodes_kpi_factors.csv"
         series = DATA_DIR / "power_timeseries.xml"
 
-        self.kpi_manager.load_from_esdl(
-            str(esdl), str(pipes), str(assets), time_series_file=str(series)
-        )
+        self.kpi_manager.load_from_esdl(str(esdl), time_series_file=str(series))
 
     def test_calculate_all_kpis(self) -> None:
         # Calculate KPIs
@@ -37,9 +33,9 @@ class NewKpiCalculatorTest(unittest.TestCase):
         self.assertIn("energy", results)
         self.assertIn("emissions", results)
 
-        # Check specific values
+        # Check specific values (using ESDL costInformation only)
         self.assertAlmostEqual(
-            results["costs"]["capex"]["All"], 108900.1306, places=2, msg="Total CAPEX is incorrect"
+            results["costs"]["capex"]["All"], 107900.03, places=2, msg="Total CAPEX is incorrect"
         )
 
         self.assertAlmostEqual(

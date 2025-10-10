@@ -60,11 +60,10 @@ __version__ = "0.1.0"
 def main() -> None:
     """CLI entry point for KPI Calculator.
 
-    Calculate KPIs from ESDL files with required supporting data.
+    Calculate KPIs from ESDL files with supporting data.
 
     Example:
-        kpicalculator system.esdl --time-series data.xml \\
-            --pipes-cost pipes.csv --assets-cost assets.csv
+        kpicalculator system.esdl --time-series data.xml
     """
     # Set up basic logging for CLI usage
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -73,9 +72,7 @@ def main() -> None:
 
     parser.add_argument("esdl_file", type=Path, help="Path to ESDL file")
     parser.add_argument("--unit-conversion", type=Path, help="Path to unit conversion CSV file")
-    parser.add_argument("--time-series", type=Path, required=True, help="Path to time series XML")
-    parser.add_argument("--pipes-cost", type=Path, required=True, help="Path to pipes cost CSV")
-    parser.add_argument("--assets-cost", type=Path, required=True, help="Path to assets cost CSV")
+    parser.add_argument("--time-series", type=Path, help="Path to time series XML")
     parser.add_argument(
         "--system-lifetime", type=int, default=30, help="System lifetime in years (default: 30)"
     )
@@ -86,8 +83,6 @@ def main() -> None:
         results = calculate_kpis(
             esdl_file=args.esdl_file,
             time_series=args.time_series,
-            pipes_cost=args.pipes_cost,
-            assets_cost=args.assets_cost,
             unit_conversion=args.unit_conversion,
             system_lifetime=args.system_lifetime,
         )

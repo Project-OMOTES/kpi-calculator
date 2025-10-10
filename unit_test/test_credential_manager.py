@@ -26,6 +26,22 @@ class TestSecureCredentialManager(unittest.TestCase):
         """Set up test fixtures."""
         self.manager = SecureCredentialManager()
 
+    @staticmethod
+    def _filter_env_vars(*excluded_prefixes: str) -> dict[str, str]:
+        """Filter environment variables excluding specified prefixes.
+
+        Args:
+            *excluded_prefixes: Variable prefixes to exclude
+
+        Returns:
+            Filtered environment dictionary
+        """
+        return {
+            k: v
+            for k, v in os.environ.items()
+            if not any(k.startswith(prefix) for prefix in excluded_prefixes)
+        }
+
     @patch.dict(
         os.environ,
         {
@@ -88,10 +104,7 @@ class TestSecureCredentialManager(unittest.TestCase):
 
     def test_get_database_credentials_not_found(self) -> None:
         """Test credential retrieval when credentials not found."""
-        # Create clean environment without target credentials
-        clean_env = {
-            k: v for k, v in os.environ.items() if not k.startswith("KPI_DB_NONEXISTENT_COM_443_")
-        }
+        clean_env = self._filter_env_vars("KPI_DB_NONEXISTENT_COM_443_")
 
         with patch.dict(os.environ, clean_env, clear=True):
             credentials = self.manager.get_database_credentials("nonexistent.com", 443)
@@ -108,11 +121,7 @@ class TestSecureCredentialManager(unittest.TestCase):
 
         for username, password, expected, description in test_cases:
             with self.subTest(case=description):
-                test_env = {
-                    k: v
-                    for k, v in os.environ.items()
-                    if not k.startswith("KPI_DB_EXAMPLE_COM_443_")
-                }
+                test_env = self._filter_env_vars("KPI_DB_EXAMPLE_COM_443_")
 
                 if username is not None:
                     test_env["KPI_DB_EXAMPLE_COM_443_USERNAME"] = username
@@ -122,6 +131,44 @@ class TestSecureCredentialManager(unittest.TestCase):
                 with patch.dict(os.environ, test_env, clear=True):
                     credentials = self.manager.get_database_credentials("example.com", 443)
                     self.assertEqual(credentials, expected)
+
+    @patch.dict(
+        os.environ,
+        {
+            "INFLUXDB_USERNAME": "simulator_user",
+            "INFLUXDB_PASSWORD": "simulator_pass",
+            "INFLUXDB_DATABASE": "simulator_db",
+        },
+    )
+    def test_get_database_credentials_influxdb_fallback(self) -> None:
+        """Test fallback to INFLUXDB_* variables for simulator-worker compatibility."""
+        credentials = self.manager.get_database_credentials("localhost", 8086)
+
+        self.assertIsNotNone(credentials)
+        self.assertEqual(credentials.host, "localhost")
+        self.assertEqual(credentials.port, 8086)
+        self.assertEqual(credentials.username, "simulator_user")
+        self.assertEqual(credentials.password, "simulator_pass")
+        self.assertEqual(credentials.database, "simulator_db")
+        self.assertFalse(credentials.ssl)  # Default
+        self.assertFalse(credentials.verify_ssl)  # Default
+
+    @patch.dict(
+        os.environ,
+        {
+            "KPI_DB_LOCALHOST_8086_USERNAME": "kpi_user",
+            "KPI_DB_LOCALHOST_8086_PASSWORD": "kpi_pass",
+            "INFLUXDB_USERNAME": "simulator_user",
+            "INFLUXDB_PASSWORD": "simulator_pass",
+        },
+    )
+    def test_get_database_credentials_kpi_takes_precedence(self) -> None:
+        """Test that KPI_DB_* variables take precedence over INFLUXDB_* variables."""
+        credentials = self.manager.get_database_credentials("localhost", 8086)
+
+        self.assertIsNotNone(credentials)
+        self.assertEqual(credentials.username, "kpi_user")  # KPI_DB_* wins
+        self.assertEqual(credentials.password, "kpi_pass")  # KPI_DB_* wins
 
 
 class TestConfigFileCredentialManager(unittest.TestCase):

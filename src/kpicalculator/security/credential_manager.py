@@ -58,10 +58,13 @@ class SecureCredentialManager(CredentialManager):
     def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Load credentials from environment variables.
 
-        Environment variable format:
-        KPI_DB_{HOST}_{PORT}_{FIELD}
-
-        Where HOST has dots and hyphens replaced with underscores and is uppercase.
+        This method first attempts to load credentials using environment variables
+        with the format KPI_DB_{HOST}_{PORT}_{FIELD}, where HOST is uppercased and
+        dots/hyphens are replaced with underscores. If either the username or password
+        is missing, it falls back to using INFLUXDB_* environment variables for
+        compatibility with simulator-worker setups. The priority order is:
+        1. KPI_DB_{HOST}_{PORT}_{FIELD} (primary)
+        2. INFLUXDB_* (fallback if primary is incomplete)
 
         Args:
             host: Database host (e.g., "wu-profiles.esdl-beta.hesi.energy")
@@ -72,17 +75,31 @@ class SecureCredentialManager(CredentialManager):
         """
         env_prefix = self._get_env_prefix(host, port)
 
+        # Try KPI_DB_* variables first (primary)
         username = os.getenv(f"{env_prefix}_USERNAME")
         password = os.getenv(f"{env_prefix}_PASSWORD")
-        database = os.getenv(f"{env_prefix}_DATABASE", "energy_profiles")
-        ssl_env = os.getenv(f"{env_prefix}_SSL", "false").lower()
-        verify_ssl_env = os.getenv(f"{env_prefix}_VERIFY_SSL", "false").lower()
+        database = os.getenv(f"{env_prefix}_DATABASE")
+        ssl_env = os.getenv(f"{env_prefix}_SSL")
+        verify_ssl_env = os.getenv(f"{env_prefix}_VERIFY_SSL")
+
+        # Fallback to INFLUXDB_* variables (simulator-worker compatibility)
+        if not username or not password:
+            username = username or os.getenv("INFLUXDB_USERNAME")
+            password = password or os.getenv("INFLUXDB_PASSWORD")
+            database = database or os.getenv("INFLUXDB_DATABASE")
+            # INFLUXDB_HOSTNAME and INFLUXDB_PORT are informational only
+            # (we already know host:port from the ESDL InfluxDBProfile)
 
         if not username or not password:
             self.db_logger.debug(
                 "No credentials found in environment", {"host": host, "port": port}
             )
             return None
+
+        # Set defaults
+        database = database or "energy_profiles"
+        ssl_env = (ssl_env or "false").lower()
+        verify_ssl_env = (verify_ssl_env or "false").lower()
 
         # Parse boolean values
         ssl = ssl_env in ("true", "1", "yes", "on")

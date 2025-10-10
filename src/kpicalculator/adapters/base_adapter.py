@@ -74,11 +74,8 @@ class BaseAdapter(ABC):
         self,
         source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol,
         time_series_file: str | None = None,
-        pipes_cost_file: str | None = None,
-        assets_cost_file: str | None = None,
         timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
         use_database_profiles: bool = True,
-        validation_mode: bool = False,
     ) -> EnergySystem:
         """Load data from source and convert to common model.
 
@@ -88,13 +85,10 @@ class BaseAdapter(ABC):
                 - MesidoResultsProtocol: MESIDO optimization results (data structures or DB refs)
                 - SimulatorResultsProtocol: OMOTES Simulator results (data structures or DB refs)
             time_series_file: Optional XML time series file path (testing only)
-            pipes_cost_file: Optional pipes cost CSV file path
-            assets_cost_file: Optional assets cost CSV file path
             timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
                 with time-indexed energy/power data. When provided, takes precedence
                 over database loading and time_series_file parameter.
             use_database_profiles: Whether to load database-referenced time series
-            validation_mode: Whether to validate existing KPIs in ESDL
 
         Returns:
             EnergySystem object with standardized data model

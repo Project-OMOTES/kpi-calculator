@@ -84,9 +84,8 @@ class TestEsdlCostExtraction(unittest.TestCase):
 
         # Verify unit strings
         self.assertIn("variable_operational_cost_unit", costs)
-        # Unit string should contain "watthour" (from WATTHOUR) and "kilo" (from KILO multiplier)
-        unit_str = costs["variable_operational_cost_unit"].lower()
-        self.assertIn("watthour", unit_str)
+        # Unit should be EUR/kWh (simplified from EUR/WATTHOUR with KILO multiplier)
+        self.assertEqual(costs["variable_operational_cost_unit"], "EUR/kWh")
 
     def test_pipe_with_length_units(self) -> None:
         """Test cost extraction from Pipe with EUR/m and EUR/km units."""
@@ -160,7 +159,7 @@ class TestEsdlCostExtraction(unittest.TestCase):
 
         # Verify unit string
         self.assertIn("fixed_maintenance_cost_unit", costs)
-        self.assertIn("year", costs["fixed_maintenance_cost_unit"].lower())
+        self.assertEqual(costs["fixed_maintenance_cost_unit"], "EUR/yr")
 
     def test_producer_with_mwh_units(self) -> None:
         """Test cost extraction from GenericProducer with EUR/MWh units."""
@@ -180,9 +179,9 @@ class TestEsdlCostExtraction(unittest.TestCase):
         self.assertIn("variable_maintenance_cost", costs)
         self.assertAlmostEqual(costs["variable_maintenance_cost"], 3.0, places=2)
 
-        # Verify unit string includes megawatthour
+        # Verify unit string is EUR/MWh (simplified from EUR/WATTHOUR with MEGA multiplier)
         self.assertIn("variable_maintenance_cost_unit", costs)
-        self.assertIn("mega", costs["variable_maintenance_cost_unit"].lower())
+        self.assertEqual(costs["variable_maintenance_cost_unit"], "EUR/MWh")
 
     def test_no_cost_info_returns_empty_dict(self) -> None:
         """Test that extraction returns empty dict when asset has no costInformation."""
@@ -282,25 +281,18 @@ class TestEsdlCostExtraction(unittest.TestCase):
         self.assertEqual(unit_string, "EUR")
 
 
-class TestEsdlCostPriority(unittest.TestCase):
-    """Test cost data priority: ESDL costs → CSV override → None."""
+class TestEsdlCostLoading(unittest.TestCase):
+    """Test that costs are extracted from ESDL costInformation."""
 
-    def setUp(self) -> None:
-        """Set up test fixtures."""
-        self.adapter = EsdlAdapter()
-        self.esdl_file = str(DATA_DIR / "Unit_test_ESDL.esdl")
-        self.pipes_csv = str(DATA_DIR / "pipes_kpi_factors.csv")
-        self.assets_csv = str(DATA_DIR / "nodes_kpi_factors.csv")
-        self.time_series = str(DATA_DIR / "power_timeseries.xml")
+    def test_esdl_costs_extracted(self) -> None:
+        """Test that costs are extracted from ESDL costInformation elements."""
+        adapter = EsdlAdapter()
+        esdl_file = str(DATA_DIR / "Unit_test_ESDL.esdl")
+        time_series = str(DATA_DIR / "power_timeseries.xml")
 
-    def test_production_mode_uses_esdl_costs(self) -> None:
-        """Test that costs are extracted from ESDL when CSV files not provided."""
-        # Load without CSV files (production mode)
-        energy_system = self.adapter.load_data(
-            self.esdl_file,
-            time_series_file=self.time_series,
-            pipes_cost_file=None,
-            assets_cost_file=None,
+        energy_system = adapter.load_data(
+            esdl_file,
+            time_series_file=time_series,
             use_database_profiles=False,
         )
 
@@ -320,69 +312,19 @@ class TestEsdlCostPriority(unittest.TestCase):
         self.assertIsNotNone(consumer.installation_cost)
         self.assertAlmostEqual(consumer.installation_cost, 100.0, places=2)
 
-    def test_override_mode_uses_csv_costs(self) -> None:
-        """Test that CSV costs override ESDL costs when provided."""
-        # Load with CSV files (override mode)
-        energy_system = self.adapter.load_data(
-            self.esdl_file,
-            time_series_file=self.time_series,
-            pipes_cost_file=self.pipes_csv,
-            assets_cost_file=self.assets_csv,
-            use_database_profiles=False,
-        )
 
-        # Find the same GenericConsumer asset
-        consumer = None
-        for asset in energy_system.assets:
-            if "Consumer" in asset.name and "a524" in asset.name:
-                consumer = asset
-                break
+class TestApiCostExtraction(unittest.TestCase):
+    """Test that API function extracts costs from ESDL."""
 
-        self.assertIsNotNone(consumer, "GenericConsumer not found in loaded assets")
-
-        # Verify costs from CSV override ESDL (CSV values should be different from ESDL)
-        # Note: This assumes the CSV has different values than the ESDL file
-        # If CSV values match, we at least verify the CSV loading worked
-        self.assertIsNotNone(consumer.investment_cost)
-        self.assertIsNotNone(consumer.installation_cost)
-
-
-class TestApiCostOptionalParameters(unittest.TestCase):
-    """Test that API function works with optional cost parameters."""
-
-    def test_api_without_cost_files(self) -> None:
-        """Test that calculate_kpis works with only ESDL file (production mode)."""
+    def test_api_extracts_esdl_costs(self) -> None:
+        """Test that calculate_kpis extracts costs from ESDL file."""
         from kpicalculator.api import calculate_kpis  # noqa: E402
 
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
         time_series = DATA_DIR / "power_timeseries.xml"
 
-        # Should not raise an error
         results = calculate_kpis(
             esdl_file=str(esdl_file),
-            time_series=str(time_series),
-            # pipes_cost and assets_cost omitted (production mode)
-        )
-
-        # Verify results structure
-        self.assertIn("costs", results)
-        self.assertIn("energy", results)
-        self.assertIn("emissions", results)
-
-    def test_api_with_cost_files(self) -> None:
-        """Test that calculate_kpis works with CSV files (override mode)."""
-        from kpicalculator.api import calculate_kpis  # noqa: E402
-
-        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
-        time_series = DATA_DIR / "power_timeseries.xml"
-        pipes_csv = DATA_DIR / "pipes_kpi_factors.csv"
-        assets_csv = DATA_DIR / "nodes_kpi_factors.csv"
-
-        # Should work as before (override mode)
-        results = calculate_kpis(
-            esdl_file=str(esdl_file),
-            pipes_cost=str(pipes_csv),
-            assets_cost=str(assets_csv),
             time_series=str(time_series),
         )
 
@@ -394,3 +336,86 @@ class TestApiCostOptionalParameters(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConvertedUnitGeneration(unittest.TestCase):
+    """Test _get_converted_unit method for correct unit string generation."""
+
+    def setUp(self) -> None:
+        """Set up test fixtures."""
+        self.adapter = EsdlAdapter()
+
+    def test_get_converted_unit_energy_kwh(self) -> None:
+        """Test converted unit for EUR/kWh (WATTHOUR with KILO multiplier)."""
+        mock_unit_spec = MagicMock()
+        mock_unit_spec.unit = None
+        mock_unit_spec.perUnit = MagicMock()
+        mock_unit_spec.perUnit.name = "WATTHOUR"
+        mock_unit_spec.perMultiplier = MagicMock()
+        mock_unit_spec.perMultiplier.name = "KILO"
+        mock_unit_spec.perTimeUnit = None
+
+        unit = self.adapter._get_converted_unit(mock_unit_spec)
+        self.assertEqual(unit, "EUR/kWh")
+
+    def test_get_converted_unit_energy_mwh(self) -> None:
+        """Test converted unit for EUR/MWh (WATTHOUR with MEGA multiplier)."""
+        mock_unit_spec = MagicMock()
+        mock_unit_spec.unit = None
+        mock_unit_spec.perUnit = MagicMock()
+        mock_unit_spec.perUnit.name = "WATTHOUR"
+        mock_unit_spec.perMultiplier = MagicMock()
+        mock_unit_spec.perMultiplier.name = "MEGA"
+        mock_unit_spec.perTimeUnit = None
+
+        unit = self.adapter._get_converted_unit(mock_unit_spec)
+        self.assertEqual(unit, "EUR/MWh")
+
+    def test_get_converted_unit_length_converted_to_eur(self) -> None:
+        """Test converted unit for EUR/m becomes EUR after conversion."""
+        mock_unit_spec = MagicMock()
+        mock_unit_spec.unit = None
+        mock_unit_spec.perUnit = MagicMock()
+        mock_unit_spec.perUnit.name = "METRE"
+        mock_unit_spec.perMultiplier = None
+        mock_unit_spec.perTimeUnit = None
+
+        unit = self.adapter._get_converted_unit(mock_unit_spec)
+        self.assertEqual(unit, "EUR")
+
+    def test_get_converted_unit_power_converted_to_eur(self) -> None:
+        """Test converted unit for EUR/kW becomes EUR after conversion."""
+        mock_unit_spec = MagicMock()
+        mock_unit_spec.unit = None
+        mock_unit_spec.perUnit = MagicMock()
+        mock_unit_spec.perUnit.name = "WATT"
+        mock_unit_spec.perMultiplier = MagicMock()
+        mock_unit_spec.perMultiplier.name = "KILO"
+        mock_unit_spec.perTimeUnit = None
+
+        unit = self.adapter._get_converted_unit(mock_unit_spec)
+        self.assertEqual(unit, "EUR")
+
+    def test_get_converted_unit_annual(self) -> None:
+        """Test converted unit for EUR/yr remains EUR/yr."""
+        mock_unit_spec = MagicMock()
+        mock_unit_spec.unit = None
+        mock_unit_spec.perUnit = None
+        mock_unit_spec.perMultiplier = None
+        mock_unit_spec.perTimeUnit = MagicMock()
+        mock_unit_spec.perTimeUnit.name = "YEAR"
+
+        unit = self.adapter._get_converted_unit(mock_unit_spec)
+        self.assertEqual(unit, "EUR/yr")
+
+    def test_get_converted_unit_percentage(self) -> None:
+        """Test converted unit for percentage becomes % OF CAPEX."""
+        mock_unit_spec = MagicMock()
+        mock_unit_spec.unit = MagicMock()
+        mock_unit_spec.unit.name = "PERCENT"
+        mock_unit_spec.perUnit = None
+        mock_unit_spec.perMultiplier = None
+        mock_unit_spec.perTimeUnit = None
+
+        unit = self.adapter._get_converted_unit(mock_unit_spec)
+        self.assertEqual(unit, "% OF CAPEX")

@@ -33,6 +33,18 @@ Where:
 - `{PORT}` = Database port number
 - `{FIELD}` = One of: `USERNAME`, `PASSWORD`, `DATABASE`, `SSL`, `VERIFY_SSL`
 
+### Simulator-Worker Compatibility
+
+For integration with OMOTES simulator-worker, the KPI Calculator also supports fallback to:
+
+```bash
+INFLUXDB_USERNAME
+INFLUXDB_PASSWORD
+INFLUXDB_DATABASE
+```
+
+These are used when `KPI_DB_*` variables are not set. The database name from the ESDL InfluxDBProfile takes precedence.
+
 ### Examples
 
 **For wu-profiles.esdl-beta.hesi.energy:443:**
@@ -62,6 +74,11 @@ export KPI_DB_OMOTES_POC_TEST_HESI_ENERGY_8086_SSL="false"
 - `DATABASE` - Database name (default: "energy_profiles")
 - `SSL` - Use SSL connection (default: "false")
 - `VERIFY_SSL` - Verify SSL certificates (default: "false")
+
+**Fallback (simulator-worker compatibility):**
+- `INFLUXDB_USERNAME` - Used if `KPI_DB_*_USERNAME` not set
+- `INFLUXDB_PASSWORD` - Used if `KPI_DB_*_PASSWORD` not set
+- `INFLUXDB_DATABASE` - Used if `KPI_DB_*_DATABASE` not set
 
 ## Configuration File Setup (Alternative)
 

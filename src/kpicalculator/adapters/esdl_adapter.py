@@ -60,27 +60,23 @@ class EsdlAdapter(BaseAdapter):
         self,
         source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol,
         time_series_file: str | None = None,
-        pipes_cost_file: str | None = None,
-        assets_cost_file: str | None = None,
         timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
         use_database_profiles: bool = True,
-        validation_mode: bool = False,
     ) -> EnergySystem:
         """Load energy system data from ESDL file.
+
+        Costs are extracted from ESDL costInformation elements.
 
         Args:
             source: ESDL file path (only str/Path supported by this adapter)
             time_series_file: Optional XML time series file path (testing only)
-            pipes_cost_file: Optional pipes cost CSV file path
-            assets_cost_file: Optional assets cost CSV file path
             timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
                 with time-indexed energy/power data. When provided, takes precedence
                 over database loading and time_series_file parameter.
             use_database_profiles: Whether to load InfluxDB profiles
-            validation_mode: Whether to validate existing KPIs
 
         Returns:
-            EnergySystem object
+            EnergySystem object with costs from ESDL costInformation
 
         Raises:
             TypeError: If source is not a file path (MESIDO/Simulator not supported)
@@ -139,14 +135,6 @@ class EsdlAdapter(BaseAdapter):
             except Exception as e:
                 self.logger.warning(f"Failed to create XML time series adapter: {e}")
 
-        # Load cost data if provided
-        pipe_costs = None
-        asset_costs = None
-        if pipes_cost_file:
-            pipe_costs = pd.read_csv(pipes_cost_file)
-        if assets_cost_file:
-            asset_costs = pd.read_csv(assets_cost_file)
-
         # Create energy system
         model_name = Path(esdl_file).stem
         if OPTIMAL_TOPOLOGY_SUFFIX in model_name[-20:]:
@@ -178,8 +166,6 @@ class EsdlAdapter(BaseAdapter):
                     esdl_element,
                     time_series_dict,
                     xml_time_series,
-                    pipe_costs,
-                    asset_costs,
                     model_name,
                 )
 
@@ -228,10 +214,8 @@ class EsdlAdapter(BaseAdapter):
         """Return list of supported optional parameters."""
         return [
             "time_series_file",
-            "pipes_cost_file",
-            "assets_cost_file",
+            "timeseries_dataframes",
             "use_database_profiles",
-            "validation_mode",
         ]
 
     def _create_asset_from_esdl(
@@ -239,8 +223,6 @@ class EsdlAdapter(BaseAdapter):
         esdl_element: esdl.Asset,
         time_series_dict: dict[str, TimeSeries],
         xml_time_series_dict: PiXmlTimeSeries | None,
-        pipe_costs: pd.DataFrame | None,
-        asset_costs: pd.DataFrame | None,
         model_name: str,
     ) -> Asset | None:
         """Create an Asset object from an ESDL element.
@@ -248,8 +230,7 @@ class EsdlAdapter(BaseAdapter):
         Args:
             esdl_element: ESDL element
             time_series_dict: Time series dictionary
-            pipe_costs: DataFrame with pipe costs
-            asset_costs: DataFrame with asset costs
+            xml_time_series_dict: XML time series adapter (legacy)
             model_name: Model name
 
         Returns:
@@ -274,43 +255,9 @@ class EsdlAdapter(BaseAdapter):
             "emission_factor": self._get_emission_factor(esdl_element),
         }
 
-        # Extract costs: CSV files take priority over ESDL costInformation
-        # Skip ESDL extraction if CSV files will override anyway (performance optimization)
-        cost_df = None
-        if pipe_costs is not None or asset_costs is not None:
-            cost_df = pipe_costs if isinstance(esdl_element, esdl.Pipe) else asset_costs
-
-        if cost_df is not None:
-            # Priority 1: Use CSV cost data (testing/override mode)
-            try:
-                cost_row = cost_df[cost_df["esdlId"] == esdl_element.id].iloc[0]
-
-                asset_dict.update(
-                    {
-                        "investment_cost": float(cost_row["investmentCosts"]),
-                        "investment_cost_unit": cost_row["investmentCostsUnit"],
-                        "installation_cost": float(cost_row["installationCosts"]),
-                        "installation_cost_unit": cost_row["installationCostsUnit"],
-                        "fixed_operational_cost": float(cost_row["fixedOperationalCosts"]),
-                        "fixed_operational_cost_unit": cost_row["fixedOperationalCostsUnit"],
-                        "variable_operational_cost": float(cost_row["variableOperationalCosts"]),
-                        "variable_operational_cost_unit": cost_row["variableOperationalCostsUnit"],
-                        "fixed_maintenance_cost": float(cost_row["fixedMaintenanceCosts"]),
-                        "fixed_maintenance_cost_unit": cost_row["fixedMaintenanceCostsUnit"],
-                        "variable_maintenance_cost": float(cost_row["variableMaintenanceCosts"]),
-                        "variable_maintenance_cost_unit": cost_row["variableMaintenanceCostsUnit"],
-                        "discount_rate": (
-                            float(cost_row["discountRate"]) if "discountRate" in cost_row else 5.0
-                        ),
-                    }
-                )
-            except (IndexError, KeyError) as e:
-                self.logger.warning(f"Could not find cost data for asset {esdl_element.name}: {e}")
-                # Don't return None - continue without cost data
-        else:
-            # Priority 2: Extract costs from ESDL costInformation (production mode)
-            costs_from_esdl = self._extract_costs_from_esdl(esdl_element)
-            asset_dict.update(costs_from_esdl)
+        # Extract costs from ESDL costInformation (production)
+        costs_from_esdl = self._extract_costs_from_esdl(esdl_element)
+        asset_dict.update(costs_from_esdl)
 
         # Get time series data - priority to database profiles
         time_series_data = {}
@@ -542,9 +489,11 @@ class EsdlAdapter(BaseAdapter):
 
                     if converted_value is not None:
                         costs[cost_key] = converted_value
-                        # Store unit information for reference
+                        # Determine appropriate unit based on conversion type
                         if unit_spec:
-                            costs[unit_key] = self._extract_unit_string(unit_spec)
+                            costs[unit_key] = self._get_converted_unit(unit_spec)
+                        else:
+                            costs[unit_key] = "EUR"
 
         return costs
 
@@ -673,6 +622,50 @@ class EsdlAdapter(BaseAdapter):
         }
 
         return multiplier_map.get(multiplier.name, 1.0)
+
+    def _get_converted_unit(self, unit_spec: esdl.QuantityAndUnitType) -> str:
+        """Get the appropriate unit string after cost conversion.
+
+        Returns ESDL-compliant unit strings that match the cost calculator's expectations.
+        Handles all edge cases including None values and missing attributes.
+
+        Args:
+            unit_spec: ESDL QuantityAndUnitType
+
+        Returns:
+            Unit string for the converted cost value
+        """
+        try:
+            unit = getattr(unit_spec, "unit", None)
+            per_unit = getattr(unit_spec, "perUnit", None)
+
+            # Percentage costs: keep as % OF CAPEX for cost calculator
+            if self._is_percent_unit(unit):
+                return "% OF CAPEX"
+
+            # Energy-based costs: keep original unit for time series calculation
+            if self._is_energy_unit(per_unit):
+                per_multiplier = getattr(unit_spec, "perMultiplier", None)
+                if per_multiplier and hasattr(per_multiplier, "name"):
+                    if per_multiplier.name == "KILO":
+                        return "EUR/kWh"
+                    if per_multiplier.name == "MEGA":
+                        return "EUR/MWh"
+                return "EUR/kWh"
+
+            # Annual costs: keep as EUR/yr
+            if self._is_annual_unit(unit_spec):
+                return "EUR/yr"
+
+            # Length/power-based costs: converted to total EUR
+            if self._is_length_unit(per_unit) or self._is_power_unit(per_unit):
+                return "EUR"
+
+            # Default: EUR
+            return "EUR"
+        except (AttributeError, TypeError):
+            # Handle any edge cases with missing attributes gracefully
+            return "EUR"
 
     def _extract_unit_string(self, unit_spec: esdl.QuantityAndUnitType) -> str:
         """Extract human-readable unit string from QuantityAndUnitType.
