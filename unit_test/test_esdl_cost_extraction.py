@@ -30,7 +30,11 @@ class TestEsdlCostExtraction(unittest.TestCase):
         self.es = esh.load_file(str(esdl_file))
 
     def test_consumer_with_eur_costs(self) -> None:
-        """Test cost extraction from GenericConsumer with EUR units (installation and investment)."""
+        """
+        Test cost extraction from GenericConsumer with EUR units.
+
+        This test verifies extraction of installation and investment costs.
+        """
         # Find the GenericConsumer asset (name contains 'a524')
         consumer = None
         for element in self.es.eAllContents():

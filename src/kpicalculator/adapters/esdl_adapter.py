@@ -293,31 +293,19 @@ class EsdlAdapter(BaseAdapter):
                         "installation_cost_unit": cost_row["installationCostsUnit"],
                         "fixed_operational_cost": float(cost_row["fixedOperationalCosts"]),
                         "fixed_operational_cost_unit": cost_row["fixedOperationalCostsUnit"],
-                        "variable_operational_cost": float(
-                            cost_row["variableOperationalCosts"]
-                        ),
-                        "variable_operational_cost_unit": cost_row[
-                            "variableOperationalCostsUnit"
-                        ],
+                        "variable_operational_cost": float(cost_row["variableOperationalCosts"]),
+                        "variable_operational_cost_unit": cost_row["variableOperationalCostsUnit"],
                         "fixed_maintenance_cost": float(cost_row["fixedMaintenanceCosts"]),
                         "fixed_maintenance_cost_unit": cost_row["fixedMaintenanceCostsUnit"],
-                        "variable_maintenance_cost": float(
-                            cost_row["variableMaintenanceCosts"]
-                        ),
-                        "variable_maintenance_cost_unit": cost_row[
-                            "variableMaintenanceCostsUnit"
-                        ],
+                        "variable_maintenance_cost": float(cost_row["variableMaintenanceCosts"]),
+                        "variable_maintenance_cost_unit": cost_row["variableMaintenanceCostsUnit"],
                         "discount_rate": (
-                            float(cost_row["discountRate"])
-                            if "discountRate" in cost_row
-                            else 5.0
+                            float(cost_row["discountRate"]) if "discountRate" in cost_row else 5.0
                         ),
                     }
                 )
             except (IndexError, KeyError) as e:
-                self.logger.warning(
-                    f"Could not find cost data for asset {esdl_element.name}: {e}"
-                )
+                self.logger.warning(f"Could not find cost data for asset {esdl_element.name}: {e}")
                 # Don't return None - continue without cost data
         else:
             # Priority 2: Extract costs from ESDL costInformation (production mode)
@@ -608,18 +596,18 @@ class EsdlAdapter(BaseAdapter):
             self.logger.warning(f"Could not convert cost value for asset {esdl_asset.id}: {e}")
             return None
 
-    def _is_percent_unit(self, unit) -> bool:
+    def _is_percent_unit(self, unit: esdl.UnitEnum | None) -> bool:
         """Check if unit is percentage."""
-        return unit and hasattr(unit, "name") and unit.name == "PERCENT"
+        return bool(unit and hasattr(unit, "name") and unit.name == "PERCENT")
 
     def _convert_percent_value(self, value: float) -> float:
         """Convert percentage value (stored as-is for now)."""
         # TODO: Calculate actual cost based on investment percentage
         return float(value)
 
-    def _is_length_unit(self, per_unit) -> bool:
+    def _is_length_unit(self, per_unit: esdl.UnitEnum | None) -> bool:
         """Check if unit is length-based (EUR/m)."""
-        return per_unit and hasattr(per_unit, "name") and per_unit.name == "METRE"
+        return bool(per_unit and hasattr(per_unit, "name") and per_unit.name == "METRE")
 
     def _convert_length_value(self, value: float, esdl_asset: esdl.Asset) -> float:
         """Convert EUR/m to total EUR by multiplying by asset length."""
@@ -628,12 +616,12 @@ class EsdlAdapter(BaseAdapter):
             return float(value * length)
         return float(value)
 
-    def _is_power_unit(self, per_unit) -> bool:
+    def _is_power_unit(self, per_unit: esdl.UnitEnum | None) -> bool:
         """Check if unit is power-based (EUR/kW, EUR/MW)."""
-        return per_unit and hasattr(per_unit, "name") and per_unit.name == "WATT"
+        return bool(per_unit and hasattr(per_unit, "name") and per_unit.name == "WATT")
 
     def _convert_power_value(
-        self, value: float, per_multiplier, esdl_asset: esdl.Asset
+        self, value: float, per_multiplier: esdl.MultiplierEnum | None, esdl_asset: esdl.Asset
     ) -> float:
         """Convert EUR/kW or EUR/MW to total EUR by multiplying by asset power."""
         power = self._get_power(esdl_asset)
@@ -643,15 +631,15 @@ class EsdlAdapter(BaseAdapter):
             return float(value * power_in_specified_unit)
         return float(value)
 
-    def _is_energy_unit(self, per_unit) -> bool:
+    def _is_energy_unit(self, per_unit: esdl.UnitEnum | None) -> bool:
         """Check if unit is energy-based (EUR/kWh, EUR/MWh)."""
-        return per_unit and hasattr(per_unit, "name") and per_unit.name == "WATTHOUR"
+        return bool(per_unit and hasattr(per_unit, "name") and per_unit.name == "WATTHOUR")
 
     def _convert_energy_value(self, value: float) -> float:
         """Convert energy-based unit cost (stored as-is, applied to time series)."""
         return float(value)
 
-    def _is_annual_unit(self, unit_spec) -> bool:
+    def _is_annual_unit(self, unit_spec: esdl.QuantityAndUnitType) -> bool:
         """Check if unit is annual (EUR/yr)."""
         return (
             hasattr(unit_spec, "perTimeUnit")
