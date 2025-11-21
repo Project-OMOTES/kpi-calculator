@@ -1,6 +1,12 @@
 name: Build-Test-Lint-etc (linux)
 
-on: [push]
+on:
+  push:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
 
 jobs:
   setup:
@@ -11,7 +17,8 @@ jobs:
         python-version: ["3.11"]
     name: Setup
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v1
         with:
@@ -28,8 +35,8 @@ jobs:
           path: ./venv.tar
           name: ${{ runner.os }}-python-${{ matrix.python-version }}-venv-${{github.run_id}}
 
-  lint:
-    name: Lint
+  quality:
+    name: Code Quality (Lint + Typecheck)
     runs-on: ubuntu-latest
     needs: [ setup ]
     strategy:
@@ -37,7 +44,8 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v1
         with:
@@ -50,10 +58,13 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run lint
         run: |
-          # Run ruff check (do not auto-fix in CI)
           uv run ruff check ./src/ ./unit_test/
-          # Run ruff format (check only)
           uv run ruff format --check ./src/ ./unit_test/
+      - name: Add mypy annotator
+        uses: pr-annotators/mypy-pr-annotator@v1.0.0
+      - name: Run typechecker
+        run: |
+          uv run mypy ./src/kpicalculator
 
   test:
     name: Test
@@ -64,7 +75,8 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install uv
         uses: astral-sh/setup-uv@v1
         with:
@@ -81,66 +93,34 @@ jobs:
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
+          name: coverage-report-html
           path: htmlcov/
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@main
         with:
-          # A list of JUnit XML files, directories containing the former, and wildcard
-          # patterns to process.
-          # See @actions/glob for supported patterns.
           path: test-results.xml
-
-          # Add a summary of the results at the top of the report
-          # Default: true
           summary: true
-
-          # Select which results should be included in the report.
-          # Follows the same syntax as
-          # `pytest -r`
-          # Default: fEX
           display-options: fEX
-
-          # Fail the workflow if no JUnit XML was found.
-          # Default: true
           fail-on-empty: true
-
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-    needs: [ setup ]
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11"]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v1
-        with:
-          version: "latest"
-      - name: Restore venv
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ runner.os }}-python-${{ matrix.python-version }}-venv-${{github.run_id}}
-      - name: Untar venv
-        run: tar -xvf venv.tar
-      - name: Add mypy annotator
-        uses: pr-annotators/mypy-pr-annotator@v1.0.0
-      - name: Run typechecker
-        run: |
-          uv run mypy ./src/kpicalculator
 
   build:
     name: Build the python package
     runs-on: ubuntu-latest
-    needs: [ setup ]
+    needs: [ quality, test ]
     strategy:
       fail-fast: false
       matrix:
         python-version: [ "3.11" ]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Conditional fetch depth based on event type:
+          # - Release or manual workflow: fetch-depth: 0 (full history with tags for versioning)
+          # - Regular push: fetch-depth: 1 (shallow clone for speed)
+          # Logic: (is_publishing_event) ? 0 : 1
+          fetch-depth: ${{ (github.event_name == 'release' || github.event_name == 'workflow_dispatch') && 0 || 1 }}
       - name: Install uv
         uses: astral-sh/setup-uv@v1
         with:
@@ -154,3 +134,96 @@ jobs:
       - name: Build
         run: |
           uv build
+      - name: Store distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    name: Verify package quality
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
+      - name: Set up Python
+        run: uv python install 3.11
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Install package from wheel in clean environment
+        run: |
+          uv venv .venv-test
+          source .venv-test/bin/activate
+          uv pip install dist/*.whl
+      - name: Verify package metadata and imports
+        run: |
+          source .venv-test/bin/activate
+          python -c "import kpicalculator; print(f'Package imported successfully')"
+          python -c "import importlib.metadata; meta = importlib.metadata.metadata('kpi-calculator'); print(f'Name: {meta[\"Name\"]}'); print(f'Version: {meta[\"Version\"]}')"
+      - name: Run security checks on dependencies
+        run: |
+          # Create a temporary venv for pip-audit to avoid editable installation issues
+          uv venv .venv-audit
+          uv pip install --python .venv-audit pip-audit
+          # Check for known vulnerabilities in the installed package dependencies
+          uv run --python .venv-audit pip-audit --desc on dist/*.whl
+      - name: Check package description will render on PyPI
+        run: |
+          uv tool install twine
+          uv tool run twine check dist/*
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: [build, verify]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      id-token: write  # Required for trusted publishing to PyPI
+      contents: read
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
+          verbose: true
+
+  create-github-release-notes:
+    name: Add artifacts to GitHub Release
+    needs: [publish-to-pypi]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'dist/*'
+      - name: Upload artifacts to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # --clobber allows re-running workflow without errors if artifacts already exist
+          gh release upload '${{ github.ref_name }}' dist/** --repo '${{ github.repository }}' --clobber

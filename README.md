@@ -225,6 +225,17 @@ See [Roadmap](https://github.com/Project-OMOTES/kpi-calculator/pull/1#issue-3238
 
 This project is part of the OMOTES (Optimization and Modeling for Thermal Energy Systems) initiative.
 
+## Releases
+
+Releases are automatically published to [PyPI](https://pypi.org/project/kpi-calculator/) when a GitHub Release is created:
+
+1. Ensure all changes are merged to `main`
+2. Create and push a version tag: `git tag -a v1.2.3 -m "Release 1.2.3" && git push origin v1.2.3`
+3. [Create a GitHub Release](https://github.com/Project-OMOTES/kpi-calculator/releases/new) from the tag
+4. The [CI workflow](.github/workflows/ci.yml) will automatically build, verify, and publish to PyPI
+
+The workflow includes security scanning, build verification, and generates cryptographic attestations for supply chain security.
+
 ## License
 
 GNU General Public License v3.0
