@@ -4,7 +4,7 @@
      <series>
         <header>
             <type>instantaneous</type>
-            <locationId>Unit_test_ESDL_743b1ff1-0ee4-4c6c-ba5f-e7ebf169348c</locationId>
+            <locationId>743b1ff1-0ee4-4c6c-ba5f-e7ebf169348c</locationId>
             <parameterId>ThermalProduction</parameterId>
             <timeStep unit="nonequidistant"/>
             <startDate date="2021-10-08" time="14:00:00"/>
@@ -27,7 +27,7 @@
          <series>
         <header>
             <type>instantaneous</type>
-            <locationId>Unit_test_ESDL_b230a081-0c8d-4f95-9cc7-6548f33bf513</locationId>
+            <locationId>b230a081-0c8d-4f95-9cc7-6548f33bf513</locationId>
             <parameterId>ThermalProduction</parameterId>
             <timeStep unit="nonequidistant"/>
             <startDate date="2021-10-08" time="14:00:00"/>
@@ -50,7 +50,7 @@
     <series>
         <header>
             <type>instantaneous</type>
-            <locationId>Unit_test_ESDL_b98655e1-9e81-4878-875f-c1f946cc5d6c</locationId>
+            <locationId>b98655e1-9e81-4878-875f-c1f946cc5d6c</locationId>
             <parameterId>ThermalProduction</parameterId>
             <timeStep unit="nonequidistant"/>
             <startDate date="2021-10-08" time="14:00:00"/>
@@ -73,7 +73,7 @@
     <series>
         <header>
             <type>instantaneous</type>
-            <locationId>Unit_test_ESDL_2a36abb1-0bc0-47fd-b7b1-869118b228fc</locationId>
+            <locationId>2a36abb1-0bc0-47fd-b7b1-869118b228fc</locationId>
             <parameterId>ElectricalConsumption</parameterId>
             <timeStep unit="nonequidistant"/>
             <startDate date="2021-10-08" time="14:00:00"/>
@@ -96,7 +96,7 @@
     <series>
         <header>
             <type>instantaneous</type>
-            <locationId>Unit_test_ESDL_a5243809-0077-46e5-a0ea-09aa486f5e96</locationId>
+            <locationId>a5243809-0077-46e5-a0ea-09aa486f5e96</locationId>
             <parameterId>ThermalConsumption</parameterId>
             <timeStep unit="nonequidistant"/>
             <startDate date="2021-10-08" time="14:00:00"/>
@@ -119,7 +119,7 @@
     <series>
         <header>
             <type>instantaneous</type>
-            <locationId>Unit_test_ESDL_a5243809-0077-46e5-a0ea-09aa486f5e96</locationId>
+            <locationId>a5243809-0077-46e5-a0ea-09aa486f5e96</locationId>
             <parameterId>ThermalDemand</parameterId>
             <timeStep unit="nonequidistant"/>
             <startDate date="2021-10-08" time="14:00:00"/>

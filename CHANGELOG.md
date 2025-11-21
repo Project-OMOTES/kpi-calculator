@@ -1,27 +1,34 @@
-# Changelog
-All notable changes to this project will be documented in this file.
+# Release Notes
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This project uses **GitHub's automatically generated release notes** for change tracking.
 
-## [Unreleased] - 2024-3-31
-### Added
-- New functionality added to the project, with reference to issue-ticket (#123)
-- Another new item (#1234)
+**View releases and detailed changelog at**: https://github.com/Project-OMOTES/kpi-calculator/releases
 
-### Fixed
-- bugfixes, with references to your issue-tickets (#123)
-- another bugfix (#1234)
+## About Release Notes
 
-### Changed
-- Changes,  for example code structure
-- but also changed/updated dependencies
-- Add references to tickets where applicable (#123)
+- **Automated**: Release notes are automatically generated from merged pull requests and commit messages
+- **Accurate**: Reflects actual code changes without manual maintenance overhead
+- **Detailed**: Includes contributor information, pull request links, and full diff details
+- **Categorized**: GitHub automatically categorizes changes (features, bug fixes, dependencies, etc.)
 
-### Removed
-- Files that have been removed
-- Functionality that has been removed
-- Add references to tickets where applicable (#123)
+## Creating Releases
+
+When creating releases, use semantic versioning and descriptive release titles:
+
+```bash
+# Example release workflow
+git tag v0.1.0
+git push origin v0.1.0
+# Then create release via GitHub UI with auto-generated notes
+```
+
+## Manual Release Notes Guidelines
+
+For manual release descriptions, focus on:
+- **Breaking changes**: Any API or behavior changes requiring user action
+- **Migration guides**: Instructions for upgrading between versions
+- **Security updates**: Highlight any security-related changes
+- **Deprecations**: Features planned for removal in future versions
 
 ## [0.0.1] - 2023-09-21
 ### Added

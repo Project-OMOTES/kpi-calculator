@@ -1,0 +1,64 @@
+# Git and version control
+.git
+.gitignore
+
+# Python cache and build files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# Claude AI assistant workspace directory
+.claude/
+
+# Testing and coverage
+.coverage
+htmlcov/
+test-results.xml
+
+# Tool caches
+*_cache/
+.hypothesis/
+
+# Development files
+code_bases/
+doc/project/
+
+# Documentation build
+doc/*/build/
+doc/*/_static/
+doc/*/_templates/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# CI/CD files
+.github/
+ci/
+
+# Development environment files
+.env.*
+
+# Pre-commit hooks
+.pre-commit-config.yaml

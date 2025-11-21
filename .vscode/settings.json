@@ -1,28 +1,48 @@
 {
-  "[python]": {
+    // Python interpreter - VS Code needs the actual python.exe path
+    "python.pythonPath": "uv run python",
+    "python.defaultInterpreterPath": "uv run python",
+    "python.terminal.activateEnvironment": false,
+    
+    // Testing configuration
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "unit_test/"
+    ],
+    "python.testing.pytestPath": "uv",
+    "python.testing.cwd": "${workspaceFolder}",
+    "python.testing.autoTestDiscoverOnSaveEnabled": true,
+    
+    // Use UV for all Python commands
+    "python.terminal.executeInFileDir": false,
+    "python.terminal.launchArgs": [],
+    
+    // Disable old linting, use Ruff
+    "python.linting.enabled": false,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": false,
+    
+    // Ruff configuration
+    "ruff.enable": true,
+    "ruff.path": ["uv", "run", "ruff"],
+    "ruff.lint.enable": true,
+    "ruff.format.enable": true,
+    
+    // MyPy
+    "python.linting.mypyEnabled": true,
+    "python.linting.mypyPath": "uv run mypy",
+    
+    // Editor settings
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.codeActionsOnSave": {
-      "source.organizeImports": "explicit"
+        "source.organizeImports": "explicit",
+        "source.fixAll.ruff": "explicit"
     },
-  },
-  "python.analysis.typeCheckingMode": "basic",
-  "python.testing.unittestArgs": [
-    "-v",
-    "-s",
-    "./unit_test",
-    "-p",
-    "test_*.py"
-  ],
-  "python.testing.pytestEnabled": true,
-  "python.testing.unittestEnabled": false,
-  "python.testing.autoTestDiscoverOnSaveEnabled": true,
-  "mypy.runUsingActiveInterpreter": true,
-  "isort.args": [
-    "--profile",
-    "black"
-  ],
-  "terminal.integrated.env.windows": {
-    "PYTHONPATH": "${workspaceFolder}/src"
-  },
+    
+    // Python-specific settings
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true
+    }
 }

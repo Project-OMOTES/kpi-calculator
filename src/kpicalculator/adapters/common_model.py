@@ -1,7 +1,8 @@
 # src/kpicalculator/adapters/common_model.py
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Union, Any
+
+from ..common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_TECHNICAL_LIFETIME_YEARS
 
 
 class AssetType(Enum):
@@ -18,7 +19,7 @@ class AssetType(Enum):
 @dataclass
 class TimeSeries:
     time_step: float
-    values: List[float]
+    values: list[float]
 
 
 @dataclass
@@ -26,13 +27,13 @@ class Asset:
     id: str
     name: str
     asset_type: AssetType
-    
+
     # Physical properties
     power: float = 0.0  # W
     length: float = 0.0  # m (for pipes)
     volume: float = 0.0  # m³ (for storage)
     cop: float = 0.0  # Coefficient of performance
-    
+
     # Cost properties
     investment_cost: float = 0.0
     investment_cost_unit: str = "EUR"
@@ -46,21 +47,22 @@ class Asset:
     fixed_maintenance_cost_unit: str = "EUR/yr"
     variable_maintenance_cost: float = 0.0
     variable_maintenance_cost_unit: str = "EUR/MWh"
-    
+
     # Lifecycle properties
-    technical_lifetime: float = 30.0  # years
-    discount_rate: float = 5.0  # %
+    technical_lifetime: float = DEFAULT_TECHNICAL_LIFETIME_YEARS  # years
+    discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT  # %
     emission_factor: float = 0.0  # kg/GJ
-    
+
     # Aggregation
     aggregation_count: int = 1
-    
+
     # Time series data
-    time_series: Dict[str, TimeSeries] = field(default_factory=dict)
+    time_series: dict[str, TimeSeries] = field(default_factory=dict)
 
 
 @dataclass
 class EnergySystem:
     name: str
-    assets: List[Asset]
-    unit_conversion: Dict[str, float] = field(default_factory=dict)
+    assets: list[Asset]
+    unit_conversion: dict[str, float] = field(default_factory=dict)
+    source_metadata: dict[str, str] = field(default_factory=dict)

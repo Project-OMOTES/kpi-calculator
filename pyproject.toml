@@ -1,6 +1,7 @@
 [project]
 name = "kpi-calculator"
 dynamic = ["version"]
+requires-python = ">=3.11"
 authors = [
     { name = "Jesús Andrés Rodríguez Sarasty", email = "jesusandres.rodriguez@deltares.nl" },
 ]
@@ -20,22 +21,58 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
-dependencies = ["coloredlogs~=15.0.1"]
+dependencies = [
+    "coloredlogs~=15.0.1",
+    "numpy>=2.1.0,<3.0", # Compatible with simulator-worker
+    "pandas>=2.2.2,<3.0", # Requires pandas >=2.2.2 for numpy 2.x compatibility
+    "pandas-stubs", # Type stubs for pandas
+    "pyesdl~=25.5.1", # Compatible with simulator-worker
+    "xmltodict==0.14.2",
+    "types-xmltodict", # Type stubs for xmltodict
+    "influxdb>=5.3.2",
+    "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
+]
 
-[project.optional-dependencies]
-dev = [
+[dependency-groups]
+test = [
+    "pytest ~=7.3.1",
+    "pytest-cov ~=4.0.0",
+    "hypothesis>=6.0.0", # Property-based testing
+    "pytest-xdist>=3.0.0", # Parallel test execution
+]
+lint = [
+    "ruff>=0.6.0",
+    "mypy ~= 1.5.1",
+    "pre-commit ~= 3.6.0",
+]
+analysis = [
+    "codespell>=2.0.0",    # Spell checking for code, comments, and docs
+    "vulture>=2.0.0",      # Dead code detection
+    "bandit>=1.7.0",       # Security vulnerability scanner (Python code)
+    "radon>=6.0.0",        # Code complexity analysis
+    "pipdeptree>=2.0.0",   # Dependency analysis and visualization
+    "safety>=3.0.0",       # Python dependency vulnerability scanner
+    "pip-audit>=2.0.0",    # Official Python package vulnerability scanner
+    # Note: For tree functionality, use native OS tree command or ls for basic listing
+]
+docs = [
+    "interrogate>=1.7.0", # Documentation coverage
+]
+build = [
     "setuptools ~= 69.0.3",
     "wheel ~= 0.40.0",
     "setuptools-git-versioning < 2",
-    "black~=22.1.0",
-    "flake8==6.0.0",
-    "Flake8-pyproject==1.2.3",
-    "pytest ~=7.3.1",
-    "pytest-cov ~=4.0.0",
-    "bump2version==1.0.1",
-    "mypy ~= 1.5.1",
-    "isort==5.13.2",
     "build ~= 1.0.3",
+    "bump2version==1.0.1",
+]
+# The 'dev' group aggregates all other dependency groups for full development setup
+# and does not include direct dependencies of its own
+dev = [
+    {include-group = "test"},
+    {include-group = "lint"},
+    {include-group = "docs"},
+    {include-group = "build"},
+    {include-group = "analysis"},
 ]
 
 [project.urls]
@@ -58,31 +95,62 @@ requires = [
 [tool.setuptools-git-versioning]
 enabled = true
 
+[tool.setuptools.package-data]
+kpicalculator = ["py.typed"]
+
 [tool.pytest.ini_options]
-addopts = "--cov=kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
+addopts = "--cov=src/kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
 testpaths = ["unit_test"]
+pythonpath = ["src"]
+# Exclude obsolete tests that were replaced by Pydantic validation
+markers = [
+    "obsolete: marks tests as obsolete (replaced by modern implementations)"
+]
 
 [tool.coverage.run]
 source = ["src"]
-
-[tool.flake8]
-exclude = ['.venv/*', 'venv/*', 'doc/*']
-ignore = [
-    'Q000', # Remove bad quotes
-    'D401', # Docstring First line should be imperative
-    'E203', # Space before colon (not PEP-8 compliant, and conflicts with black)
-    'C408', # Suggestion to use dict() over {}
-    'W503', # Starting lines with operators.
+omit = [
+    "src/kpicalculator/adapters/xml_time_series_adapter.py",  # Testing only - exclude from coverage
 ]
-per-file-ignores = ['__init__.py:F401', 'test_main.py:D100,D101,D102,D103']
-max-line-length = 100
-count = true
 
-[tool.black]
+# Ruff replaces flake8, isort, and black
+[tool.ruff]
 line-length = 100
+target-version = "py311"
+exclude = [".venv", "venv", "doc", "code_bases"]
 
-[tool.isort]
-profile = "black"
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "S",   # bandit (security)
+    "T20", # flake8-print
+    "RET", # flake8-return
+    "SIM", # flake8-simplify
+    "PTH", # flake8-use-pathlib
+]
+ignore = [
+    "E203", # Space before colon (conflicts with formatter)
+    "C408", # Suggestion to use dict() over {}
+    "S101", # Use of assert detected (expected in tests)
+    "S106", # Possible hardcoded password (test data)
+    "B019", # lru_cache on methods (intentional design choice)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"test_*.py" = ["D100", "D101", "D102", "D103", "B017", "SIM117"]  # Allow Exception assertions and nested with in tests
+"src/kpicalculator/adapters/xml_time_series_adapter.py" = ["ALL"]  # Testing only - exclude from all linting
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.11"
@@ -94,6 +162,25 @@ exclude = ['.venv/*', 'venv/*', 'doc/*', 'ci/*']
 
 # mypy per-module options:
 [[tool.mypy.overrides]]
-module = ["unit_test.*", "coloredlogs.*"]
+module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*"]
 check_untyped_defs = true
 ignore_missing_imports = true
+
+
+# Interrogate configuration for documentation coverage
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = false
+ignore-magic = false
+ignore-semiprivate = false
+ignore-private = false
+ignore-property-decorators = false
+ignore-module = false
+ignore-nested-functions = false
+ignore-nested-classes = true
+fail-under = 80
+exclude = ["setup.py", "docs", "build", ".venv", "venv"]
+verbose = 0
+quiet = false
+color = true
+omit-covered-files = false

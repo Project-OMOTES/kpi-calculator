@@ -1,5 +1,0 @@
-include = ["pyproject.toml"]
-
-
-[schema]
-path = "https://json.schemastore.org/pyproject.json"

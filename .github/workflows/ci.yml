@@ -11,15 +11,15 @@ jobs:
         python-version: ["3.11"]
     name: Setup
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-      - run: |
-          ./ci/linux/create_venv.sh
-          ./ci/linux/install_dependencies.sh
+          version: "latest"
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      - name: Create virtual environment and install dependencies
+        run: uv sync --group dev
       - name: 'Tar venv'
         run: tar -cvf venv.tar ./.venv/
       - name: Save venv
@@ -37,7 +37,11 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
@@ -46,7 +50,10 @@ jobs:
         run: tar -xvf venv.tar
       - name: Run lint
         run: |
-          ./ci/linux/lint.sh
+          # Run ruff check (do not auto-fix in CI)
+          uv run ruff check ./src/ ./unit_test/
+          # Run ruff format (check only)
+          uv run ruff format --check ./src/ ./unit_test/
 
   test:
     name: Test
@@ -57,16 +64,24 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
           name: ${{ runner.os }}-python-${{ matrix.python-version }}-venv-${{github.run_id}}
       - name: Untar venv
         run: tar -xvf venv.tar
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         run: |
-          ./ci/linux/test_unit.sh
+          uv run pytest --cov=src/kpicalculator --maxfail=5 --disable-warnings --junit-xml=test-results.xml unit_test/
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          path: htmlcov/
       - name: Surface failing tests
         if: always()
         uses: pmeier/pytest-results-action@main
@@ -99,7 +114,11 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
@@ -110,7 +129,7 @@ jobs:
         uses: pr-annotators/mypy-pr-annotator@v1.0.0
       - name: Run typechecker
         run: |
-          ./ci/linux/typecheck.sh
+          uv run mypy ./src/kpicalculator
 
   build:
     name: Build the python package
@@ -121,7 +140,11 @@ jobs:
       matrix:
         python-version: [ "3.11" ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
       - name: Restore venv
         uses: actions/download-artifact@v4
         with:
@@ -130,4 +153,4 @@ jobs:
         run: tar -xvf venv.tar
       - name: Build
         run: |
-          ./ci/linux/build_python_package.sh
+          uv build
