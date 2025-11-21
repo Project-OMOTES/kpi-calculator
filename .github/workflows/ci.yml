@@ -125,12 +125,8 @@ jobs:
         uses: astral-sh/setup-uv@v1
         with:
           version: "latest"
-      - name: Restore venv
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ runner.os }}-python-${{ matrix.python-version }}-venv-${{github.run_id}}
-      - name: Untar venv
-        run: tar -xvf venv.tar
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
       - name: Build
         run: |
           uv build
@@ -173,11 +169,15 @@ jobs:
           python -c "import importlib.metadata; meta = importlib.metadata.metadata('kpi-calculator'); print(f'Name: {meta[\"Name\"]}'); print(f'Version: {meta[\"Version\"]}')"
       - name: Run security checks on dependencies
         run: |
-          # Create a temporary venv for pip-audit to avoid editable installation issues
+          # Install wheel to check its dependencies for vulnerabilities
           uv venv .venv-audit
+          uv pip install --python .venv-audit dist/*.whl
+          # Install pip-audit in separate step to distinguish package deps from tooling
           uv pip install --python .venv-audit pip-audit
-          # Check for known vulnerabilities in the installed package dependencies
-          uv run --python .venv-audit pip-audit --desc on dist/*.whl
+          # Audit the environment - includes both package deps and pip-audit
+          # Note: Ideally we'd only audit package deps, but pip-audit doesn't support that granularity
+          # If this fails due to pip-audit vulns (not package deps), consider using --ignore-vuln
+          uv run --python .venv-audit pip-audit --desc on --skip-editable
       - name: Check package description will render on PyPI
         run: |
           uv tool install twine
@@ -211,6 +211,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      attestations: write
     steps:
       - name: Download built packages
         uses: actions/download-artifact@v4
