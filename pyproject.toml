@@ -46,20 +46,23 @@ lint = [
     "pre-commit ~= 3.6.0",
 ]
 analysis = [
-    "codespell>=2.0.0",    # Spell checking for code, comments, and docs
+    "codespell>=2.0.0",    # Spell checking
     "vulture>=2.0.0",      # Dead code detection
-    "bandit>=1.7.0",       # Security vulnerability scanner (Python code)
+    "bandit>=1.7.0",       # Security vulnerability scanner
     "radon>=6.0.0",        # Code complexity analysis
     "pipdeptree>=2.0.0",   # Dependency analysis and visualization
-    "safety>=3.0.0",       # Python dependency vulnerability scanner
+    "safety>=3.0.0",       # Python dependency vulnerability scanner (brings authlib)
+    "authlib>=1.6.5",      # Used by safety for API service when checking for vulnerabilities
     "pip-audit>=2.0.0",    # Official Python package vulnerability scanner
     # Note: For tree functionality, use native OS tree command or ls for basic listing
 ]
 docs = [
-    "interrogate>=1.7.0", # Documentation coverage
+    "interrogate>=1.7.0", # Documentation coverage (brings py as dependency)
+    "py>=1.11.1",
 ]
 build = [
-    "setuptools ~= 69.0.3",
+    "setuptools >= 70.0.0",
+    "pip >= 25.3",
     "wheel ~= 0.40.0",
     "setuptools-git-versioning < 2",
     "build ~= 1.0.3",
@@ -87,7 +90,7 @@ kpicalculator = "kpicalculator:main"
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [
-    "setuptools ~= 69.0.3",
+    "setuptools >= 70.0.0",  # Security: CVE fixes in 70.0.0+
     "wheel ~= 0.40.0",
     "setuptools-git-versioning<2",
 ]
