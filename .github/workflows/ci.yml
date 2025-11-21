@@ -125,12 +125,8 @@ jobs:
         uses: astral-sh/setup-uv@v1
         with:
           version: "latest"
-      - name: Restore venv
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ runner.os }}-python-${{ matrix.python-version }}-venv-${{github.run_id}}
-      - name: Untar venv
-        run: tar -xvf venv.tar
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
       - name: Build
         run: |
           uv build
