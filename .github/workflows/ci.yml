@@ -177,7 +177,7 @@ jobs:
           # Audit the environment - includes both package deps and pip-audit
           # Note: Ideally we'd only audit package deps, but pip-audit doesn't support that granularity
           # If this fails due to pip-audit vulns (not package deps), consider using --ignore-vuln
-          uv run --python .venv-audit pip-audit --desc on --skip-editable
+          uv run --python .venv-audit pip-audit --desc on
       - name: Check package description will render on PyPI
         run: |
           uv tool install twine
