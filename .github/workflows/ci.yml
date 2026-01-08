@@ -26,7 +26,7 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Create virtual environment and install dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --no-editable
       - name: 'Tar venv'
         run: tar -cvf venv.tar ./.venv/
       - name: Save venv
