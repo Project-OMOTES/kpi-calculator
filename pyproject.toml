@@ -163,7 +163,7 @@ exclude = ['.venv/*', 'venv/*', 'doc/*', 'ci/*']
 
 # mypy per-module options:
 [[tool.mypy.overrides]]
-module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*"]
+module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*", "jinja2.*"]
 check_untyped_defs = true
 ignore_missing_imports = true
 
