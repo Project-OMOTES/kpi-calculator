@@ -169,16 +169,14 @@ jobs:
           python -c "import importlib.metadata; meta = importlib.metadata.metadata('kpi-calculator'); print(f'Name: {meta[\"Name\"]}'); print(f'Version: {meta[\"Version\"]}')"
       - name: Run security checks on dependencies
         run: |
-          # Install wheel to check its dependencies for vulnerabilities
+          # Create clean environment and install package as editable
+          # This allows using --skip-editable to exclude the local package from audit
           uv venv .venv-audit
-          uv pip install --python .venv-audit dist/*.whl
-          # Install pip-audit in separate step to distinguish package deps from tooling
-          uv pip install --python .venv-audit pip-audit
-          # Audit the environment - includes both package deps and pip-audit
-          # Note: Ideally we'd only audit package deps, but pip-audit doesn't support that granularity
-          # If this fails due to pip-audit vulns (not package deps), consider using --ignore-vuln
-          # --ignore-dep kpi-calculator: skip the local package (not yet on PyPI during this workflow)
-          uv run --python .venv-audit pip-audit --desc on --ignore-dep kpi-calculator
+          source .venv-audit/bin/activate
+          uv pip install -e .
+          uv pip install pip-audit
+          # Audit dependencies, skipping the editable local package (not yet on PyPI)
+          pip-audit --desc on --skip-editable
       - name: Check package description will render on PyPI
         run: |
           uv tool install twine
