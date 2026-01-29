@@ -96,6 +96,33 @@ class KpiManager:
         )
         self.source_esdl_file = esdl_file
 
+    def load_from_esdl_string(
+        self,
+        esdl_string: str,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
+    ) -> None:
+        """Load energy system data from ESDL XML string content.
+
+        This method allows loading ESDL data directly from a string without
+        needing a temporary file. Useful for integration with systems that
+        provide ESDL content in memory (e.g., simulator_worker).
+
+        Cost data is extracted from ESDL costInformation elements.
+
+        Args:
+            esdl_string: ESDL XML content as a string
+            timeseries_dataframes: Optional dict mapping asset IDs to pandas
+                DataFrames with time-indexed energy/power data.
+        """
+        from .adapters.esdl_adapter import EsdlAdapter
+
+        adapter = EsdlAdapter(self.unit_conversion)
+        self.energy_system = adapter.load_from_string(
+            esdl_string,
+            timeseries_dataframes=timeseries_dataframes,
+        )
+        self.source_esdl_file = None
+
     def load_from_simulator(self, simulator_data: Any) -> None:
         """Load energy system data from simulator data structure.
 

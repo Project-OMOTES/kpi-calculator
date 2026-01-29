@@ -81,11 +81,11 @@ class EsdlAdapter(BaseAdapter):
         Raises:
             TypeError: If source is not a file path (MESIDO/Simulator not supported)
         """
-        # ESDL adapter only supports file paths
         if not isinstance(source, (str, Path)):
             raise TypeError(f"ESDL adapter only supports file paths, got {type(source)}")
 
         esdl_file = str(source)
+
         # Validate inputs with security checks
         validation_result = self.validate_source(esdl_file)
         if not validation_result.is_valid:
@@ -104,6 +104,101 @@ class EsdlAdapter(BaseAdapter):
         esh = EnergySystemHandler()
         es = esh.load_file(esdl_file)
 
+        # Derive model name from file path
+        model_name = Path(esdl_file).stem
+        if OPTIMAL_TOPOLOGY_SUFFIX in model_name[-20:]:
+            model_name = model_name[:-OPTIMAL_TOPOLOGY_SUFFIX_LENGTH]
+        if "mod" in model_name[-4:]:
+            model_name = model_name[:-MOD_SUFFIX_LENGTH]
+
+        return self._process_energy_system(
+            es=es,
+            model_name=model_name,
+            source_metadata={"esdl_file": esdl_file},
+            time_series_file=time_series_file,
+            timeseries_dataframes=timeseries_dataframes,
+            use_database_profiles=use_database_profiles,
+        )
+
+    def load_from_string(
+        self,
+        esdl_string: str,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
+        use_database_profiles: bool = False,
+    ) -> EnergySystem:
+        """Load energy system data from ESDL XML string content.
+
+        This method allows loading ESDL data directly from a string without
+        needing a file. Useful for integration with systems that provide
+        ESDL content in memory (e.g., simulator_worker).
+
+        Costs are extracted from ESDL costInformation elements.
+
+        Note:
+            The default `use_database_profiles=False` reflects the typical use case
+            for string loading: in-memory workflows where time series data is provided
+            via `timeseries_dataframes` rather than fetched from a database.
+
+        Args:
+            esdl_string: ESDL XML content as a string
+            timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
+                with time-indexed energy/power data.
+            use_database_profiles: Whether to load InfluxDB profiles (default False
+                for in-memory workflows)
+
+        Returns:
+            EnergySystem object with costs from ESDL costInformation
+
+        Raises:
+            ValidationError: If esdl_string is empty or cannot be parsed
+        """
+        # Validate input
+        if not esdl_string or not esdl_string.strip():
+            raise ValidationError("ESDL string content cannot be empty")
+
+        # Parse ESDL string with error handling
+        esh = EnergySystemHandler()
+        try:
+            es = esh.load_from_string(esdl_string)
+        except Exception as e:
+            raise ValidationError(f"Failed to parse ESDL string: {e}") from e
+
+        # Use energy system name if available, otherwise default
+        model_name = es.name if es.name else "esdl_from_string"
+
+        return self._process_energy_system(
+            es=es,
+            model_name=model_name,
+            source_metadata={"esdl_source": "string"},
+            time_series_file=None,
+            timeseries_dataframes=timeseries_dataframes,
+            use_database_profiles=use_database_profiles,
+        )
+
+    def _process_energy_system(
+        self,
+        es: esdl.EnergySystem,
+        model_name: str,
+        source_metadata: dict[str, str],
+        time_series_file: str | None,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None,
+        use_database_profiles: bool,
+    ) -> EnergySystem:
+        """Process a loaded ESDL EnergySystem into our internal EnergySystem model.
+
+        This is the shared processing logic used by both load_data() and load_from_string().
+
+        Args:
+            es: The pyesdl EnergySystem object
+            model_name: Name for the energy system
+            source_metadata: Metadata about the source (file path or "string")
+            time_series_file: Optional XML time series file path
+            timeseries_dataframes: Optional dict of asset ID to DataFrame mappings
+            use_database_profiles: Whether to load InfluxDB profiles
+
+        Returns:
+            EnergySystem object with processed assets and costs
+        """
         # Load time series data using centralized TimeSeriesManager
         source_priority = ["dataframes"]
         if use_database_profiles:
@@ -135,18 +230,11 @@ class EsdlAdapter(BaseAdapter):
             except Exception as e:
                 self.logger.warning(f"Failed to create XML time series adapter: {e}")
 
-        # Create energy system
-        model_name = Path(esdl_file).stem
-        if OPTIMAL_TOPOLOGY_SUFFIX in model_name[-20:]:
-            model_name = model_name[:-OPTIMAL_TOPOLOGY_SUFFIX_LENGTH]
-        if "mod" in model_name[-4:]:
-            model_name = model_name[:-MOD_SUFFIX_LENGTH]
-
         energy_system = EnergySystem(
             name=model_name,
             assets=[],
             unit_conversion=self.unit_conversions or {},
-            source_metadata={"esdl_file": str(esdl_file)},
+            source_metadata=source_metadata,
         )
 
         # Process assets

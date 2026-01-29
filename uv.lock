@@ -471,7 +471,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.2,<3.0" },
     { name = "pandas-stubs" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0" },
-    { name = "pyesdl", specifier = "~=25.5.1" },
+    { name = "pyesdl", specifier = "~=25.7" },
     { name = "types-xmltodict" },
     { name = "xmltodict", specifier = "==0.14.2" },
 ]
@@ -1072,14 +1072,14 @@ wheels = [
 
 [[package]]
 name = "pyesdl"
-version = "25.5.1"
+version = "25.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyecore" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f5/55/f44c9f5a280c62bddda7ff102a7cca4842c3f3bfed6cc7feb3440bf781d5/pyesdl-25.5.1.tar.gz", hash = "sha256:242d2bf4677aee35bb64d4a6fa474777b890c5c7764413dffa16cb68d32472ca", size = 94090, upload-time = "2025-05-09T11:29:37.11Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/45/4377eb85eac355a247824f7a4cb94804bbe03a7a27fd26a83d33ebdb9e23/pyesdl-25.12.1.tar.gz", hash = "sha256:54bc48203e7f740688c7adea5525740ea70a0ce24ea974ea010c19034ee81c0c", size = 95270, upload-time = "2025-12-19T09:44:27.118Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/e9/d45dc6e3648cd0549a5a995bed4c8f043ee7cc2fb045b3517d5798547595/pyesdl-25.5.1-py3-none-any.whl", hash = "sha256:89d59c82ca4efae617c305163ae61fb27c148bfa2f0dcd61c74aca9ae6b1dd3b", size = 84517, upload-time = "2025-05-09T11:29:35.339Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/59/dd22d157a3c782d25a253d8809b686564fa5385aa2aa3efe07224847d1cf/pyesdl-25.12.1-py3-none-any.whl", hash = "sha256:1448c82e7c8df500b69aa86154aa9d166a7f16c526ca52d8196524bca41c40ad", size = 85642, upload-time = "2025-12-19T09:44:25.806Z" },
 ]
 
 [[package]]
