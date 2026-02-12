@@ -22,6 +22,9 @@ ENV/
 .vscode/
 .idea/
 
+# Claude Code local settings
+.claude/settings.local.json
+
 
 # Testing and coverage
 .coverage
