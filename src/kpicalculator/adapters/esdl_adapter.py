@@ -235,6 +235,7 @@ class EsdlAdapter(BaseAdapter):
             assets=[],
             unit_conversion=self.unit_conversions or {},
             source_metadata=source_metadata,
+            esdl_energy_system=es,
         )
 
         # Process assets
