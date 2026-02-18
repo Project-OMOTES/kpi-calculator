@@ -1,6 +1,12 @@
 # src/kpicalculator/adapters/common_model.py
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from esdl import esdl
 
 from ..common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_TECHNICAL_LIFETIME_YEARS
 
@@ -66,3 +72,11 @@ class EnergySystem:
     assets: list[Asset]
     unit_conversion: dict[str, float] = field(default_factory=dict)
     source_metadata: dict[str, str] = field(default_factory=dict)
+    # Original PyESDL object retained for ESDL export without re-reading from disk.
+    # Set by EsdlAdapter for both file-loaded and string-loaded systems.
+    # The exporter prefers this over source_metadata['esdl_file'] — if set, the
+    # file path is never accessed.  The exporter clears and rewrites KPIs in
+    # place, so this object is mutated on each export call.
+    esdl_energy_system: esdl.EnergySystem | None = field(
+        default=None, repr=False, compare=False
+    )

@@ -1,18 +1,11 @@
 """Tests for EsdlKpiExporter class implementation."""
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Get the absolute path to the test directory
-TEST_DIR = Path(__file__).parent
-
-# Add the src directory to the Python path
-sys.path.append(str(Path(__file__).parent.parent / "src"))
-
-from esdl import esdl  # noqa: E402
+from esdl import esdl
 
 
 class TestEsdlKpiExporter(unittest.TestCase):
@@ -40,6 +33,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         # Mock energy system with source metadata
         self.mock_energy_system = Mock()
         self.mock_energy_system.source_metadata = {"esdl_file": "test_input.esdl"}
+        self.mock_energy_system.esdl_energy_system = None
 
         # Create temporary directory for test outputs
         self.test_temp_dir = tempfile.mkdtemp(prefix="esdl_exporter_test_")
@@ -289,9 +283,10 @@ class TestEsdlKpiExporter(unittest.TestCase):
 
         exporter = EsdlKpiExporter()
 
-        # Energy system without source metadata
+        # Energy system without source metadata and no stored ESDL object
         mock_energy_system_no_metadata = Mock()
         mock_energy_system_no_metadata.source_metadata = {}
+        mock_energy_system_no_metadata.esdl_energy_system = None
 
         # Test missing ESDL file
         with self.assertRaises(ValueError, msg="Should raise ValueError when ESDL file is missing"):
@@ -343,6 +338,112 @@ class TestEsdlKpiExporter(unittest.TestCase):
         # KPIs container should still be created
         main_area = result.instance[0].area
         self.assertIsNotNone(main_area.KPIs)
+
+    def test_export_from_string_loaded_esdl(self):
+        """Test export works for ESDL loaded from string (not file)."""
+        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        # Create a mock ESDL system
+        mock_esdl_system = self.create_mock_esdl_system()
+
+        # Create energy system with stored ESDL object (as set by EsdlAdapter)
+        mock_energy_system = Mock()
+        mock_energy_system.source_metadata = {"esdl_source": "string"}
+        mock_energy_system.esdl_energy_system = mock_esdl_system
+
+        exporter = EsdlKpiExporter()
+
+        # Export should work without file path - uses stored ESDL object
+        result = exporter.export(
+            self.mock_kpi_results,
+            mock_energy_system,
+            destination=None,
+            level="system",
+        )
+
+        # Verify export succeeded
+        self.assertIsInstance(result, esdl.EnergySystem)
+        self.assertEqual(result.id, "test-system")
+
+        # Verify KPIs were added
+        main_area = result.instance[0].area
+        self.assertIsNotNone(main_area.KPIs)
+        self.assertGreater(len(main_area.KPIs.kpi), 0)
+
+    def test_export_from_string_without_object_raises_error(self):
+        """Test export fails gracefully when string-loaded but no ESDL object stored."""
+        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        # Create energy system with string source but no stored ESDL object
+        mock_energy_system = Mock()
+        mock_energy_system.source_metadata = {"esdl_source": "string"}
+        mock_energy_system.esdl_energy_system = None
+
+        exporter = EsdlKpiExporter()
+
+        # Should raise ValueError when no ESDL object and no file path available
+        with self.assertRaises(ValueError):
+            exporter.export(
+                self.mock_kpi_results,
+                mock_energy_system,
+                destination=None,
+                level="system",
+            )
+
+
+    @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
+    def test_export_uses_stored_esdl_object_over_file(self, mock_handler):
+        """Test that export uses stored ESDL object and skips file loading."""
+        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        mock_esdl_system = self.create_mock_esdl_system()
+
+        # Energy system with both a file path AND a stored ESDL object
+        mock_energy_system = Mock()
+        mock_energy_system.source_metadata = {"esdl_file": "test_input.esdl"}
+        mock_energy_system.esdl_energy_system = mock_esdl_system
+
+        exporter = EsdlKpiExporter()
+
+        result = exporter.export(
+            self.mock_kpi_results,
+            mock_energy_system,
+            destination=None,
+            level="system",
+        )
+
+        # Stored object should be used — handler.load_file must NOT be called
+        mock_handler.return_value.load_file.assert_not_called()
+
+        # Verify export succeeded with the stored object
+        self.assertIsInstance(result, esdl.EnergySystem)
+        self.assertEqual(result.id, "test-system")
+
+
+    def test_repeated_export_does_not_accumulate_kpis(self):
+        """Test that exporting twice does not duplicate KPIs."""
+        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        mock_esdl_system = self.create_mock_esdl_system()
+
+        mock_energy_system = Mock()
+        mock_energy_system.source_metadata = {"esdl_source": "string"}
+        mock_energy_system.esdl_energy_system = mock_esdl_system
+
+        exporter = EsdlKpiExporter()
+
+        # Export twice
+        exporter.export(
+            self.mock_kpi_results, mock_energy_system, destination=None, level="system"
+        )
+        kpi_count_1 = len(mock_esdl_system.instance[0].area.KPIs.kpi)
+
+        exporter.export(
+            self.mock_kpi_results, mock_energy_system, destination=None, level="system"
+        )
+        kpi_count_2 = len(mock_esdl_system.instance[0].area.KPIs.kpi)
+
+        self.assertEqual(kpi_count_1, kpi_count_2, "Repeated export should not accumulate KPIs")
 
 
 if __name__ == "__main__":

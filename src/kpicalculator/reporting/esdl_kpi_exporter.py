@@ -57,12 +57,14 @@ class EsdlKpiExporter(BaseExporter):
             destination: Output ESDL file path. If None, returns data structure instead.
             level: KPI integration level - 'system' (main area), 'area' (per area),
                 or 'asset' (per asset). Currently 'area' and 'asset' delegate to 'system'.
-            source_esdl_file: Explicit path to source ESDL file. If None, extracts
-                from energy_system.source_metadata['esdl_file'].
+            source_esdl_file: Explicit path to source ESDL file. Used only when
+                energy_system.esdl_energy_system is None. Resolution order:
+                (1) energy_system.esdl_energy_system (preferred, avoids disk I/O),
+                (2) this parameter, (3) energy_system.source_metadata['esdl_file'].
             **kwargs: Reserved for future export options.
 
         Returns:
-            When destination provided: bool indicating file save success
+            When destination provided: Always True on success; raises on failure.
             When destination is None: esdl.EnergySystem object with integrated KPIs
 
         Raises:
@@ -77,23 +79,21 @@ class EsdlKpiExporter(BaseExporter):
 
         # KPI results structure is validated by TypedDict at runtime
 
-        # Get source ESDL file from parameter or energy system metadata
-        esdl_file = source_esdl_file
-        if (
-            not esdl_file
-            and hasattr(energy_system, "source_metadata")
-            and energy_system.source_metadata
-        ):
-            esdl_file = energy_system.source_metadata.get("esdl_file")
+        esdl_system = energy_system.esdl_energy_system
 
-        if not esdl_file:
-            raise ValueError(
-                "Source ESDL file must be provided either as parameter or in "
-                "energy_system.source_metadata"
-            )
+        if esdl_system is None:
+            esdl_file = source_esdl_file
+            if not esdl_file and energy_system.source_metadata:
+                esdl_file = energy_system.source_metadata.get("esdl_file")
 
-        # Load original ESDL file
-        esdl_system = self.handler.load_file(esdl_file)
+            if not esdl_file:
+                raise ValueError(
+                    "Cannot export KPIs: No stored ESDL object and no source ESDL "
+                    "file provided. Either load via EsdlAdapter (which stores the "
+                    "ESDL object) or provide source_esdl_file parameter."
+                )
+
+            esdl_system = self.handler.load_file(esdl_file)
 
         # Add KPIs to the appropriate level
         if level == "system":
@@ -105,21 +105,15 @@ class EsdlKpiExporter(BaseExporter):
 
         # Export or return based on destination
         if destination is not None:
-            # File mode - save and return boolean
-            try:
-                # Set the energy system in the handler and save to file
-                self.handler.energy_system = esdl_system
-                self.handler.save(destination)
-                return True
-            except OSError as e:
-                logger.error(f"File I/O error saving ESDL file to {destination}: {e}")
-                return False
-            except Exception as e:
-                logger.error(f"Unexpected error saving ESDL file to {destination}: {e}")
-                return False
-        else:
-            # Data structure mode - return ESDL object
-            return esdl_system
+            # File mode - save to disk and return True on success.
+            # Exceptions (OSError, etc.) propagate to the caller so they
+            # can inspect the actual failure instead of just receiving False.
+            self.handler.energy_system = esdl_system
+            self.handler.save(destination)
+            return True
+
+        # Data structure mode - return ESDL object
+        return esdl_system
 
     def _add_kpis_to_system(self, esdl_system: esdl.EnergySystem, results: KpiResults) -> None:
         """Add system-level KPIs to the main area of the ESDL energy system.
@@ -137,10 +131,15 @@ class EsdlKpiExporter(BaseExporter):
 
         main_area = esdl_system.instance[0].area
 
-        # Create or get KPIs container
+        # TODO: clear() mutates the stored ESDL object in place.  Safe for the
+        #  current OMOTES pipeline (one export per request) but callers that hold
+        #  a reference from a previous data-structure-mode export will see their
+        #  KPIs replaced.  If this becomes a problem, deepcopy selectively here.
         if main_area.KPIs is None:
             main_area.KPIs = esdl.KPIs()
             main_area.KPIs.id = str(uuid.uuid4())
+        else:
+            main_area.KPIs.kpi.clear()
 
         # Add KPIs by category
         if "costs" in results:

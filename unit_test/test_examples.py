@@ -67,80 +67,38 @@ class TestReadmeExamples:
 
         assert "costs" in results
 
-    def test_timeseries_dataframes_integration(self) -> None:
-        """Test timeseries_dataframes parameter with realistic simulator data.
+    def test_timeseries_dataframes_accepted_without_error(self) -> None:
+        """Test that the timeseries_dataframes parameter is accepted without error.
 
-        Validates that the kpi-calculator can process time series data passed
-        directly as pandas DataFrames, which is the primary integration method
-        for simulators like omotes-simulator-core and MESIDO.
+        NOTE: DataFrame time series currently do not reach KPI calculators because
+        _load_from_dataframes stores entries under plain asset ID keys, while the
+        adapter expects composite keys (asset_id|field_name). This is a known
+        limitation — see architecture.rst and ROADMAP.md for details.
 
-        Tests with realistic multi-asset, multi-property data:
-        - 3 assets (producer, consumer, pipe)
-        - 9 different properties (mass_flow, pressure, temperature, volume_flow,
-          heat_supplied, heat_demand, velocity, pressure_loss, heat_loss)
-        - 24 timesteps (one day, hourly resolution)
+        This test verifies that the API accepts DataFrames without crashing and
+        returns a well-formed result structure. When the mapping is fixed, this
+        test should be updated to assert non-zero energy values.
         """
         esdl_file = "unit_test/data/Unit_test_ESDL.esdl"
 
-        # Create realistic simulator-style time series with multiple properties
-        timesteps = 24  # One day, hourly
+        timesteps = 24
         datetime_index = pd.date_range("2019-01-01T00:00:00", periods=timesteps, freq="h")
 
-        # Simulate multiple assets with multiple properties each
-        # In reality, these would be port IDs from the ESDL file
-        asset1_data = pd.DataFrame(
-            {
-                "mass_flow": [2.5 + i * 0.1 for i in range(timesteps)],
-                "pressure": [200000.0] * timesteps,
-                "temperature": [353.15] * timesteps,
-                "volume_flow": [0.0025 + i * 0.0001 for i in range(timesteps)],
-                "heat_supplied": [100000.0 + i * 2000 for i in range(timesteps)],
-            },
-            index=datetime_index,
-        )
-
-        asset2_data = pd.DataFrame(
-            {
-                "mass_flow": [2.0 + i * 0.05 for i in range(timesteps)],
-                "pressure": [180000.0] * timesteps,
-                "temperature": [323.15] * timesteps,
-                "volume_flow": [0.002 + i * 0.00005 for i in range(timesteps)],
-                "heat_demand": [80000.0 + i * 1500 for i in range(timesteps)],
-            },
-            index=datetime_index,
-        )
-
-        asset3_data = pd.DataFrame(
-            {
-                "mass_flow": [2.3 + i * 0.08 for i in range(timesteps)],
-                "pressure": [190000.0 - i * 100 for i in range(timesteps)],
-                "temperature": [340.15 - i * 0.5 for i in range(timesteps)],
-                "volume_flow": [0.0023 + i * 0.00008 for i in range(timesteps)],
-                "velocity": [1.2 + i * 0.02 for i in range(timesteps)],
-                "pressure_loss": [500.0 + i * 10 for i in range(timesteps)],
-                "heat_loss": [1000.0 + i * 50 for i in range(timesteps)],
-            },
-            index=datetime_index,
-        )
-
-        # Package as expected by KPI calculator
         timeseries_dataframes = {
-            "producer_asset_1": asset1_data,
-            "consumer_asset_1": asset2_data,
-            "pipe_asset_1": asset3_data,
+            "placeholder_asset": pd.DataFrame(
+                {"heat_supplied": [100000.0 + i * 2000 for i in range(timesteps)]},
+                index=datetime_index,
+            ),
         }
 
-        # Calculate KPIs with realistic simulator data
         results = calculate_kpis(esdl_file=esdl_file, timeseries_dataframes=timeseries_dataframes)
 
-        # Verify results structure
         assert "costs" in results
         assert "energy" in results
         assert "emissions" in results
 
-        # Verify that calculations worked with multiple properties
-        assert "capex" in results["costs"]
-        assert results["energy"]["consumption"] >= 0
+        # TODO(#30): When DataFrame key mapping is fixed, assert non-zero energy
+        # values here using real asset IDs from the ESDL fixture.
 
     def test_advanced_batch_processing(self) -> None:
         """Test Advanced Batch Processing example."""
@@ -156,3 +114,80 @@ class TestReadmeExamples:
             )
             results = manager.calculate_all_kpis(system_lifetime=scenario["lifetime"])
             assert "costs" in results
+
+    def test_string_loaded_esdl_export(self) -> None:
+        """Test full workflow: load ESDL from string, calculate KPIs, export.
+
+        This validates the fix for string-loaded ESDL export. Previously, the exporter
+        would fail when ESDL was loaded via load_from_esdl_string() because it tried
+        to re-read from a non-existent file. Now the adapter stores the parsed ESDL
+        object and the exporter reuses it.
+        """
+        from pathlib import Path
+
+        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        # Read ESDL file as string
+        esdl_path = Path("unit_test/data/Unit_test_ESDL.esdl")
+        esdl_string = esdl_path.read_text(encoding="utf-8")
+
+        # Load from string
+        manager = KpiManager()
+        manager.load_from_esdl_string(esdl_string)
+
+        # Calculate KPIs
+        results = manager.calculate_all_kpis()
+
+        assert "costs" in results
+        assert "energy" in results
+
+        # Export to ESDL (data structure mode)
+        exporter = EsdlKpiExporter()
+        esdl_with_kpis = exporter.export(
+            results=results,
+            energy_system=manager.energy_system,
+            destination=None,  # Return ESDL object, don't save to file
+            level="system",
+        )
+
+        # Verify export succeeded and returned an ESDL object
+        assert esdl_with_kpis is not None
+        assert esdl_with_kpis.instance is not None
+
+        main_area = esdl_with_kpis.instance[0].area
+        assert main_area.KPIs is not None
+        kpi_by_name = {kpi.name: kpi for kpi in main_area.KPIs.kpi}
+
+        # All three KPI categories must be present
+        assert "High level cost breakdown [EUR]" in kpi_by_name
+        assert "Net Present Value [EUR]" in kpi_by_name
+        assert "Energy breakdown [Wh]" in kpi_by_name
+        assert "CO2 emissions [g]" in kpi_by_name
+
+        # Cost values come from ESDL costInformation, not time series — must be non-zero
+        expected_capex = results["costs"]["capex"]["All"]
+        expected_opex = results["costs"]["opex"]["All"]
+        expected_npv = results["costs"]["npv"]
+        assert expected_capex > 0, "Fixture ESDL has cost data; CAPEX should be non-zero"
+        assert expected_opex > 0, "Fixture ESDL has cost data; OPEX should be non-zero"
+        assert expected_npv > 0, "Fixture ESDL has cost data; NPV should be non-zero"
+
+        # Verify exported values round-trip the calculated results exactly
+        cost_items = {
+            item.label: float(item.value)
+            for item in kpi_by_name["High level cost breakdown [EUR]"].distribution.stringItem
+        }
+        assert cost_items["CAPEX (total)"] == expected_capex, (
+            f"Exported CAPEX {cost_items['CAPEX (total)']} != calculated {expected_capex}"
+        )
+        assert cost_items["OPEX (yearly)"] == expected_opex, (
+            f"Exported OPEX {cost_items['OPEX (yearly)']} != calculated {expected_opex}"
+        )
+
+        npv_items = {
+            item.label: float(item.value)
+            for item in kpi_by_name["Net Present Value [EUR]"].distribution.stringItem
+        }
+        assert npv_items["NPV"] == expected_npv, (
+            f"Exported NPV {npv_items['NPV']} != calculated {expected_npv}"
+        )
