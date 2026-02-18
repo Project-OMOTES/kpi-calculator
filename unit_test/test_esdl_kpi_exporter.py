@@ -390,7 +390,6 @@ class TestEsdlKpiExporter(unittest.TestCase):
                 level="system",
             )
 
-
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
     def test_export_uses_stored_esdl_object_over_file(self, mock_handler):
         """Test that export uses stored ESDL object and skips file loading."""
@@ -419,7 +418,6 @@ class TestEsdlKpiExporter(unittest.TestCase):
         self.assertIsInstance(result, esdl.EnergySystem)
         self.assertEqual(result.id, "test-system")
 
-
     def test_repeated_export_does_not_accumulate_kpis(self):
         """Test that exporting twice does not duplicate KPIs."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
@@ -433,14 +431,10 @@ class TestEsdlKpiExporter(unittest.TestCase):
         exporter = EsdlKpiExporter()
 
         # Export twice
-        exporter.export(
-            self.mock_kpi_results, mock_energy_system, destination=None, level="system"
-        )
+        exporter.export(self.mock_kpi_results, mock_energy_system, destination=None, level="system")
         kpi_count_1 = len(mock_esdl_system.instance[0].area.KPIs.kpi)
 
-        exporter.export(
-            self.mock_kpi_results, mock_energy_system, destination=None, level="system"
-        )
+        exporter.export(self.mock_kpi_results, mock_energy_system, destination=None, level="system")
         kpi_count_2 = len(mock_esdl_system.instance[0].area.KPIs.kpi)
 
         self.assertEqual(kpi_count_1, kpi_count_2, "Repeated export should not accumulate KPIs")

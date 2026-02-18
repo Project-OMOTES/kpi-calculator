@@ -11,13 +11,13 @@ jobs:
    - name: Checkout sources
      uses: actions/checkout@v3
      with:
-      fetch-depth: 0       
+      fetch-depth: 0
 
    - name: Login to GitHub Container Registry
      uses: docker/login-action@v1
      with:
        registry: ghcr.io
-       username:  ${{ github.actor }} 
+       username:  ${{ github.actor }}
        password:  ${{ secrets.GITHUB_TOKEN }}
 
    - name: Build the container image
@@ -25,4 +25,3 @@ jobs:
       docker build . --tag ghcr.io/project-omotes/omotes_kpi_calculator:latest --tag ghcr.io/project-omotes/omotes_kpi_calculator:${{github.ref_name}}
       docker push ghcr.io/project-omotes/omotes_kpi_calculator:latest
       docker push ghcr.io/project-omotes/omotes_kpi_calculator:${{github.ref_name}}
-

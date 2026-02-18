@@ -77,6 +77,4 @@ class EnergySystem:
     # The exporter prefers this over source_metadata['esdl_file'] — if set, the
     # file path is never accessed.  The exporter clears and rewrites KPIs in
     # place, so this object is mutated on each export call.
-    esdl_energy_system: esdl.EnergySystem | None = field(
-        default=None, repr=False, compare=False
-    )
+    esdl_energy_system: esdl.EnergySystem | None = field(default=None, repr=False, compare=False)

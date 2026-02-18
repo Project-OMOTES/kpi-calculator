@@ -185,7 +185,7 @@ class TimeSeriesData(BaseModel):
         min_val, max_val = -1e6, 1e12  # -1 MW to 1 TW
 
         for i, value in enumerate(v):
-            if not isinstance(value, (int, float)):
+            if not isinstance(value, int | float):
                 raise ValueError(f"time_series[{i}] must be numeric, got {type(value).__name__}")
 
             if value < min_val or value > max_val:
