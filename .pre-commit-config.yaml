@@ -2,7 +2,7 @@
 repos:
   # Ruff linting and formatting (replaces flake8, isort, and black)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.0
+    rev: v0.13.1
     hooks:
       # Linting with auto-fixes
       - id: ruff
@@ -18,8 +18,8 @@ repos:
         args: [--no-error-summary]
         additional_dependencies:
           - types-xmltodict
-        files: ^(src/kpicalculator|unit_test)/.*\.py$
-        exclude: ^unit_test/.*\.reference$
+          - pydantic>=2.0.0
+        files: ^src/kpicalculator/.*\.py$
 
   # Basic file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -37,7 +37,7 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: python -m pytest unit_test/test_*.py -v
+        entry: python -m pytest unit_test -v
         language: system
         types: [python]
         pass_filenames: false
