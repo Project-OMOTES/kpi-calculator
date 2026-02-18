@@ -253,7 +253,7 @@ class InputValidator:
         Raises:
             ValidationError: If value is out of range or invalid
         """
-        if not isinstance(value, (int, float)):
+        if not isinstance(value, int | float):
             raise ValidationError(f"{field_name} must be numeric, got {type(value).__name__}")
 
         if min_val is not None and value < min_val:
@@ -401,7 +401,7 @@ class InputValidator:
 
         # Validate individual values
         for i, value in enumerate(time_series_data):
-            if not isinstance(value, (int, float)):
+            if not isinstance(value, int | float):
                 raise ValidationError(
                     f"{field_name}[{i}] must be numeric, got {type(value).__name__}"
                 )

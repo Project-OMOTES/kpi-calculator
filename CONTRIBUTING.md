@@ -1,5 +1,5 @@
 # This file
-This file should describe the development process for this project and include instruction on 
+This file should describe the development process for this project and include instruction on
 how to run/build your project.  Any environment settings/requirements?
 
 # Development guidelines
@@ -36,7 +36,7 @@ They should be of value.
 ## Type checking
 - Every function must have a return type and an argument list annotated with functions.
 - Rules of the type checker may only be ignored when approved by the software leads.
-- 
+-
 
 ## Testing
 ### Unit testing
@@ -46,7 +46,7 @@ They should be of value.
 the amount of code being tested is too small. If the test function tests whole modules or multiple layers of code, the amount
 of code being tested is too big. The amount of code being tested is referred to as the 'unit-under-test'.
 - Use mocks to isolate 'unit-under-test' where applicable.
-- Coverage percentage should be >80%. This is a guideline, not a hard rule. Breaking this guideline is allowed if the 
+- Coverage percentage should be >80%. This is a guideline, not a hard rule. Breaking this guideline is allowed if the
   arguments has swayed the developersteam and not just the developer and reviewer.
 
 
@@ -103,4 +103,3 @@ uv build
 # Update dependencies
 uv lock --upgrade
 ```
-

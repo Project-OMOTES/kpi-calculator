@@ -575,11 +575,11 @@ class DatabaseTimeSeriesLoader:
             All errors result in graceful degradation with descriptive messages
             that help identify the root cause and appropriate resolution steps.
         """
-        if isinstance(error, (CredentialError, SecurityError, ValidationError)):
+        if isinstance(error, CredentialError | SecurityError | ValidationError):
             return f"Configuration error loading profile {profile_field}: {str(error)}"
-        if isinstance(error, (ConnectionError, TimeoutError)):
+        if isinstance(error, ConnectionError | TimeoutError):
             return f"Database connection failed for profile {profile_field}: {str(error)}"
-        if isinstance(error, (ValueError, KeyError, AttributeError)):
+        if isinstance(error, ValueError | KeyError | AttributeError):
             return f"Data processing error for profile {profile_field}: {str(error)}"
         return f"Unexpected error loading profile {profile_field}: {str(error)}"
 

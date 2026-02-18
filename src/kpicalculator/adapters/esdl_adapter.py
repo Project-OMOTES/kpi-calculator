@@ -81,7 +81,7 @@ class EsdlAdapter(BaseAdapter):
         Raises:
             TypeError: If source is not a file path (MESIDO/Simulator not supported)
         """
-        if not isinstance(source, (str, Path)):
+        if not isinstance(source, str | Path):
             raise TypeError(f"ESDL adapter only supports file paths, got {type(source)}")
 
         esdl_file = str(source)
@@ -441,7 +441,7 @@ class EsdlAdapter(BaseAdapter):
         Returns:
             Power in watts or 0.0 if not applicable
         """
-        if isinstance(esdl_element, (esdl.Producer, esdl.Consumer, esdl.Conversion)):
+        if isinstance(esdl_element, esdl.Producer | esdl.Consumer | esdl.Conversion):
             if esdl_element.power is None:
                 return 0.0
             return float(esdl_element.power)

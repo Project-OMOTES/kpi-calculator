@@ -13,7 +13,7 @@ Welcome to Design Toolkit python Developer documentation's documentation!
    Tools
 
 This is the developer documentation for this project. This documentation provides
-information on tools, configurations and howto's for developers. 
+information on tools, configurations and howto's for developers.
 
 
 Indices and tables
