@@ -15,8 +15,7 @@ from kpicalculator import KpiManager  # noqa: E402
 class NewKpiCalculatorTest(unittest.TestCase):
     def setUp(self) -> None:
         # Create KPI manager
-        unit_conv = DATA_DIR / "unit_conversion.csv"
-        self.kpi_manager = KpiManager(str(unit_conv))
+        self.kpi_manager = KpiManager()
 
         # Load ESDL data (CSV costs not provided since ESDL has complete cost information)
         esdl = DATA_DIR / "Unit_test_ESDL.esdl"
@@ -57,8 +56,7 @@ class EsdlStringLoadingTest(unittest.TestCase):
         """Test that empty ESDL string raises ValidationError."""
         from kpicalculator.exceptions import ValidationError
 
-        unit_conv = DATA_DIR / "unit_conversion.csv"
-        kpi_manager = KpiManager(str(unit_conv))
+        kpi_manager = KpiManager()
 
         with self.assertRaises(ValidationError):
             kpi_manager.load_from_esdl_string("")
@@ -70,8 +68,7 @@ class EsdlStringLoadingTest(unittest.TestCase):
         """Test that invalid ESDL string raises ValidationError."""
         from kpicalculator.exceptions import ValidationError
 
-        unit_conv = DATA_DIR / "unit_conversion.csv"
-        kpi_manager = KpiManager(str(unit_conv))
+        kpi_manager = KpiManager()
 
         with self.assertRaises(ValidationError):
             kpi_manager.load_from_esdl_string("not valid xml")
@@ -81,8 +78,7 @@ class EsdlStringLoadingTest(unittest.TestCase):
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
         esdl_string = esdl_file.read_text(encoding="utf-8")
 
-        unit_conv = DATA_DIR / "unit_conversion.csv"
-        kpi_manager = KpiManager(str(unit_conv))
+        kpi_manager = KpiManager()
         kpi_manager.load_from_esdl_string(esdl_string)
 
         # The test ESDL has name="KPI_calc_test_model"
@@ -98,8 +94,7 @@ class EsdlStringLoadingTest(unittest.TestCase):
             </instance>
         </esdl:EnergySystem>"""
 
-        unit_conv = DATA_DIR / "unit_conversion.csv"
-        kpi_manager = KpiManager(str(unit_conv))
+        kpi_manager = KpiManager()
         kpi_manager.load_from_esdl_string(esdl_no_name)
 
         self.assertEqual(kpi_manager.energy_system.name, "esdl_from_string")
@@ -107,16 +102,15 @@ class EsdlStringLoadingTest(unittest.TestCase):
     def test_load_from_esdl_string_matches_file_loading(self) -> None:
         """Test that string loading produces identical KPI results to file loading."""
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
-        unit_conv = DATA_DIR / "unit_conversion.csv"
 
         # Load from file
-        file_manager = KpiManager(str(unit_conv))
+        file_manager = KpiManager()
         file_manager.load_from_esdl(str(esdl_file))
         file_results = file_manager.calculate_all_kpis(system_lifetime=40)
 
         # Load from string
         esdl_string = esdl_file.read_text(encoding="utf-8")
-        string_manager = KpiManager(str(unit_conv))
+        string_manager = KpiManager()
         string_manager.load_from_esdl_string(esdl_string)
 
         # Verify string loading sets correct state

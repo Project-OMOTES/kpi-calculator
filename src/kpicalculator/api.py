@@ -29,7 +29,6 @@ def calculate_kpis(
     esdl_file: str | Path,
     time_series: str | Path | None = None,
     timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
-    unit_conversion: str | Path | None = None,
     system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
 ) -> KpiResults:
     """Calculate KPIs from ESDL files with supporting data.
@@ -38,7 +37,9 @@ def calculate_kpis(
     Supports both traditional file-based time series and pandas DataFrames
     for simulator-worker integration.
 
-    Cost data is extracted from ESDL costInformation elements.
+    Cost data is extracted from ESDL costInformation elements. Cost unit
+    conversion factors (EUR/kW, EUR/MW, etc.) are built-in; see
+    ``kpicalculator.common.constants.COST_UNIT_FACTORS`` for the full list.
 
     Args:
         esdl_file: Path to ESDL file
@@ -46,7 +47,6 @@ def calculate_kpis(
         timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
             with time-indexed energy/power data. When provided, takes precedence
             over database loading and time_series file parameter.
-        unit_conversion: Optional path to unit conversion CSV file
         system_lifetime: System lifetime in years
 
     Returns:
@@ -63,14 +63,10 @@ def calculate_kpis(
         raise KpiCalculatorError(f"ESDL file not found: {esdl_path}")
 
     logger.info(f"Loading ESDL file: {esdl_path}")
-
-    # Convert paths to strings for KpiManager
-    unit_conversion_path = str(unit_conversion) if unit_conversion else None
-
     logger.info("Extracting costs from ESDL costInformation elements")
 
     try:
-        kpi_manager = KpiManager(unit_conversion_path)
+        kpi_manager = KpiManager()
         kpi_manager.load_from_esdl(
             str(esdl_path),
             time_series_file=str(time_series) if time_series else None,

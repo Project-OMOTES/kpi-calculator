@@ -42,30 +42,17 @@ class KpiResults(TypedDict):
 
 
 class KpiManager:
-    """Main class for managing KPI calculations across different data sources."""
+    """Main class for managing KPI calculations across different data sources.
 
-    def __init__(self, unit_conversion_file: str | None = None):
-        """Initialize the KPI manager.
+    Cost unit conversion factors (EUR/kW, EUR/MW, EUR/km, EUR/kWh, EUR/MWh,
+    % OF CAPEX, etc.) are built-in and used by the cost calculator when
+    computing KPI values from ESDL costInformation elements.
+    """
 
-        Args:
-            unit_conversion_file: Path to CSV file with unit conversion factors
-        """
+    def __init__(self) -> None:
+        """Initialize the KPI manager."""
         self.energy_system: EnergySystem | None = None
-        self.unit_conversion: dict[str, float] = {}
         self.source_esdl_file: str | None = None
-
-        if unit_conversion_file:
-            self.load_unit_conversion(unit_conversion_file)
-
-    def load_unit_conversion(self, file_path: str) -> None:
-        """Load unit conversion factors from CSV file.
-
-        Args:
-            file_path: Path to CSV file with unit conversion factors
-        """
-        unit_conversion_df = pd.read_csv(file_path)
-        for _, row in unit_conversion_df.iterrows():
-            self.unit_conversion[row["Unit"]] = row["Factor"]
 
     def load_from_esdl(
         self,
@@ -87,7 +74,7 @@ class KpiManager:
         """
         from .adapters.esdl_adapter import EsdlAdapter
 
-        adapter = EsdlAdapter(self.unit_conversion)
+        adapter = EsdlAdapter()
         self.energy_system = adapter.load_data(
             esdl_file,
             time_series_file=time_series_file,
@@ -116,7 +103,7 @@ class KpiManager:
         """
         from .adapters.esdl_adapter import EsdlAdapter
 
-        adapter = EsdlAdapter(self.unit_conversion)
+        adapter = EsdlAdapter()
         self.energy_system = adapter.load_from_string(
             esdl_string,
             timeseries_dataframes=timeseries_dataframes,

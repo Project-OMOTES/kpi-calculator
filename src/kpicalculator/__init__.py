@@ -71,7 +71,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Calculate KPIs from ESDL files")
 
     parser.add_argument("esdl_file", type=Path, help="Path to ESDL file")
-    parser.add_argument("--unit-conversion", type=Path, help="Path to unit conversion CSV file")
     parser.add_argument("--time-series", type=Path, help="Path to time series XML")
     parser.add_argument(
         "--system-lifetime", type=int, default=30, help="System lifetime in years (default: 30)"
@@ -83,7 +82,6 @@ def main() -> None:
         results = calculate_kpis(
             esdl_file=args.esdl_file,
             time_series=args.time_series,
-            unit_conversion=args.unit_conversion,
             system_lifetime=args.system_lifetime,
         )
 

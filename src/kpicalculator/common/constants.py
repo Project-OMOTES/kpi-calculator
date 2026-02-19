@@ -1,6 +1,8 @@
 # src/kpicalculator/common/constants.py
 """Constants used throughout the KPI Calculator application."""
 
+from types import MappingProxyType
+
 # Time conversion constants
 SECONDS_PER_HOUR = 3600
 HOURS_PER_DAY = 24
@@ -17,6 +19,30 @@ DEFAULT_WEEK_TIME_STEP = 3600 * 24 * 7  # 1 week in seconds
 DEFAULT_SYSTEM_LIFETIME_YEARS = 30.0
 DEFAULT_TECHNICAL_LIFETIME_YEARS = 40.0
 DEFAULT_DISCOUNT_RATE_PERCENT = 5.0
+
+# Cost unit conversion factors.
+# These convert ESDL cost units to EUR by accounting for the physical unit
+# in the denominator:
+#   EUR/kW:  1 kW = 1000 W       → factor = 1/1000 = 0.001
+#   EUR/MW:  1 MW = 1e6 W        → factor = 1/1e6
+#   EUR/m:   already in metres   → factor = 1
+#   EUR/km:  1 km = 1000 m       → factor = 1/1000 = 0.001
+#   EUR/kWh: 1 kWh = 3.6e6 J    → factor = 1/3.6e6
+#   EUR/MWh: 1 MWh = 3.6e9 J    → factor = 1/3.6e9
+#   % OF CAPEX: percentage       → factor = 1/100 = 0.01
+# MappingProxyType makes this immutable at runtime — callers cannot accidentally
+# mutate the global constant.  Adapters copy it with dict() for local use.
+COST_UNIT_FACTORS: MappingProxyType[str, float] = MappingProxyType(
+    {
+        "EUR/kW": 1.0 / 1_000,
+        "EUR/MW": 1.0 / 1_000_000,
+        "EUR/m": 1.0,
+        "EUR/km": 1.0 / 1_000,
+        "EUR/kWh": 1.0 / 3_600_000,
+        "EUR/MWh": 1.0 / 3_600_000_000,
+        "% OF CAPEX": 1.0 / 100,
+    }
+)
 
 # Unit conversion constants
 TONS_TO_KG = 1000
