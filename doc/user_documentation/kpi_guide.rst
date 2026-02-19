@@ -1,16 +1,63 @@
-KPI Calculator Results Guide
-============================
+KPI Guide
+=========
 
 The KPI Calculator extracts cost data and time series from an ESDL energy system model and returns standardized cost, energy, and emission metrics. This guide explains what each metric means and how to interpret it for energy system design decisions.
 
-For installation and usage instructions, see :doc:`getting_started`.
+For installation and usage instructions, see :doc:`../getting_started`. For time series keys, asset categories, and cost unit formats, see :doc:`kpi_reference`.
 
-What You Get
-------------
+KPI Summary
+-----------
 
-``calculate_kpis()`` returns a dictionary with three categories — **costs**, **energy**, and **emissions** — described in detail below. For the full structure and example values, see the :ref:`results-structure` section in the Getting Started guide.
+.. list-table::
+   :header-rows: 1
+   :widths: 20 15 15 50
 
-Cost breakdowns use the categories **Production**, **Consumption**, **Storage**, **Transport**, **Conversion**, and **All**.
+   * - KPI
+     - Unit
+     - Typical Range
+     - Purpose
+   * - CAPEX
+     - EUR
+     - Project-specific
+     - Budget planning
+   * - OPEX
+     - EUR/year
+     - €15-60/MWh
+     - Operating budget
+   * - NPV
+     - EUR
+     - Lower is better
+     - Lifecycle cost comparison
+   * - LCOE
+     - EUR/MWh
+     - €30-80
+     - Cost-effectiveness ranking
+   * - Consumption
+     - Joules
+     - Demand-driven
+     - Demand verification
+   * - Production
+     - Joules
+     - 1.05-1.15 × consumption
+     - System sizing check
+   * - Efficiency
+     - 0-1
+     - 0.80-0.95
+     - Distribution quality
+   * - Demand
+     - Joules
+     - Demand-driven
+     - Energy need verification
+   * - Total Emissions
+     - t CO2e/yr
+     - <2t/household/yr target
+     - Climate compliance
+   * - Emissions Intensity
+     - kg CO2e/MWh
+     - <100 target
+     - Environmental comparison
+
+Cost breakdowns use the categories **Production**, **Consumption**, **Storage**, **Transport**, **Conversion**, and **All**. For the full return structure and example values, see the :ref:`results-structure` section in the Getting Started guide.
 
 Cost KPIs
 ---------
@@ -131,11 +178,11 @@ Total greenhouse gas emissions from system operation, in tonnes CO2e per year.
    For each asset:
      energy [J]          = sum(time_series_values) × time_step [s]
      annual_energy [J]   = energy × (seconds_per_year / duration)
-     emissions [kg CO2e] = emission_factor [kg CO2e/GJ] × annual_energy [J] / 1e9 [J/GJ]
+     emissions [kg CO2e] = emission_factor [kg CO2e/J] × annual_energy [J]
 
    Total_Emissions [t CO2e/yr] = Sum of asset emissions [kg] / 1000 [kg/t]
 
-Emission factors are read from the ESDL carrier definitions in **kg CO2e/GJ** (the standard ESDL unit). The calculator converts energy from Joules to GJ and emissions from kg to tonnes internally. Emission factors cover upstream emissions (fuel extraction and processing). Benchmarks for 100 households:
+Emission factors are read from the ESDL carrier definitions in **kg CO2e/GJ** (the standard ESDL unit) and converted to kg CO2e/J during loading. The calculator multiplies directly by energy in Joules and emissions from kg to tonnes internally. Emission factors cover upstream emissions (fuel extraction and processing). Benchmarks for 100 households:
 
 - Gas heating: 80-120 t CO2e/year
 - Heat pump on grid electricity: 20-40 t CO2e/year
@@ -208,68 +255,13 @@ These defaults affect all calculations. Understanding them helps interpret resul
 
 **Technical lifetime per asset:** 40 years if not specified in ESDL. Real values vary widely — pipes last 40-50 years, heat pumps 15-20.
 
-Time Series
-^^^^^^^^^^^
+Limitations
+-----------
 
-Time series data is required for meaningful energy and emission KPIs. Without it, consumption, production, and demand are all returned as zero — there is no rated-capacity fallback.
+**Time series required:** Energy and emission KPIs depend entirely on time series data. Without it, consumption, production, and demand are returned as zero — there is no rated-capacity fallback. For details on how to provide time series data, see :doc:`../getting_started`.
 
-For details on how to provide time series data (DataFrames, XML files) and the priority order when multiple sources are available, see :doc:`getting_started`. For the implementation details of the time series loading chain, see :doc:`../dev_documentation/architecture`.
+**Efficiency approximation:** The efficiency calculation (Consumption / Production) does not account for pump losses, control system energy, or heat exchanger fouling. Real systems are typically 2-5% less efficient than calculated.
 
-What's Not Captured
-^^^^^^^^^^^^^^^^^^^
+**Static emission factors:** Emission factors are constant over the analysis period — they don't account for grid decarbonization over time. They also exclude embodied carbon in equipment manufacturing and installation.
 
-The efficiency calculation (Consumption / Production) does not account for pump losses, control system energy, or heat exchanger fouling. Real systems are typically 2-5% less efficient than calculated.
-
-Emission factors are constant over the analysis period — they don't account for grid decarbonization over time. They also exclude embodied carbon in equipment manufacturing and installation.
-
-Quick Reference
----------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 15 15 50
-
-   * - KPI
-     - Unit
-     - Typical Range
-     - Purpose
-   * - CAPEX
-     - EUR
-     - Project-specific
-     - Budget planning
-   * - OPEX
-     - EUR/year
-     - €15-60/MWh
-     - Operating budget
-   * - NPV
-     - EUR
-     - Lower is better
-     - Lifecycle cost comparison
-   * - LCOE
-     - EUR/MWh
-     - €30-80
-     - Cost-effectiveness ranking
-   * - Consumption
-     - Joules
-     - Demand-driven
-     - Demand verification
-   * - Production
-     - Joules
-     - 1.05-1.15 × consumption
-     - System sizing check
-   * - Efficiency
-     - 0-1
-     - 0.80-0.95
-     - Distribution quality
-   * - Demand
-     - Joules
-     - Demand-driven
-     - Energy need verification
-   * - Total Emissions
-     - t CO2e/yr
-     - <2t/household/yr target
-     - Climate compliance
-   * - Emissions Intensity
-     - kg CO2e/MWh
-     - <100 target
-     - Environmental comparison
+**System-level results only:** All KPIs are system-wide aggregates. Asset-level and area-level breakdowns are not currently implemented.

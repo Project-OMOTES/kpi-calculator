@@ -1,105 +1,47 @@
-# This file
-This file should describe the development process for this project and include instruction on
-how to run/build your project.  Any environment settings/requirements?
+# Contributing
 
-# Development guidelines
-The general proces is as follows:
-* Create a branch on your local working copy
-* make code modifications, including tests, documentation, etc
-* commit/push changes to remote/origin
-* submit a pull request for merging into master
-* Discuss with code reviewer if/what changes are needed
-* when all discussions are resolved, the PR will be merged by the reviewer
-* Update Changelog!
+## Development Workflow
 
+1. Create a branch on your local working copy
+2. Make code modifications, including tests and documentation
+3. Commit and push changes to remote/origin
+4. Submit a pull request for merging into main
+5. Discuss with the code reviewer if/what changes are needed
+6. When all discussions are resolved, the PR will be merged by the reviewer
 
-# Code Quality guide lines
-Quality guide lines serve to improve quality. They should not be busy work nor work against developers.
-They should be of value.
+For setup instructions, tooling commands, and the full validation pipeline, see the
+[Developer Documentation](https://kpi-calculator.readthedocs.io/en/latest/dev_documentation/development.html)
+(or locally in `doc/dev_documentation/development.rst`).
 
-## Code review
-- Every commit should be created on its own branch and submitted per pull request to be merged with the main branch.
+## Code Quality Guidelines
+
+Quality guidelines serve to improve quality. They should not be busy work nor work against developers.
+
+### Code Review
+
+- Every commit should be created on its own branch and submitted per pull request to be merged with main.
 - Every pull request must be reviewed by at least one other developer and all comments must be resolved.
 - No linting issues may remain before merging.
 - No type checking issues may remain before merging.
-- Code reviews are not about distrust. They are about sharing knowledge about the code base, sharing knowledge about
-  writing code and increasing quality by collaboration.
+- Code reviews are not about distrust. They are about sharing knowledge about the codebase and increasing quality by collaboration.
 
-## Documentation
-- Every function must have documentation explaining what the function does in a summary and explaining
-  each argument and return type.
+### Documentation
 
-## Linting
-- Linting maintains a shared quality of the code base across repositories.
-- Rules of the linter may only be ignored when approved by the software leads. Prefer to silence individual lines by <TODO show how to silence individual errors>'
+- Every function must have a docstring explaining what the function does and describing each argument and return type.
 
-## Type checking
-- Every function must have a return type and an argument list annotated with functions.
-- Rules of the type checker may only be ignored when approved by the software leads.
--
+### Linting
 
-## Testing
-### Unit testing
-- Every function should be covered by a unit test. Some functions allow more easily for unit tests and some are not
-  worth unit testing. This is up to the teams discretion.
-- A unit test should test some significant amount of code. If the test function is similar or equal to the logic being tested,
-the amount of code being tested is too small. If the test function tests whole modules or multiple layers of code, the amount
-of code being tested is too big. The amount of code being tested is referred to as the 'unit-under-test'.
-- Use mocks to isolate 'unit-under-test' where applicable.
-- Coverage percentage should be >80%. This is a guideline, not a hard rule. Breaking this guideline is allowed if the
-  arguments has swayed the developersteam and not just the developer and reviewer.
+- Linting maintains a shared quality standard across the codebase.
+- Linter rules may only be ignored when approved by the software leads. Silence individual lines with `# noqa: <code>` rather than disabling rules project-wide.
 
+### Type Checking
 
-### Development Installation
-```bash
-git clone https://github.com/Project-OMOTES/kpi-calculator.git
-cd kpi-calculator
+- Every function must have a return type annotation and fully annotated argument list.
+- Type checker rules may only be ignored when approved by the software leads.
 
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh  # Linux/macOS
-# or: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+### Testing
 
-# Set up development environment
-uv sync --dev
-```
-
-
-### Development Dependencies
-- **ruff** (≥0.6.0) - Modern linting and formatting (replaces black, flake8, isort)
-- **pytest** (~7.3.1) with pytest-cov (~4.0.0) - Testing framework with coverage
-- **mypy** (~1.5.1) - Static type checking
-- **hypothesis** (≥6.0.0) - Property-based testing for edge case discovery
-- **interrogate** (≥1.7.0) - Documentation coverage tracking
-- **pytest-xdist** (≥3.0.0) - Parallel test execution
-- **pre-commit** (~3.6.0) - Git hook management
-
-## Development Commands
-
-### Modern Development Workflow
-
-The project uses modern Python tooling for development:
-
-```bash
-# Run tests with coverage (89% coverage achieved)
-uv run pytest --cov=src/kpicalculator --cov-report html --cov-report term-missing unit_test/
-
-# Code quality pipeline (replaces black, flake8, isort)
-uv run ruff check --fix src/ unit_test/  # Linting with auto-fixes
-uv run ruff format src/ unit_test/        # Code formatting
-uv run mypy src/kpicalculator             # Type checking
-
-# Documentation coverage (86.6% achieved)
-uv run interrogate src/ --fail-under=80
-
-# Parallel testing
-uv run pytest -n auto unit_test/
-
-# Complete validation pipeline
-uv run ruff check --fix src/ unit_test/ && uv run ruff format src/ unit_test/ && uv run mypy src/kpicalculator && uv run pytest --cov=src/kpicalculator --cov-report term-missing unit_test/
-
-# Build package
-uv build
-
-# Update dependencies
-uv lock --upgrade
-```
+- Every function should be covered by a unit test where it adds value.
+- A unit test should test a meaningful unit of behaviour — not a single line, not an entire module.
+- Use mocks to isolate the unit under test where applicable.
+- Coverage must remain above 80%. Breaking this threshold requires agreement from the team, not just the author and reviewer.
