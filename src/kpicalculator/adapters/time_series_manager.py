@@ -5,9 +5,8 @@ import logging
 
 import pandas as pd
 from esdl import esdl
-from esdl.profiles.profilemanager import ProfileManager, ProfileType
 
-from ..common.constants import COMPOSITE_KEY_SEPARATOR
+from ..common.constants import COMPOSITE_KEY_SEPARATOR, KNOWN_TIME_SERIES_FIELDS
 from ..security.credential_manager import CredentialManager
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
@@ -91,10 +90,18 @@ class TimeSeriesManager:
     def _load_from_dataframes(
         self, dataframes: dict[str, pd.DataFrame], energy_system: esdl.EnergySystem
     ) -> tuple[dict[str, TimeSeries], ValidationResult]:
-        """Load time series from pandas DataFrames using pyESDL ProfileManager.
+        """Load time series from pandas DataFrames.
+
+        Each DataFrame column is stored as a separate TimeSeries under a
+        composite key (asset_id|column_name), matching the format used by
+        DatabaseTimeSeriesLoader so the ESDL adapter can resolve them.
 
         Args:
-            dataframes: Dict mapping asset IDs to pandas DataFrames
+            dataframes: Dict mapping asset IDs to pandas DataFrames with a
+                DatetimeIndex. All numeric columns are stored; columns whose
+                names are not recognised by the KPI calculators (e.g.
+                unknown_field, custom_metric) are stored but will not
+                contribute to any KPI — a warning is logged in that case.
             energy_system: ESDL energy system for validation
 
         Returns:
@@ -113,41 +120,55 @@ class TimeSeriesManager:
                     issues.append(f"Empty DataFrame for asset {asset_id}")
                     continue
 
-                # Use pyESDL ProfileManager for proper conversion
-                profile_manager = ProfileManager()
-
-                # Convert DataFrame to ProfileManager format
-                profile_header = ["datetime", "value"]  # pyESDL expects 'datetime' as first column
-                profile_data_list = [
-                    [timestamp.isoformat(), value]
-                    for timestamp, value in zip(
-                        df.index.tolist(), df.iloc[:, 0].tolist(), strict=True
-                    )
-                ]
-
-                # Set profile data using pyESDL ProfileManager
-                profile_manager.set_profile(
-                    profile_header=profile_header,
-                    profile_data_list=profile_data_list,
-                    profile_type=ProfileType.TIMESERIES,
-                )
-
-                # Detect time step from DataFrame index
+                # Detect time step from DataFrame index (same for all columns)
                 time_step = self._detect_time_step(df)
 
-                # Convert to internal TimeSeries format
-                # This maintains compatibility with existing KPI calculators
-                time_series_dict[asset_id] = TimeSeries(
-                    time_step=time_step,
-                    values=df.iloc[:, 0].tolist(),
-                )
+                # Process each column in the DataFrame
+                # Each column represents a different field (e.g., heat_supplied, power, flow)
+                for column_name in df.columns:
+                    try:
+                        if not pd.api.types.is_numeric_dtype(df[column_name]):
+                            error_msg = (
+                                f"Column '{column_name}' for asset {asset_id} has non-numeric "
+                                f"dtype '{df[column_name].dtype}' - skipping"
+                            )
+                            self.logger.warning(error_msg)
+                            issues.append(error_msg)
+                            continue
 
-                self.logger.debug(
-                    f"Converted DataFrame for asset {asset_id}: {len(df)} data points"
-                )
+                        # Create composite key: asset_id|field_name
+                        # This matches the format used by DatabaseTimeSeriesLoader
+                        composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{column_name}"
+
+                        # Convert to internal TimeSeries format
+                        # This maintains compatibility with existing KPI calculators
+                        time_series_dict[composite_key] = TimeSeries(
+                            time_step=time_step,
+                            values=df[column_name].tolist(),
+                        )
+
+                        if column_name not in KNOWN_TIME_SERIES_FIELDS:
+                            self.logger.warning(
+                                f"Column '{column_name}' for asset {asset_id} is not a "
+                                f"recognized KPI field and will not contribute to any KPI"
+                            )
+                        else:
+                            self.logger.debug(
+                                f"Converted DataFrame column '{column_name}' for asset "
+                                f"{asset_id}: {len(df)} data points"
+                            )
+
+                    except Exception as e:
+                        error_msg = (
+                            f"Failed to convert DataFrame column '{column_name}' "
+                            f"for asset {asset_id}: {e}"
+                        )
+                        self.logger.error(error_msg)
+                        issues.append(error_msg)
+                        continue
 
             except Exception as e:
-                error_msg = f"Failed to convert DataFrame for asset {asset_id}: {e}"
+                error_msg = f"Failed to process DataFrame for asset {asset_id}: {e}"
                 self.logger.error(error_msg)
                 issues.append(error_msg)
                 continue
@@ -207,15 +228,19 @@ class TimeSeriesManager:
                 issues.append(f"DataFrame for {asset_id} contains null values")
                 continue
 
-            # Check for reasonable data ranges
-            values = df.iloc[:, 0]
-            if (values < 0).any():
-                warnings.append(f"DataFrame for {asset_id} contains negative values")
-
-            if values.max() > 1e9:  # Very large values might indicate unit issues
-                warnings.append(
-                    f"DataFrame for {asset_id} contains very large values - check units"
-                )
+            # Check for reasonable data ranges across numeric columns only.
+            # Non-numeric columns are not range-checked here; they are rejected
+            # with an error in _load_from_dataframes during the conversion step.
+            for col, series in df.select_dtypes(include="number").items():
+                if (series < 0).any():
+                    warnings.append(
+                        f"DataFrame for {asset_id}, column '{col}' contains negative values"
+                    )
+                if series.max() > 1e9:  # Very large values might indicate unit issues
+                    warnings.append(
+                        f"DataFrame for {asset_id}, column '{col}' contains very large values"
+                        " - check units"
+                    )
 
         return ValidationResult(is_valid=len(issues) == 0, errors=issues, warnings=warnings)
 

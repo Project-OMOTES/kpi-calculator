@@ -67,26 +67,28 @@ class TestReadmeExamples:
 
         assert "costs" in results
 
-    def test_timeseries_dataframes_accepted_without_error(self) -> None:
-        """Test that the timeseries_dataframes parameter is accepted without error.
+    def test_timeseries_dataframes_produce_valid_kpi_results(self) -> None:
+        """Test that the timeseries_dataframes parameter works with composite keys.
 
-        NOTE: DataFrame time series currently do not reach KPI calculators because
-        _load_from_dataframes stores entries under plain asset ID keys, while the
-        adapter expects composite keys (asset_id|field_name). This is a known
-        limitation — see architecture.rst and ROADMAP.md for details.
-
-        This test verifies that the API accepts DataFrames without crashing and
-        returns a well-formed result structure. When the mapping is fixed, this
-        test should be updated to assert non-zero energy values.
+        This test verifies that DataFrame time series are properly mapped using
+        composite keys (asset_id|field_name) and reaches the KPI calculators.
         """
         esdl_file = "unit_test/data/Unit_test_ESDL.esdl"
 
         timesteps = 24
         datetime_index = pd.date_range("2019-01-01T00:00:00", periods=timesteps, freq="h")
 
+        # Use actual asset ID from the ESDL file
+        # GenericConsumer with id="a5243809-0077-46e5-a0ea-09aa486f5e96"
+        asset_id = "a5243809-0077-46e5-a0ea-09aa486f5e96"
+
         timeseries_dataframes = {
-            "placeholder_asset": pd.DataFrame(
-                {"heat_supplied": [100000.0 + i * 2000 for i in range(timesteps)]},
+            asset_id: pd.DataFrame(
+                {
+                    # Column names must match the field names expected by the energy
+                    # calculator: ThermalConsumption, Consumption, ThermalProduction, etc.
+                    "ThermalConsumption": [100000.0 + i * 2000 for i in range(timesteps)],
+                },
                 index=datetime_index,
             ),
         }
@@ -96,9 +98,9 @@ class TestReadmeExamples:
         assert "costs" in results
         assert "energy" in results
         assert "emissions" in results
-
-        # TODO(#30): When DataFrame key mapping is fixed, assert non-zero energy
-        # values here using real asset IDs from the ESDL fixture.
+        assert results["energy"]["consumption"] > 0, (
+            "DataFrame data must reach the energy calculator via composite keys"
+        )
 
     def test_advanced_batch_processing(self) -> None:
         """Test Advanced Batch Processing example."""
