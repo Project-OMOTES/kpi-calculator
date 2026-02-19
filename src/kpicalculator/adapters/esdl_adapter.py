@@ -39,16 +39,14 @@ class EsdlAdapter(BaseAdapter):
 
     def __init__(
         self,
-        unit_conversions: dict[str, float] | None = None,
         credential_manager: CredentialManager | None = None,
     ):
         """Initialize the ESDL adapter.
 
         Args:
-            unit_conversions: Dictionary with unit conversion factors
             credential_manager: Optional secure credential manager for database access
         """
-        super().__init__(unit_conversions)
+        super().__init__()
         self.database_loader = DatabaseTimeSeriesLoader(credential_manager)
         # Session-level warning tracking to prevent log spam
         self._logged_warnings: set[str] = set()

@@ -31,9 +31,11 @@ class TestBaseAdapter(unittest.TestCase):
             def get_supported_source_type(self) -> None:
                 return "test"
 
-        adapter = ConcreteAdapter({"MW": 1000000})
+        adapter = ConcreteAdapter()
 
-        self.assertEqual(adapter.unit_conversions, {"MW": 1000000})
+        # Built-in cost unit factors are loaded automatically
+        self.assertIn("EUR/kW", adapter.unit_conversions)
+        self.assertAlmostEqual(adapter.unit_conversions["EUR/kW"], 0.001)
         self.assertEqual(adapter.get_supported_source_type(), "test")
         self.assertEqual(adapter.get_supported_parameters(), [])
 

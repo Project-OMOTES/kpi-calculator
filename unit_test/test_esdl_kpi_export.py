@@ -23,8 +23,7 @@ class TestEsdlKpiExport(unittest.TestCase):
     def setUp(self) -> None:
         """Set up test environment with KPI manager and calculated results."""
         # Create KPI manager
-        unit_conv = DATA_DIR / "unit_conversion.csv"
-        self.kpi_manager = KpiManager(str(unit_conv))
+        self.kpi_manager = KpiManager()
 
         # Load ESDL data
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"

@@ -7,6 +7,7 @@ from typing import Protocol
 
 import pandas as pd  # type: ignore[import-untyped]
 
+from ..common.constants import COST_UNIT_FACTORS
 from .common_model import EnergySystem
 
 
@@ -61,13 +62,9 @@ class BaseAdapter(ABC):
     All adapters must implement these methods for standardized data loading.
     """
 
-    def __init__(self, unit_conversions: dict[str, float] | None = None):
-        """Initialize adapter with unit conversion factors.
-
-        Args:
-            unit_conversions: Dictionary of unit conversion factors
-        """
-        self.unit_conversions = unit_conversions or {}
+    def __init__(self) -> None:
+        """Initialize adapter with built-in cost unit conversion factors."""
+        self.unit_conversions: dict[str, float] = dict(COST_UNIT_FACTORS)
 
     @abstractmethod
     def load_data(

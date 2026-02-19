@@ -102,7 +102,7 @@ class TestReadmeExamples:
 
     def test_advanced_batch_processing(self) -> None:
         """Test Advanced Batch Processing example."""
-        manager = KpiManager("unit_test/data/unit_conversion.csv")
+        manager = KpiManager()
         scenarios = [
             {"file": "unit_test/data/Unit_test_ESDL.esdl", "lifetime": 25},
             {"file": "unit_test/data/Unit_test_ESDL.esdl", "lifetime": 30},
