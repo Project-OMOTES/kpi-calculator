@@ -2,7 +2,12 @@
 # No typing imports needed currently
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
-from ..common.constants import SECONDS_PER_YEAR
+from ..common.constants import (
+    CONSUMPTION_FIELDS,
+    DEMAND_FIELDS,
+    PRODUCTION_FIELDS,
+    SECONDS_PER_YEAR,
+)
 
 
 class EnergyCalculator:
@@ -87,7 +92,7 @@ class EnergyCalculator:
 
         # Look for consumption time series
         ts_name = None
-        for name in ["ThermalConsumption", "Consumption", "Energy"]:
+        for name in CONSUMPTION_FIELDS:
             if name in asset.time_series:
                 ts_name = name
                 break
@@ -119,7 +124,7 @@ class EnergyCalculator:
 
         # Look for demand time series
         ts_name = None
-        for name in ["ThermalDemand", "Demand"]:
+        for name in DEMAND_FIELDS:
             if name in asset.time_series:
                 ts_name = name
                 break
@@ -151,7 +156,7 @@ class EnergyCalculator:
 
         # Look for production time series
         ts_name = None
-        for name in ["ThermalProduction", "Production", "Energy"]:
+        for name in PRODUCTION_FIELDS:
             if name in asset.time_series:
                 ts_name = name
                 break

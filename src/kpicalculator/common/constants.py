@@ -46,6 +46,22 @@ MINIMUM_PASSWORD_LENGTH = 8
 COMPOSITE_KEY_SEPARATOR = "|"
 COMPOSITE_KEY_FORMAT = "{asset_id}" + COMPOSITE_KEY_SEPARATOR + "{field_name}"
 
+# Field name lookup lists used by the KPI calculators.
+# Each tuple defines the priority order in which field names are tried for
+# a given energy category. The calculators import these directly so there
+# is a single source of truth.
+CONSUMPTION_FIELDS: tuple[str, ...] = ("ThermalConsumption", "Consumption", "Energy")
+DEMAND_FIELDS: tuple[str, ...] = ("ThermalDemand", "Demand")
+PRODUCTION_FIELDS: tuple[str, ...] = ("ThermalProduction", "Production", "Energy")
+ELECTRICAL_CONSUMPTION_FIELDS: tuple[str, ...] = ("ElectricalConsumption",)
+CONVERSION_FIELDS: tuple[str, ...] = ("ElectricalConsumption", "ThermalProduction")
+
+# Union of all recognised field names — used to warn when a DataFrame column
+# will not contribute to any KPI calculation.
+KNOWN_TIME_SERIES_FIELDS: frozenset[str] = frozenset(
+    CONSUMPTION_FIELDS + DEMAND_FIELDS + PRODUCTION_FIELDS + ELECTRICAL_CONSUMPTION_FIELDS
+)
+
 # Security-related ports to validate against
 DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM
 # Secure database ports (allowed for SSL/TLS connections)

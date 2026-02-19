@@ -1,6 +1,9 @@
+import math
 import sys
 import unittest
 from pathlib import Path
+
+import pandas as pd
 
 # Get the absolute path to the test directory
 TEST_DIR = Path(__file__).parent
@@ -142,6 +145,119 @@ class EsdlStringLoadingTest(unittest.TestCase):
             places=6,
             msg="Emissions mismatch between file and string loading",
         )
+
+
+class DataFrameTimeSeriesTest(unittest.TestCase):
+    """Test DataFrame time series loading via timeseries_dataframes parameter."""
+
+    TIMESTEPS = 24
+
+    def setUp(self) -> None:
+        self.esdl_file = str(DATA_DIR / "Unit_test_ESDL.esdl")
+        # Asset ID from the test ESDL fixture (GenericConsumer)
+        self.asset_id = "a5243809-0077-46e5-a0ea-09aa486f5e96"
+
+    def _make_dataframe(self, columns: dict) -> pd.DataFrame:
+        index = pd.date_range("2019-01-01T00:00:00", periods=self.TIMESTEPS, freq="h")
+        return pd.DataFrame(columns, index=index)
+
+    def test_dataframe_composite_keys_reach_energy_calculator(self) -> None:
+        """Test that DataFrame columns are mapped to composite keys and reach the calculator."""
+        from kpicalculator.common.constants import SECONDS_PER_YEAR
+
+        power_w = 100_000.0
+        time_step_s = 3600.0
+        # Annual energy = sum(values) * time_step * (SECONDS_PER_YEAR / total_duration)
+        expected_j = (
+            power_w
+            * self.TIMESTEPS
+            * time_step_s
+            * (SECONDS_PER_YEAR / (time_step_s * self.TIMESTEPS))
+        )
+
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            self.esdl_file,
+            timeseries_dataframes={
+                self.asset_id: self._make_dataframe(
+                    {"ThermalConsumption": [power_w] * self.TIMESTEPS}
+                )
+            },
+        )
+        results = kpi_manager.calculate_all_kpis()
+
+        self.assertTrue(
+            math.isclose(results["energy"]["consumption"], expected_j, rel_tol=1e-9),
+            msg=f"Expected {expected_j} J, got {results['energy']['consumption']} J",
+        )
+
+    def test_multiple_dataframe_columns_produce_independent_time_series(self) -> None:
+        """Test that each DataFrame column becomes a separate composite-keyed time series."""
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            self.esdl_file,
+            timeseries_dataframes={
+                self.asset_id: self._make_dataframe(
+                    {
+                        "ThermalConsumption": [100_000.0] * self.TIMESTEPS,
+                        "ThermalDemand": [80_000.0] * self.TIMESTEPS,
+                    }
+                )
+            },
+        )
+        asset = next(a for a in kpi_manager.energy_system.assets if a.id == self.asset_id)
+        self.assertIn("ThermalConsumption", asset.time_series)
+        self.assertIn("ThermalDemand", asset.time_series)
+        self.assertEqual(
+            asset.time_series["ThermalConsumption"].values, [100_000.0] * self.TIMESTEPS
+        )
+        self.assertEqual(asset.time_series["ThermalDemand"].values, [80_000.0] * self.TIMESTEPS)
+
+    def test_unknown_column_name_does_not_crash(self) -> None:
+        """Test that unrecognised column names are stored but don't crash the calculator."""
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            self.esdl_file,
+            timeseries_dataframes={
+                self.asset_id: self._make_dataframe({"unknown_field": [1.0] * self.TIMESTEPS})
+            },
+        )
+        results = kpi_manager.calculate_all_kpis()
+        self.assertEqual(
+            results["energy"]["consumption"],
+            0.0,
+            msg="Unrecognised column names must not contribute to energy consumption",
+        )
+
+    def test_non_numeric_column_is_skipped(self) -> None:
+        """Test that non-numeric DataFrame columns are skipped with a validation issue."""
+        from esdl.esdl_handler import EnergySystemHandler
+
+        from kpicalculator.adapters.time_series_manager import TimeSeriesManager
+        from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
+
+        handler = EnergySystemHandler()
+        energy_system = handler.load_file(self.esdl_file)
+
+        df = self._make_dataframe({"ThermalConsumption": ["a", "b"] * (self.TIMESTEPS // 2)})
+        expected_dtype = df["ThermalConsumption"].dtype
+        expected_error = (
+            f"Column 'ThermalConsumption' for asset {self.asset_id} has non-numeric "
+            f"dtype '{expected_dtype}' - skipping"
+        )
+
+        manager = TimeSeriesManager()
+        time_series_dict, validation = manager.load_time_series(
+            energy_system, timeseries_dataframes={self.asset_id: df}
+        )
+
+        self.assertFalse(
+            any(
+                k.endswith(f"{COMPOSITE_KEY_SEPARATOR}ThermalConsumption") for k in time_series_dict
+            ),
+            "Non-numeric column must not be stored as a TimeSeries",
+        )
+        self.assertIn(expected_error, validation.errors)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,14 @@
 # No typing imports needed currently
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
-from ..common.constants import KG_TO_TONS, SECONDS_PER_YEAR, TONS_TO_KG
+from ..common.constants import (
+    CONSUMPTION_FIELDS,
+    CONVERSION_FIELDS,
+    KG_TO_TONS,
+    PRODUCTION_FIELDS,
+    SECONDS_PER_YEAR,
+    TONS_TO_KG,
+)
 
 
 class EmissionCalculator:
@@ -101,13 +108,13 @@ class EmissionCalculator:
 
         # Select the correct time series key for the asset
         ts_options = {
-            AssetType.PRODUCER: ["ThermalProduction", "Production", "Energy"],
-            AssetType.GEOTHERMAL: ["ThermalProduction", "Production", "Energy"],
-            AssetType.CONSUMER: ["ThermalConsumption", "Consumption", "Energy"],
-            AssetType.CONVERSION: ["ElectricalConsumption", "ThermalProduction"],
+            AssetType.PRODUCER: PRODUCTION_FIELDS,
+            AssetType.GEOTHERMAL: PRODUCTION_FIELDS,
+            AssetType.CONSUMER: CONSUMPTION_FIELDS,
+            AssetType.CONVERSION: CONVERSION_FIELDS,
         }
         ts_name = None
-        options = ts_options.get(asset.asset_type, [])
+        options: tuple[str, ...] = ts_options.get(asset.asset_type, ())
         for key in options:
             if key in asset.time_series:
                 ts_name = key
