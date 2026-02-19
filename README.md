@@ -45,7 +45,7 @@ Cost results are broken down by asset category (Production, Transport, Storage, 
 pip install kpi-calculator
 ```
 
-For full usage instructions — all parameter variants, time series options, ESDL string loading, command-line interface, and results format — see the [Getting Started](https://kpi-calculator.readthedocs.io/en/latest/user_documentation/getting_started.html) guide.
+For full usage instructions — all parameter variants, time series options, ESDL string loading, command-line interface, and results format — see the [Getting Started](https://kpi-calculator.readthedocs.io/en/latest/getting_started.html) guide.
 
 ## Dependencies
 
@@ -71,7 +71,7 @@ uv run pytest unit_test/
 
 See the [developer documentation](doc/dev_documentation/) for architecture details, tooling, and contribution workflow.
 
-Tests enforce a minimum coverage threshold (configured in ``pyproject.toml``).
+Tests enforce a minimum coverage threshold (configured in `pyproject.toml`).
 
 ## Releases
 
@@ -81,9 +81,9 @@ Published to [PyPI](https://pypi.org/project/kpi-calculator/) automatically when
 
 Full documentation is hosted on [ReadTheDocs](https://kpi-calculator.readthedocs.io/):
 
-- [Getting Started](https://kpi-calculator.readthedocs.io/en/latest/user_documentation/getting_started.html) — installation, usage, and results format
-- [KPI Results Guide](https://kpi-calculator.readthedocs.io/en/latest/user_documentation/kpi_guide.html) — interpreting calculation results
-- [Developer Documentation](https://kpi-calculator.readthedocs.io/en/latest/dev_documentation/index.html) — architecture, setup, and contributing
+- [Getting Started](https://kpi-calculator.readthedocs.io/en/latest/getting_started.html) — installation, usage, and results format
+- [KPI Guide](https://kpi-calculator.readthedocs.io/en/latest/user_documentation/kpi_guide.html) — interpreting calculation results
+- [Developer Documentation](https://kpi-calculator.readthedocs.io/en/latest/dev_documentation/architecture.html) — architecture, setup, and contributing
 
 ## License
 

@@ -134,7 +134,7 @@ EnergySystem
        source_metadata: dict[str, str] = field(default_factory=dict)
        esdl_energy_system: esdl.EnergySystem | None = None
 
-This is the top-level container passed to all calculators. ``unit_conversion`` holds custom unit conversion factors loaded from a CSV file. ``source_metadata`` records how the system was loaded (e.g., ``{"esdl_file": "model.esdl"}`` or ``{"esdl_source": "string"}``). ``esdl_energy_system`` holds the original PyESDL object set by the adapter for both file-loaded and string-loaded systems, enabling ESDL export without re-reading from disk.
+This is the top-level container passed to all calculators. ``unit_conversion`` holds cost unit conversion factors (automatically populated from ``COST_UNIT_FACTORS`` in ``constants.py``). ``source_metadata`` records how the system was loaded (e.g., ``{"esdl_file": "model.esdl"}`` or ``{"esdl_source": "string"}``). ``esdl_energy_system`` holds the original PyESDL object set by the adapter for both file-loaded and string-loaded systems, enabling ESDL export without re-reading from disk.
 
 ESDL Adapter
 ------------
@@ -186,54 +186,74 @@ The full priority order when all sources are enabled is:
 3. **XML files** — loaded from the ``time_series`` parameter
 4. **No data** — calculators return zero for energy values (no rated-capacity fallback is implemented)
 
-Each source is attempted in order. If one fails, it logs a warning and tries the next. In practice, the simulator-worker provides time series via DataFrames, bypassing InfluxDB entirely.
+Each source is attempted in order. If one fails, it logs a warning and tries the next. In the OMOTES pipeline, the simulator-worker provides time series via DataFrames, bypassing InfluxDB entirely.
 
 **InfluxDB disabled in the default API:** The public API (``KpiManager.load_from_esdl()``) passes ``use_database_profiles=False`` to the adapter. This means InfluxDB is **not added to the priority list at all** — it is excluded, not tried-and-skipped. The effective priority for the default API is: DataFrames → XML → empty. This is intentional: the default entry point is designed to work without a database connection. The adapter layer itself fully supports InfluxDB; re-enabling it requires passing ``use_database_profiles=True`` when constructing the adapter directly.
 
-DataFrame Mapping Bug
-"""""""""""""""""""""
+DataFrame Composite Key Mapping
+""""""""""""""""""""""""""""""""
 
-There is a known bug in the DataFrame-to-asset mapping path that makes DataFrames effectively non-functional. The issue spans two components:
+``TimeSeriesManager._load_from_dataframes()`` iterates over every column in each DataFrame and
+stores the data under a **composite key** in the format ``asset_id|column_name``. This matches
+the format produced by the InfluxDB and XML loaders, so ``EsdlAdapter._build_asset()`` can
+resolve the time series without any special-casing for the DataFrame path.
 
-1. **``TimeSeriesManager._load_from_dataframes()``** stores each DataFrame's data under a **plain asset ID** key (e.g., ``"asset_id_1"``). This matches the dict keys that callers pass via the ``timeseries_dataframes`` parameter.
+The column name is used as the field name and must match one of the names recognised by the KPI
+calculators. The full set is defined in ``KNOWN_TIME_SERIES_FIELDS`` (``common/constants.py``),
+derived from the field name tuples imported by the calculators:
 
-2. **``EsdlAdapter._build_asset()``** maps time series to assets by first scanning for **composite keys** in the format ``asset_id|field_name``. Only entries containing the ``|`` separator are matched. Plain asset ID keys are detected by a fallback branch, but intentionally discarded with a warning because the adapter cannot infer which parameter (e.g., heat flow, electricity) the data represents.
+.. code-block:: text
 
-The result: ``_load_from_dataframes`` succeeds without error (the source is "consumed" in the priority chain), but no time series data reaches the ``Asset`` objects. If an XML file was also provided, it is **not** tried as a fallback because the DataFrame source already returned successfully.
+   CONSUMPTION_FIELDS        ThermalConsumption, Consumption, Energy
+   DEMAND_FIELDS             ThermalDemand, Demand
+   PRODUCTION_FIELDS         ThermalProduction, Production, Energy
+   ELECTRICAL_CONSUMPTION    ElectricalConsumption
 
-The composite key format (``asset_id|field_name``) originates from InfluxDB and XML loaders, which have access to parameter metadata. The DataFrame loader does not construct composite keys because the public API accepts ``dict[str, pd.DataFrame]`` keyed by plain asset ID.
-
-**Possible fixes:**
-
-- Have ``_load_from_dataframes`` construct composite keys using the DataFrame's column names as the field name (e.g., ``"asset_id_1|heat_supplied"``).
-- Have ``_build_asset`` accept plain asset ID keys for single-column DataFrames, inferring a default field name.
-- Change the public API type to ``dict[str, dict[str, pd.DataFrame]]`` (asset ID → field name → DataFrame) so callers provide the parameter name explicitly.
-
-This is tracked as a bug.
+Columns with unrecognised names are stored in the time series dict but will not be picked up by
+any calculator — a warning is logged at load time so callers can catch the mismatch early.
+Non-numeric columns are rejected with an error recorded in ``ValidationResult`` and never stored.
 
 Cost Unit Conversion
 --------------------
 
-The cost calculator (``calculators/cost_calculator.py``) converts cost values from ESDL units to EUR using the asset's physical properties. This is the most likely place for bugs when new unit types are encountered.
+The cost calculator (``calculators/cost_calculator.py``) converts cost values from ESDL units to EUR using the asset's physical properties and built-in conversion factors defined in ``COST_UNIT_FACTORS`` (``common/constants.py``). The factors are looked up by ``_get_unit_factor(unit)`` from ``energy_system.unit_conversion``, which is automatically populated by the adapter.
 
-Supported conversions:
+**Investment and installation costs** — allowed units:
 
 .. code-block:: text
 
    Unit            Conversion
    ──────────────────────────────────────────────────
-   EUR             value (no conversion)
-   EUR/kW          value × power_in_W / 1000
-   EUR/MW          value × power_in_W / 1_000_000
-   EUR/m           value × length_in_m
-   EUR/km          value × length_in_m / 1000
-   EUR/m³          value × volume_in_m3
-   EUR/kWh         value × energy_in_J / 3_600_000
-   EUR/MWh         value × energy_in_J / 3_600_000_000
-   EUR/yr          value (annual cost, used directly)
-   %               value / 100 × (investment + installation)
+   EUR             value (no factor needed)
+   EUR/kW          value × power_W × 0.001
+   EUR/MW          value × power_W × 1e-6
+   EUR/m           value × length_m
+   EUR/km          value × length_m × 0.001
+   EUR/m3          value × volume_m3 (no factor needed)
 
-**To add a new unit:** Add a branch in the cost calculator's unit conversion method and add a test case.
+**Fixed operational and fixed maintenance costs** — allowed units:
+
+.. code-block:: text
+
+   Unit            Conversion
+   ──────────────────────────────────────────────────
+   EUR, EUR/yr     value (used directly as annual cost)
+   EUR/MW          value × power_W × 1e-6
+   % OF CAPEX      value × (investment + installation) × 0.01
+
+**Variable operational and variable maintenance costs** — allowed units:
+
+.. code-block:: text
+
+   Unit            Conversion
+   ──────────────────────────────────────────────────
+   EUR, EUR/yr     value (used directly as annual cost)
+   EUR/kWh         value × annual_energy_J × 2.78e-7
+   EUR/MWh         value × annual_energy_J × 2.78e-10
+
+Variable costs use the **first** time series on the asset (regardless of key name). For geothermal assets with COP > 0, the energy is divided by COP before applying the cost rate.
+
+**To add a new unit:** Add the unit string to the ``allowed_units`` list in the relevant cost method, add a conversion branch, add the factor to ``COST_UNIT_FACTORS`` in ``constants.py``, and add a test case.
 
 Calculators
 -----------
@@ -281,7 +301,7 @@ Emission factors come from ESDL carrier definitions (kg CO2/GJ).
 ESDL Export
 -----------
 
-The exporter (``reporting/esdl_kpi_exporter.py``) writes KPI results back into an ESDL structure using ``DistributionKPI`` elements. Currently supports system-level export only (area-level and asset-level are not implemented).
+The exporter (``reporting/esdl_kpi_exporter.py``) writes KPI results back into an ESDL structure using ``DistributionKPI`` elements. Currently supports system-level export only.
 
 The exporter does not perform calculations — it receives pre-calculated results and formats them into ESDL-compliant XML elements.
 

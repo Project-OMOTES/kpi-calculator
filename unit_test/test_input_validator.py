@@ -549,8 +549,7 @@ class TestIntegratedValidation(unittest.TestCase):
     1. Pydantic handles data integrity validation (types, formats, constraints)
     2. InputValidator handles business logic validation (security rules, domain rules)
 
-    NOTE: This dual-layer approach is TEMPORARY per ARCHITECTURAL_TODO.md.
-    Future implementation will use Option A: Pydantic-Primary with Business Layer.
+    NOTE: This dual-layer approach uses the Pydantic-Primary with Business Layer pattern.
     """
 
     def test_integrated_validation_pydantic_catches_basic_errors(self) -> None:

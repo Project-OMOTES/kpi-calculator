@@ -36,5 +36,8 @@ unit_test/temp_test_outputs/
 .env
 .env.*
 
+# Sphinx documentation build output
+doc/_build/
+
 # Excluded from version control
 *_efvc_*

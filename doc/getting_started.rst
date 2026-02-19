@@ -3,6 +3,10 @@ Getting Started
 
 This guide walks you through installing the KPI Calculator, running your first calculation, and understanding the results.
 
+.. |test_examples| raw:: html
+
+   <a href="https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py" target="_blank">unit_test/test_examples.py</a>
+
 Installation
 ------------
 
@@ -25,6 +29,9 @@ The simplest way to calculate KPIs is from an ESDL file:
    print(f"Total CAPEX: {results['costs']['capex']['All']} EUR")
    print(f"LCOE: {results['costs']['lcoe']} EUR/MWh")
 
+.. note::
+   Validated by `test_quick_start <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
+
 By default, the analysis uses a 30-year system lifetime with a 5% discount rate. You can override the system lifetime:
 
 .. code-block:: python
@@ -34,12 +41,15 @@ By default, the analysis uses a 30-year system lifetime with a 5% discount rate.
        system_lifetime=25  # Default: 30 years
    )
 
+.. note::
+   Validated by `test_basic_usage_with_parameters <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
+
 Providing Time Series
 ---------------------
 
 Without time series data, energy values (consumption, production, demand) are returned as zero. There is no rated-capacity fallback — you need to supply actual time series for meaningful energy and emission KPIs.
 
-The package supports three time series sources (DataFrames, InfluxDB profiles, and XML files), but the default API exposes two. InfluxDB is available only when using the adapter layer directly; see the :doc:`../dev_documentation/architecture` documentation for details.
+The package supports three time series sources (DataFrames, InfluxDB profiles, and XML files), but the default API exposes two. InfluxDB is available only when using the adapter layer directly; see the :doc:`dev_documentation/architecture` documentation for details.
 
 **XML files** — pass a path to an XML time series file:
 
@@ -50,13 +60,14 @@ The package supports three time series sources (DataFrames, InfluxDB profiles, a
        time_series="timeseries.xml"
    )
 
-**pandas DataFrames** — pass a dictionary of DataFrames keyed by asset ID:
+.. note::
+   Validated by `test_basic_usage_testing_override <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
 
-.. warning::
-
-   The DataFrame integration path currently **does not work**. The ``timeseries_dataframes`` parameter is accepted, but the data does not reach the KPI calculators. Internally, DataFrames are stored under plain asset ID keys, but the adapter only maps time series that use composite keys in the format ``asset_id|field_name``. Plain-key entries are detected but discarded because the adapter cannot infer which parameter the data represents. The adapter logs a single warning on the first discarded asset (check your log output for "Found assets with time series data but no parameter information"), but subsequent discards for other assets are silent. This is tracked as a bug to fix. **For now, use XML time series instead.**
-
-The intended API is shown below for reference, but until the bug is resolved, the data will not affect KPI results:
+**pandas DataFrames** — pass a dictionary of DataFrames keyed by asset ID. Each DataFrame column
+represents a time series field; the column name must match a field name recognised by the KPI
+calculators (``ThermalConsumption``, ``ThermalProduction``, ``ThermalDemand``, ``Consumption``,
+``Production``, ``Demand``, ``ElectricalConsumption``, or ``Energy``). Unrecognised column names
+are stored but will not contribute to any KPI — a warning is logged in that case:
 
 .. code-block:: python
 
@@ -64,7 +75,7 @@ The intended API is shown below for reference, but until the bug is resolved, th
 
    timeseries_data = {
        "asset_id_1": pd.DataFrame({
-           "heat_supplied": [100000, 102000, ...],
+           "ThermalConsumption": [100000, 102000, ...],
        }, index=pd.date_range("2024-01-01", periods=24, freq="h")),
    }
 
@@ -73,7 +84,10 @@ The intended API is shown below for reference, but until the bug is resolved, th
        timeseries_dataframes=timeseries_data,
    )
 
-For implementation details on the composite key requirement, see the :doc:`../dev_documentation/architecture` documentation.
+.. note::
+   Validated by `test_timeseries_dataframes_produce_valid_kpi_results <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
+
+For implementation details on the composite key mapping, see the :doc:`dev_documentation/architecture` documentation.
 
 From ESDL String Content
 ------------------------
@@ -88,17 +102,8 @@ When the ESDL is already in memory (for example, received from an API or generat
    manager.load_from_esdl_string(esdl_string)
    results = manager.calculate_all_kpis()
 
-Unit Conversion Data
---------------------
-
-You can supply custom unit conversion factors via a CSV file:
-
-.. code-block:: python
-
-   results = calculate_kpis(
-       esdl_file="model.esdl",
-       unit_conversion="unit_conversion.csv"
-   )
+.. note::
+   Validated by `test_string_loaded_esdl_export <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
 
 Command Line
 ------------
@@ -132,6 +137,9 @@ Export calculated KPIs back into ESDL as ``DistributionKPI`` elements for visual
 .. code-block:: python
 
    esdl_with_kpis = manager.get_esdl_with_kpis(results)
+
+.. note::
+   Both export patterns are validated by `test_string_loaded_esdl_export <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
 
 Export works with both file-loaded and string-loaded ESDL — no temporary files needed for in-memory workflows.
 
@@ -167,7 +175,7 @@ Results Structure
 - **Energy**: System-wide totals in Joules. Efficiency is the ratio of consumption to production (0 to 1).
 - **Emissions**: Total CO2-equivalent emissions in tonnes and emissions intensity in kg CO2e per MWh of energy consumed.
 
-For a detailed explanation of what each KPI means and how to interpret it, see :doc:`kpi_guide`.
+For a detailed explanation of what each KPI means and how to interpret it, see :doc:`user_documentation/kpi_guide`.
 
 Time Series Behavior
 --------------------
@@ -182,11 +190,11 @@ The first source that returns data wins; the rest are not tried. If a source fai
 
 However, the default API (``calculate_kpis()``) sets ``use_database_profiles=False`` internally, which **removes InfluxDB from the priority list entirely** — it is not merely skipped, it is excluded. This reduces the effective order to:
 
-1. **pandas DataFrames** (currently broken — see warning above)
+1. **pandas DataFrames**
 2. **XML files**
 
-In practice, only XML files produce working results at this time. If both a DataFrame and an XML file are provided, the DataFrame source is tried first and "succeeds" (no error is raised), but the data is later discarded during asset construction because it lacks composite keys. This means the XML data is also not used in that case, since the DataFrame source already returned. To get working time series, provide XML files **without** also passing ``timeseries_dataframes``.
+If both a DataFrame and an XML file are provided, the DataFrame source is tried first. If it returns data, XML is not tried.
 
 Without time series from a working source, energy calculators return zero for consumption, production, and demand. There is no rated-capacity fallback (the ``power × 8760`` estimation found in some energy system tools is not implemented here). Providing time series is required for meaningful energy and emission KPIs.
 
-For the full implementation details — including the dynamic priority-building code and how to re-enable InfluxDB — see the :doc:`../dev_documentation/architecture` documentation.
+For the full implementation details — including the dynamic priority-building code and how to re-enable InfluxDB — see the :doc:`dev_documentation/architecture` documentation.

@@ -57,7 +57,7 @@ class Asset:
     # Lifecycle properties
     technical_lifetime: float = DEFAULT_TECHNICAL_LIFETIME_YEARS  # years
     discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT  # %
-    emission_factor: float = 0.0  # kg/GJ
+    emission_factor: float = 0.0  # kg/J (converted from ESDL kg/GJ by adapter)
 
     # Aggregation
     aggregation_count: int = 1
