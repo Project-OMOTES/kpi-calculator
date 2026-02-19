@@ -25,7 +25,7 @@ dependencies = ["coloredlogs~=15.0.1"]
 [project.optional-dependencies]
 dev = [
     "setuptools ~= 69.0.3",
-    "wheel ~= 0.40.0",
+    "wheel >= 0.40,< 0.47",
     "setuptools-git-versioning < 2",
     "black~=22.1.0",
     "flake8==6.0.0",
@@ -51,7 +51,7 @@ kpicalculator = "kpicalculator:main"
 build-backend = "setuptools.build_meta"
 requires = [
     "setuptools ~= 69.0.3",
-    "wheel ~= 0.40.0",
+    "wheel >= 0.40,< 0.47",
     "setuptools-git-versioning<2",
 ]
 
