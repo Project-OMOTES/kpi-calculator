@@ -34,24 +34,6 @@ usage examples, and results format.
    :hidden:
 
    getting_started
-
-.. toctree::
-   :hidden:
-   :caption: User Guide
-
-   user_documentation/kpi_guide
-   user_documentation/kpi_reference
-
-.. toctree::
-   :hidden:
-   :caption: Developer Guide
-
-   dev_documentation/architecture
-   dev_documentation/development
-
-.. toctree::
-   :hidden:
-   :caption: Reference
-
-   api_reference
-   indices
+   user_guide
+   developer_guide
+   reference
