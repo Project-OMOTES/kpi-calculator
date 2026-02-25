@@ -93,7 +93,7 @@ kpicalculator = "kpicalculator:main"
 build-backend = "setuptools.build_meta"
 requires = [
     "setuptools >= 70.0.0",  # Security: CVE fixes in 70.0.0+
-    "wheel >= 0.46.2",
+    "wheel ~= 0.46.2",
     "setuptools-git-versioning<2",
 ]
 
