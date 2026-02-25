@@ -36,7 +36,7 @@ The package has four layers:
    │    cost_calculator    energy_calculator    emission_calc  │
    ├──────────────────────────────────────────────────────────┤
    │  Adapters                                                │
-   │    esdl_adapter    time_series_manager    database_loader │
+   │    esdl_adapter    simulator_adapter    time_series_mgr   │
    ├──────────────────────────────────────────────────────────┤
    │  Common Model                                            │
    │    Asset    TimeSeries    EnergySystem                    │
@@ -328,9 +328,10 @@ Project Layout
    ├── kpi_manager.py                  # Orchestrator + result TypedDicts
    ├── exceptions.py                   # Custom exception hierarchy
    ├── adapters/
-   │   ├── base_adapter.py             # Abstract base + protocols
+   │   ├── base_adapter.py             # Abstract base (enforces EnergySystem return)
    │   ├── common_model.py             # Asset, TimeSeries, EnergySystem
    │   ├── esdl_adapter.py             # ESDL parsing + cost extraction
+   │   ├── simulator_adapter.py        # OMOTES Simulator port→asset mapping
    │   ├── time_series_manager.py      # Multi-source time series loading
    │   ├── database_time_series_loader.py  # InfluxDB integration
    │   └── xml_time_series_adapter.py  # XML time series (testing)
@@ -391,11 +392,25 @@ Adding a New Adapter
 
 To add a new data source (e.g., MESIDO optimization results):
 
-1. Create ``adapters/mesido_adapter.py``
-2. Parse the source data and construct ``Asset`` objects with the properties your source provides (costs, time series, physical properties)
-3. Return a populated ``EnergySystem``
-4. Add a ``load_from_mesido()`` method to ``KpiManager``
+1. Create ``adapters/mesido_adapter.py`` subclassing ``BaseAdapter``
+2. Define a **typed** ``load_data()`` method whose signature matches the actual inputs
+   of your data source — do not try to fit all adapters into one shared signature
+3. Parse the source data and construct ``Asset`` objects with costs, time series, and
+   physical properties; return a populated ``EnergySystem``
+4. Add a ``load_from_mesido()`` method to ``KpiManager`` that instantiates your adapter
+   and calls it directly
+5. Export the new class from ``adapters/__init__.py``
 
 The calculators don't need to change — they only depend on the common model.
 
-The ``base_adapter.py`` file defines protocols for ``MesidoResultsProtocol`` and ``SimulatorResultsProtocol`` as a starting point, though the actual interface can be adjusted to match what the source system provides.
+**BaseAdapter design principle**: the base class enforces only the ``EnergySystem``
+return type. Each adapter owns its own loading signature. ``KpiManager`` calls the
+specific adapter it knows about directly, not through the base class interface. The
+``SimulatorAdapter`` (``adapters/simulator_adapter.py``) is the reference implementation
+for this pattern: it accepts a ``(pd.DataFrame, esdl_string)`` pair, resolves port IDs
+to asset IDs, and delegates cost extraction to ``EsdlAdapter.load_from_string()``.
+
+The ``# type: ignore[override]`` annotations on ``load_data`` and ``validate_source``
+in concrete adapters are intentional — they narrow the inherited ``Any`` signature to
+specific types without breaking Liskov substitutability in practice, because callers
+always use the concrete type directly.

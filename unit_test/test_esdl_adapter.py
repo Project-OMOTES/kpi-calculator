@@ -146,12 +146,29 @@ class TestLoadDataErrorPaths(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.adapter.load_data(source=42)
 
-    def test_non_path_source_mesido_mock_raises_type_error(self) -> None:
-        """A mock MesidoResultsProtocol also triggers the TypeError branch."""
-        mock_mesido = MagicMock()
-        # It is not a str or Path, so load_data must raise TypeError
+    def test_non_path_source_arbitrary_object_raises_type_error(self) -> None:
+        """Any non-str/Path object triggers the TypeError branch.
+
+        EsdlAdapter only accepts file paths. Passing any other type should raise
+        TypeError immediately, before any file I/O is attempted.
+        """
+        mock_data = MagicMock()
         with self.assertRaises(TypeError):
-            self.adapter.load_data(source=mock_mesido)
+            self.adapter.load_data(source=mock_data)
+
+    def test_dataframe_source_raises_type_error_with_clear_message(self) -> None:
+        """Passing a DataFrame raises TypeError with the actual type name in the message.
+
+        This is the most likely caller mistake: using EsdlAdapter instead of
+        SimulatorAdapter when the source is a simulator result DataFrame.
+        """
+        import pandas as pd
+
+        df = pd.DataFrame()
+        with self.assertRaises(TypeError) as ctx:
+            self.adapter.load_data(source=df)
+
+        self.assertIn("DataFrame", str(ctx.exception))
 
     def test_invalid_esdl_path_raises_value_error(self) -> None:
         """load_data() raises ValueError when validate_source() returns errors.
