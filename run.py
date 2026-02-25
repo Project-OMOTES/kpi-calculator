@@ -24,19 +24,20 @@ COMMANDS = {
 
 def main() -> int:
     if len(sys.argv) < 2 or sys.argv[1] not in (*COMMANDS, "check"):
-        print("Usage: uv run run.py {lint|format|check|test|pre-commit}")
+        if __doc__:
+            sys.stderr.write(__doc__)
         return 1
 
     task = sys.argv[1]
 
     if task == "check":
         for name in ("lint", "format", "mypy"):
-            rc = subprocess.call(COMMANDS[name])
+            rc = subprocess.run(COMMANDS[name], check=False).returncode  # noqa: S603 - literal command arrays, no user input
             if rc != 0:
                 return rc
         return 0
 
-    return subprocess.call(COMMANDS[task])
+    return subprocess.run(COMMANDS[task], check=False).returncode  # noqa: S603 - literal command arrays, no user input
 
 
 if __name__ == "__main__":
