@@ -27,7 +27,8 @@ commit. Install the hooks once after cloning:
 
 The hooks configured in ``.pre-commit-config.yaml`` run on every ``git commit``:
 
-- **ruff** — linting with auto-fixes and formatting
+- **ruff** — linting with auto-fixes, then a strict pass to catch unfixable violations
+- **ruff-format** — code formatting
 - **mypy** — static type checking on ``src/kpicalculator/``
 - **pre-commit-hooks** — trailing whitespace, YAML/TOML validity, merge conflict markers, debug statements
 - **pytest** — full test suite
@@ -42,16 +43,26 @@ manually without committing:
 Code Quality
 ------------
 
-To run linting, formatting, or type checking independently (e.g., on specific files or
-without committing):
+To run linting, formatting, or type checking independently:
 
 .. code-block:: bash
 
-   uv run ruff check --fix src/ unit_test/
-   uv run ruff format src/ unit_test/
-   uv run mypy src/kpicalculator
+   uv run ruff check src/ unit_test/          # lint (matches CI)
+   uv run ruff check --fix src/ unit_test/    # lint with auto-fix
+   uv run ruff format src/ unit_test/         # format
+   uv run mypy src/kpicalculator              # type check
 
 The project uses `Ruff <https://docs.astral.sh/ruff/>`_ for both linting and formatting, and mypy for static type checking. All three checks are enforced in CI on every push and pull request.
+
+Shorthand commands are available via ``run.py`` (cross-platform):
+
+.. code-block:: bash
+
+   uv run run.py lint         # ruff check
+   uv run run.py format       # ruff format --check
+   uv run run.py check        # lint + format + mypy
+   uv run run.py test         # pytest
+   uv run run.py pre-commit   # all pre-commit hooks
 
 Testing
 -------
@@ -71,11 +82,11 @@ The minimum coverage threshold is configured via ``--cov-fail-under`` in ``pypro
 Full Validation Pipeline
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Run all checks in one command before opening a pull request:
+Run all checks before opening a pull request:
 
 .. code-block:: bash
 
-   uv run ruff check --fix src/ unit_test/ && uv run ruff format src/ unit_test/ && uv run mypy src/kpicalculator && uv run pytest --cov=src/kpicalculator --cov-report term-missing --cov-fail-under 80 unit_test/ -q
+   uv run run.py pre-commit
 
 Building Documentation
 ----------------------
