@@ -1,4 +1,5 @@
 # src/kpicalculator/calculators/cost_calculator.py
+import logging
 import math
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
@@ -7,6 +8,8 @@ from ..common.constants import (
     PERCENTAGE_TO_DECIMAL,
     SECONDS_PER_YEAR,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CostCalculator:
@@ -198,6 +201,11 @@ class CostCalculator:
         allowed_units = ["EUR", "EUR/kW", "EUR/MW", "EUR/m", "EUR/km", "EUR/m3"]
 
         if asset.investment_cost_unit not in allowed_units:
+            logger.warning(
+                "Unsupported unit '%s' for investment cost on asset '%s'. Cost ignored.",
+                asset.investment_cost_unit,
+                asset.name,
+            )
             return 0.0
 
         value = asset.investment_cost
@@ -231,6 +239,11 @@ class CostCalculator:
         allowed_units = ["EUR", "EUR/kW", "EUR/MW", "EUR/m", "EUR/km", "EUR/m3"]
 
         if asset.installation_cost_unit not in allowed_units:
+            logger.warning(
+                "Unsupported unit '%s' for installation cost on asset '%s'. Cost ignored.",
+                asset.installation_cost_unit,
+                asset.name,
+            )
             return 0.0
 
         value = asset.installation_cost
@@ -264,6 +277,11 @@ class CostCalculator:
         allowed_units = ["EUR", "EUR/yr", "% OF CAPEX", "EUR/MW"]
 
         if asset.fixed_operational_cost_unit not in allowed_units:
+            logger.warning(
+                "Unsupported unit '%s' for fixed operational cost on asset '%s'. Cost ignored.",
+                asset.fixed_operational_cost_unit,
+                asset.name,
+            )
             return 0.0
 
         value = asset.fixed_operational_cost
@@ -296,6 +314,11 @@ class CostCalculator:
         allowed_units = ["EUR", "EUR/yr", "EUR/kWh", "EUR/MWh"]
 
         if asset.variable_operational_cost_unit not in allowed_units:
+            logger.warning(
+                "Unsupported unit '%s' for variable operational cost on asset '%s'. Cost ignored.",
+                asset.variable_operational_cost_unit,
+                asset.name,
+            )
             return 0.0
 
         value = asset.variable_operational_cost
@@ -341,6 +364,11 @@ class CostCalculator:
         allowed_units = ["EUR", "EUR/yr", "% OF CAPEX", "EUR/MW"]
 
         if asset.fixed_maintenance_cost_unit not in allowed_units:
+            logger.warning(
+                "Unsupported unit '%s' for fixed maintenance cost on asset '%s'. Cost ignored.",
+                asset.fixed_maintenance_cost_unit,
+                asset.name,
+            )
             return 0.0
 
         value = asset.fixed_maintenance_cost
@@ -373,6 +401,11 @@ class CostCalculator:
         allowed_units = ["EUR", "EUR/yr", "EUR/kWh", "EUR/MWh"]
 
         if asset.variable_maintenance_cost_unit not in allowed_units:
+            logger.warning(
+                "Unsupported unit '%s' for variable maintenance cost on asset '%s'. Cost ignored.",
+                asset.variable_maintenance_cost_unit,
+                asset.name,
+            )
             return 0.0
 
         value = asset.variable_maintenance_cost
