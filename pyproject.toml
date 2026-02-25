@@ -65,7 +65,7 @@ docs = [
 build = [
     "setuptools >= 70.0.0",
     "pip >= 25.3",
-    "wheel >= 0.46.2",
+    "wheel ~= 0.46.2",
     "setuptools-git-versioning < 2",
     "build ~= 1.0.3",
     "bump2version==1.0.1",
