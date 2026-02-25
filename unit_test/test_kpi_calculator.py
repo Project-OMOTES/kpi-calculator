@@ -1166,6 +1166,74 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
 
         self.assertEqual(calc._calculate_variable_maintenance_cost(asset), 0.0)
 
+    def _assert_unsupported_unit_logs_warning(
+        self, method_name: str, unit_field: str, unit_value: str, cost_field: str
+    ) -> None:
+        """Helper: verify that an unsupported unit logs a warning and returns 0.0."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        asset = self._make_asset(**{cost_field: 5.0, unit_field: unit_value})
+        calc = CostCalculator(self._make_system(asset))
+
+        with self.assertLogs("kpicalculator.calculators.cost_calculator", level="WARNING") as cm:
+            result = getattr(calc, method_name)(asset)
+
+        self.assertEqual(result, 0.0)
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("Unsupported unit", cm.output[0])
+        self.assertIn(unit_value, cm.output[0])
+
+    def test_unsupported_investment_cost_unit_logs_warning(self) -> None:
+        """'% OF CAPEX' is valid for fixed ops/maintenance but not investment cost."""
+        self._assert_unsupported_unit_logs_warning(
+            "_calculate_investment_cost", "investment_cost_unit", "% OF CAPEX", "investment_cost"
+        )
+
+    def test_unsupported_installation_cost_unit_logs_warning(self) -> None:
+        """'% OF CAPEX' is valid for fixed ops/maintenance but not installation cost."""
+        self._assert_unsupported_unit_logs_warning(
+            "_calculate_installation_cost",
+            "installation_cost_unit",
+            "% OF CAPEX",
+            "installation_cost",
+        )
+
+    def test_unsupported_fixed_operational_cost_unit_logs_warning(self) -> None:
+        """'EUR/km' is valid for investment/installation but not fixed operational cost."""
+        self._assert_unsupported_unit_logs_warning(
+            "_calculate_fixed_operational_cost",
+            "fixed_operational_cost_unit",
+            "EUR/km",
+            "fixed_operational_cost",
+        )
+
+    def test_unsupported_variable_operational_cost_unit_logs_warning(self) -> None:
+        """'% OF CAPEX' is valid for fixed ops/maintenance but not variable operational cost."""
+        self._assert_unsupported_unit_logs_warning(
+            "_calculate_variable_operational_cost",
+            "variable_operational_cost_unit",
+            "% OF CAPEX",
+            "variable_operational_cost",
+        )
+
+    def test_unsupported_fixed_maintenance_cost_unit_logs_warning(self) -> None:
+        """'EUR/km' is valid for investment/installation but not fixed maintenance cost."""
+        self._assert_unsupported_unit_logs_warning(
+            "_calculate_fixed_maintenance_cost",
+            "fixed_maintenance_cost_unit",
+            "EUR/km",
+            "fixed_maintenance_cost",
+        )
+
+    def test_unsupported_variable_maintenance_cost_unit_logs_warning(self) -> None:
+        """'% OF CAPEX' is valid for fixed ops/maintenance but not variable maintenance cost."""
+        self._assert_unsupported_unit_logs_warning(
+            "_calculate_variable_maintenance_cost",
+            "variable_maintenance_cost_unit",
+            "% OF CAPEX",
+            "variable_maintenance_cost",
+        )
+
 
 class BaseAdapterValidationTest(unittest.TestCase):
     """Tests for BaseAdapter._validate_energy_system().
