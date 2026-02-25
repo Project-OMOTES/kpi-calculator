@@ -599,7 +599,7 @@ build = [
     { name = "pip", specifier = ">=25.3" },
     { name = "setuptools", specifier = ">=70.0.0" },
     { name = "setuptools-git-versioning", specifier = "<2" },
-    { name = "wheel", specifier = ">=0.46.2" },
+    { name = "wheel", specifier = "~=0.46.2" },
 ]
 dev = [
     { name = "bandit", specifier = ">=1.7.0" },
@@ -624,7 +624,7 @@ dev = [
     { name = "sphinx-autodoc-typehints", specifier = ">=1.18.0" },
     { name = "sphinx-copybutton", specifier = ">=0.5.0" },
     { name = "vulture", specifier = ">=2.0.0" },
-    { name = "wheel", specifier = ">=0.46.2" },
+    { name = "wheel", specifier = "~=0.46.2" },
 ]
 docs = [
     { name = "furo", specifier = ">=2023.1.0" },
