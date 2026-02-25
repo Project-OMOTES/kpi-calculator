@@ -329,15 +329,32 @@ class CostCalculator:
         if asset.variable_operational_cost_unit in ["EUR/kWh", "EUR/MWh"]:
             # Check if we have time series data
             if not asset.time_series:
+                logger.debug(
+                    "No time series data for asset '%s'. "
+                    "Variable operational cost returned as 0.0.",
+                    asset.name,
+                )
                 return 0.0
 
             # Get the first time series (assuming it's the relevant one)
             ts = next(iter(asset.time_series.values()), None)
             if ts is None:
+                logger.debug(
+                    "Empty time series dict for asset '%s'. "
+                    "Variable operational cost returned as 0.0.",
+                    asset.name,
+                )
                 return 0.0
 
             # Calculate annual energy
             duration = ts.time_step * len(ts.values)
+            if duration <= 0:
+                logger.warning(
+                    "Non-positive duration in time series for asset '%s'. "
+                    "Variable operational cost returned as 0.0.",
+                    asset.name,
+                )
+                return 0.0
             time_factor = SECONDS_PER_YEAR / duration
             energy_sum = sum(ts.values) * ts.time_step
 
@@ -416,15 +433,32 @@ class CostCalculator:
         if asset.variable_maintenance_cost_unit in ["EUR/kWh", "EUR/MWh"]:
             # Check if we have time series data
             if not asset.time_series:
+                logger.debug(
+                    "No time series data for asset '%s'. "
+                    "Variable maintenance cost returned as 0.0.",
+                    asset.name,
+                )
                 return 0.0
 
             # Get the first time series (assuming it's the relevant one)
             ts = next(iter(asset.time_series.values()), None)
             if ts is None:
+                logger.debug(
+                    "Empty time series dict for asset '%s'. "
+                    "Variable maintenance cost returned as 0.0.",
+                    asset.name,
+                )
                 return 0.0
 
             # Calculate annual energy
             duration = ts.time_step * len(ts.values)
+            if duration <= 0:
+                logger.warning(
+                    "Non-positive duration in time series for asset '%s'. "
+                    "Variable maintenance cost returned as 0.0.",
+                    asset.name,
+                )
+                return 0.0
             time_factor = SECONDS_PER_YEAR / duration
             energy_sum = sum(ts.values) * ts.time_step
 

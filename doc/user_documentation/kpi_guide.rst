@@ -258,7 +258,7 @@ These defaults affect all calculations. Understanding them helps interpret resul
 Limitations
 -----------
 
-**Time series required:** Energy and emission KPIs depend entirely on time series data. Without it, consumption, production, and demand are returned as zero — there is no rated-capacity fallback. For details on how to provide time series data, see :doc:`../getting_started`.
+**Time series required:** Energy and emission KPIs depend entirely on time series data. Without it, consumption, production, and demand are returned as zero — there is no rated-capacity fallback. Missing or unrecognised time series keys are logged at DEBUG level; invalid time series (non-positive duration) are logged at WARNING level. For details on how to provide time series data, see :doc:`../getting_started`.
 
 **Efficiency approximation:** The efficiency calculation (Consumption / Production) does not account for pump losses, control system energy, or heat exchanger fouling. Real systems are typically 2-5% less efficient than calculated.
 

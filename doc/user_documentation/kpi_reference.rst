@@ -46,7 +46,7 @@ The calculators search for time series data on each asset using specific key nam
      - ``ElectricalConsumption``, ``ThermalProduction``
      - Only used for emission calculation
 
-Time series values are in Watts (power). The calculator integrates over the time step to get energy in Joules and annualizes based on the series duration.
+Time series values are in Watts (power). The calculator integrates over the time step to get energy in Joules and annualizes based on the series duration. If no matching key is found, the asset contributes zero to that metric (logged at DEBUG level). If the time series has a non-positive duration (``time_step × number_of_values ≤ 0``), the asset is skipped with a WARNING log.
 
 **Cost calculator:** Variable operational and maintenance costs in ``EUR/kWh`` or ``EUR/MWh`` use the **first** time series available on the asset (regardless of key name). For geothermal assets with COP > 0, the energy is divided by COP before applying the cost rate.
 
@@ -129,3 +129,5 @@ The calculator accepts cost values in the units specified in the ESDL ``costInfo
      - value x annual energy (J) x 2.78e-7
    * - ``EUR/MWh``
      - value x annual energy (J) x 2.78e-10
+
+If a cost field uses a unit not listed above, the cost is ignored and a WARNING is logged with the asset name and the unsupported unit string. Check the log output when cost KPIs seem unexpectedly low.

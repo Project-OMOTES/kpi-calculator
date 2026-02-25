@@ -1,4 +1,5 @@
 # src/kpicalculator/calculators/emission_calculator.py
+import logging
 import warnings
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
@@ -10,6 +11,8 @@ from ..common.constants import (
     SECONDS_PER_YEAR,
     TONS_TO_KG,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EmissionCalculator:
@@ -116,6 +119,10 @@ class EmissionCalculator:
             CO2 emissions in tons (annualized or for actual period)
         """
         if not asset.time_series:
+            logger.debug(
+                "No time series data for asset '%s'. Emissions returned as 0.0.",
+                asset.name,
+            )
             return 0.0
 
         # Select the correct time series key for the asset
@@ -132,11 +139,19 @@ class EmissionCalculator:
                 ts_name = key
                 break
         if not ts_name:
+            logger.debug(
+                "No matching time series field for asset '%s'. Emissions returned as 0.0.",
+                asset.name,
+            )
             return 0.0
 
         ts = asset.time_series[ts_name]
         duration = ts.time_step * len(ts.values)  # seconds
-        if duration == 0:
+        if duration <= 0:
+            logger.warning(
+                "Non-positive duration in time series for asset '%s'. Emissions returned as 0.0.",
+                asset.name,
+            )
             return 0.0
 
         # Calculate time factor for annualization

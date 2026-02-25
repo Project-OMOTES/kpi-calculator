@@ -1,5 +1,5 @@
 # src/kpicalculator/calculators/energy_calculator.py
-# No typing imports needed currently
+import logging
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
 from ..common.constants import (
@@ -8,6 +8,8 @@ from ..common.constants import (
     PRODUCTION_FIELDS,
     SECONDS_PER_YEAR,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EnergyCalculator:
@@ -86,8 +88,11 @@ class EnergyCalculator:
         Returns:
             Energy consumption in joules per year
         """
-        # Check if we have time series data
         if not asset.time_series:
+            logger.debug(
+                "No time series data for asset '%s'. Consumption returned as 0.0.",
+                asset.name,
+            )
             return 0.0
 
         # Look for consumption time series
@@ -98,12 +103,22 @@ class EnergyCalculator:
                 break
 
         if not ts_name:
+            logger.debug(
+                "No consumption field found in time series for asset '%s'. Returning 0.0.",
+                asset.name,
+            )
             return 0.0
 
         ts = asset.time_series[ts_name]
 
         # Calculate annual energy
         duration = ts.time_step * len(ts.values)
+        if duration <= 0:
+            logger.warning(
+                "Non-positive duration in consumption time series for asset '%s'. Returning 0.0.",
+                asset.name,
+            )
+            return 0.0
         time_factor = SECONDS_PER_YEAR / duration
         energy_sum = sum(ts.values) * ts.time_step
 
@@ -118,8 +133,11 @@ class EnergyCalculator:
         Returns:
             Energy demand in joules per year
         """
-        # Check if we have time series data
         if not asset.time_series:
+            logger.debug(
+                "No time series data for asset '%s'. Demand returned as 0.0.",
+                asset.name,
+            )
             return 0.0
 
         # Look for demand time series
@@ -136,6 +154,12 @@ class EnergyCalculator:
 
         # Calculate annual energy
         duration = ts.time_step * len(ts.values)
+        if duration <= 0:
+            logger.warning(
+                "Non-positive duration in demand time series for asset '%s'. Returning 0.0.",
+                asset.name,
+            )
+            return 0.0
         time_factor = SECONDS_PER_YEAR / duration
         energy_sum = sum(ts.values) * ts.time_step
 
@@ -150,8 +174,11 @@ class EnergyCalculator:
         Returns:
             Energy production in joules per year
         """
-        # Check if we have time series data
         if not asset.time_series:
+            logger.debug(
+                "No time series data for asset '%s'. Production returned as 0.0.",
+                asset.name,
+            )
             return 0.0
 
         # Look for production time series
@@ -162,12 +189,22 @@ class EnergyCalculator:
                 break
 
         if not ts_name:
+            logger.debug(
+                "No production field found in time series for asset '%s'. Returning 0.0.",
+                asset.name,
+            )
             return 0.0
 
         ts = asset.time_series[ts_name]
 
         # Calculate annual energy
         duration = ts.time_step * len(ts.values)
+        if duration <= 0:
+            logger.warning(
+                "Non-positive duration in production time series for asset '%s'. Returning 0.0.",
+                asset.name,
+            )
+            return 0.0
         time_factor = SECONDS_PER_YEAR / duration
         energy_sum = sum(ts.values) * ts.time_step
 
