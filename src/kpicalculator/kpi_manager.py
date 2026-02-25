@@ -6,6 +6,8 @@ import pandas as pd  # type: ignore[import-untyped]
 from esdl import esdl
 
 from .adapters.common_model import EnergySystem
+from .adapters.esdl_adapter import EsdlAdapter
+from .adapters.simulator_adapter import SimulatorAdapter
 from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
 
 _logger = logging.getLogger(__name__)
@@ -67,6 +69,10 @@ class KpiManager:
 
         Cost data is extracted from ESDL costInformation elements.
 
+        Note:
+            InfluxDB profile loading is disabled here. To enable it, call
+            ``EsdlAdapter().load_data(..., use_database_profiles=True)`` directly.
+
         Args:
             esdl_file: Path to ESDL file
             time_series_file: Optional path to time series file (when
@@ -75,14 +81,12 @@ class KpiManager:
                 DataFrames with time-indexed energy/power data. When provided,
                 takes precedence over database loading and time_series_file.
         """
-        from .adapters.esdl_adapter import EsdlAdapter
-
         adapter = EsdlAdapter()
         self.energy_system = adapter.load_data(
             esdl_file,
             time_series_file=time_series_file,
             timeseries_dataframes=timeseries_dataframes,
-            use_database_profiles=False,  # Disable database profiles for testing
+            use_database_profiles=False,
         )
         self.source_esdl_file = esdl_file
 
@@ -104,8 +108,6 @@ class KpiManager:
             timeseries_dataframes: Optional dict mapping asset IDs to pandas
                 DataFrames with time-indexed energy/power data.
         """
-        from .adapters.esdl_adapter import EsdlAdapter
-
         adapter = EsdlAdapter()
         self.energy_system = adapter.load_from_string(
             esdl_string,
@@ -113,14 +115,25 @@ class KpiManager:
         )
         self.source_esdl_file = None
 
-    def load_from_simulator(self, simulator_data: Any) -> None:
-        """Load energy system data from simulator data structure.
+    def load_from_simulator(
+        self,
+        simulator_result: pd.DataFrame,
+        esdl_string: str,
+    ) -> None:
+        """Load energy system data from OMOTES Simulator results.
+
+        Converts the simulator's port-indexed DataFrame to the asset-indexed
+        common model and extracts cost data from the supplied ESDL string.
 
         Args:
-            simulator_data: Simulator data structure
+            simulator_result: DataFrame produced by the simulator, with a
+                DatetimeIndex and ``(port_id, property_name)`` tuple columns.
+            esdl_string: The input ESDL as an XML string, used to resolve
+                port IDs to their owning assets and to extract cost data.
         """
-        # TODO: Implement simulator adapter
-        raise NotImplementedError("Simulator adapter not implemented yet")
+        adapter = SimulatorAdapter()
+        self.energy_system = adapter.load_data(simulator_result, esdl_string=esdl_string)
+        self.source_esdl_file = None
 
     def load_from_mesido(self, mesido_data: Any) -> None:
         """Load energy system data from mesido data structure.

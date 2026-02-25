@@ -18,12 +18,7 @@ from ..common.constants import (
 from ..exceptions import SecurityError, ValidationError
 from ..security.credential_manager import CredentialManager
 from ..security.input_validator import InputValidator
-from .base_adapter import (
-    BaseAdapter,
-    MesidoResultsProtocol,
-    SimulatorResultsProtocol,
-    ValidationResult,
-)
+from .base_adapter import BaseAdapter, ValidationResult
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .database_time_series_loader import DatabaseTimeSeriesLoader
 from .time_series_manager import TimeSeriesManager
@@ -54,33 +49,33 @@ class EsdlAdapter(BaseAdapter):
         self.time_series_manager = TimeSeriesManager(credential_manager)
         self.logger = logging.getLogger(__name__)
 
-    def load_data(
+    def load_data(  # type: ignore[override]  # narrows source: Any → str | Path intentionally
         self,
-        source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol,
+        source: str | Path,
         time_series_file: str | None = None,
         timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
         use_database_profiles: bool = True,
     ) -> EnergySystem:
-        """Load energy system data from ESDL file.
+        """Load energy system data from an ESDL file.
 
         Costs are extracted from ESDL costInformation elements.
 
         Args:
-            source: ESDL file path (only str/Path supported by this adapter)
-            time_series_file: Optional XML time series file path (testing only)
+            source: Path to the ESDL file (str or Path).
+            time_series_file: Optional XML time series file path (testing only).
             timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
                 with time-indexed energy/power data. When provided, takes precedence
-                over database loading and time_series_file parameter.
-            use_database_profiles: Whether to load InfluxDB profiles
+                over database loading and time_series_file.
+            use_database_profiles: Whether to load InfluxDB profiles.
 
         Returns:
-            EnergySystem object with costs from ESDL costInformation
+            EnergySystem object with costs from ESDL costInformation.
 
         Raises:
-            TypeError: If source is not a file path (MESIDO/Simulator not supported)
+            TypeError: If source is not a str or Path.
         """
-        if not isinstance(source, str | Path):
-            raise TypeError(f"ESDL adapter only supports file paths, got {type(source)}")
+        if not isinstance(source, (str, Path)):
+            raise TypeError(f"EsdlAdapter only supports file paths, got {type(source).__name__}")
 
         esdl_file = str(source)
 
@@ -168,6 +163,40 @@ class EsdlAdapter(BaseAdapter):
             es=es,
             model_name=model_name,
             source_metadata={"esdl_source": "string"},
+            time_series_file=None,
+            timeseries_dataframes=timeseries_dataframes,
+            use_database_profiles=use_database_profiles,
+        )
+
+    def load_from_esdl_object(
+        self,
+        es: esdl.EnergySystem,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
+        use_database_profiles: bool = False,
+    ) -> EnergySystem:
+        """Load from an already-parsed PyESDL EnergySystem object.
+
+        Prefer this over ``load_from_string()`` when the caller has already parsed
+        the ESDL XML — for example, when the object must be inspected before loading
+        (e.g. port→asset resolution in ``SimulatorAdapter``).  Use
+        ``load_from_string()`` when only the raw XML string is available.
+
+        Avoids a second ``EnergySystemHandler.load_from_string()`` call when the
+        caller has already parsed the ESDL (e.g. ``SimulatorAdapter``).
+
+        Args:
+            es: Parsed PyESDL EnergySystem.
+            timeseries_dataframes: Optional asset-id-keyed DataFrames.
+            use_database_profiles: Whether to load InfluxDB profiles.
+
+        Returns:
+            EnergySystem with costs extracted from the ESDL object.
+        """
+        model_name = es.name if es.name else "esdl_from_object"
+        return self._process_energy_system(
+            es=es,
+            model_name=model_name,
+            source_metadata={"esdl_source": "object"},
             time_series_file=None,
             timeseries_dataframes=timeseries_dataframes,
             use_database_profiles=use_database_profiles,
@@ -262,15 +291,26 @@ class EsdlAdapter(BaseAdapter):
         # Log summary of any session warnings to provide final context
         self._log_session_summary()
 
+        # Warnings (e.g. empty system) are non-fatal; errors (e.g. negative power)
+        # indicate a corrupt EnergySystem and must not be silently swallowed.
+        validation = self._validate_energy_system(energy_system)
+        for warning in validation.warnings:
+            self.logger.warning("Energy system validation: %s", warning)
+        if not validation.is_valid:
+            for error in validation.errors:
+                self.logger.error("Energy system validation error: %s", error)
+            raise ValidationError(
+                f"Energy system failed structural validation: {validation.errors}"
+            )
+
         return energy_system
 
-    def validate_source(
-        self, source: str | Path | MesidoResultsProtocol | SimulatorResultsProtocol
-    ) -> ValidationResult:
+    def validate_source(self, source: str) -> ValidationResult:  # type: ignore[override]
         """Validate ESDL file path and basic structure.
 
         Args:
-            source: Path to ESDL file
+            source: Path to ESDL file as a string (Path objects are normalised to str
+                by ``load_data`` before this method is called).
 
         Returns:
             ValidationResult indicating if source is valid
