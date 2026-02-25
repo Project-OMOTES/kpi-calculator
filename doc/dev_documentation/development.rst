@@ -92,6 +92,34 @@ Then open ``doc/_build/html/index.html`` in a browser.
 ``doc/requirements.txt`` is kept alongside for ReadTheDocs, which uses pip internally and reads
 the file during its CI build. Keep both files in sync when adding Sphinx extensions.
 
+Analysis Tools
+--------------
+
+The ``analysis`` dependency group (installed with ``uv sync --all-extras``) provides tools for
+deeper code investigation that are not part of the standard pre-commit or CI pipeline.
+
+**Dead code detection** with `Vulture <https://github.com/jendrikseipp/vulture>`_:
+
+.. code-block:: bash
+
+   uv run vulture src/kpicalculator/
+
+Vulture reports attributes, functions, and classes that appear to have no callers. Use this when
+you suspect a code path is unreachable — for example, to check whether unit-conversion branches
+in the cost calculator are made redundant by upstream ESDL adapter pre-conversion.
+
+**Dependency vulnerability scanning** with `pip-audit <https://pypi.org/project/pip-audit/>`_:
+
+.. code-block:: bash
+
+   uv run pip-audit --skip-editable
+
+The ``--skip-editable`` flag excludes the local ``kpi-calculator`` package itself from the audit
+(it is not on PyPI and cannot be looked up). ``pip-audit`` checks all installed dependencies
+against the `OSV <https://osv.dev/>`_ vulnerability database and reports CVEs with fix versions.
+Run this periodically or before a release to confirm no production dependencies carry known
+vulnerabilities.
+
 CI/CD
 -----
 

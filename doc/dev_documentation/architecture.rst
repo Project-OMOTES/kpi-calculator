@@ -349,6 +349,43 @@ Project Layout
        ├── types.py                    # Pydantic models
        └── logging_utils.py            # Structured logging
 
+Test Layout
+-----------
+
+Tests live in ``unit_test/`` alongside the source. Test data (ESDL files, XML time series) is in ``unit_test/data/``.
+
+.. code-block:: text
+
+   unit_test/
+   ├── data/
+   │   ├── Unit_test_ESDL.esdl       # Main test ESDL fixture
+   │   └── power_timeseries.xml      # Matching XML time series
+   ├── test_api.py                   # Public API integration tests
+   ├── test_kpi_calculator.py        # End-to-end KPI calculation + DataFrame mapping + ESDL export
+   ├── test_examples.py              # README code examples (regression tests)
+   ├── test_esdl_adapter.py          # ESDL adapter branch coverage
+   ├── test_esdl_cost_extraction.py  # Cost extraction + unit conversion
+   ├── test_esdl_kpi_exporter.py     # Unit: EsdlKpiExporter in isolation (mocked)
+   ├── test_emission_calculator.py   # Emission calculator edge cases
+   ├── test_database_time_series_loader.py  # InfluxDB loader (mocked connections)
+   ├── test_database_connectivity.py # Database connection handling
+   ├── test_credential_manager.py    # Credential loading and environment variables
+   ├── test_input_validator.py       # Path, host, and input validation
+   ├── test_pydantic_models.py       # Pydantic model validation (property-based)
+   └── test_logging_utils.py         # Structured logging
+
+The test files fall into three categories:
+
+- **Integration tests** (``test_kpi_calculator.py``, ``test_examples.py``, ``test_api.py``) — load real ESDL fixtures, run the full pipeline, and assert specific output values.
+- **Unit tests** (all other ``test_*.py`` files) — test individual classes in isolation, using mocks for external dependencies (database connections, file I/O).
+- **Security tests** (``test_credential_manager.py``, ``test_input_validator.py``) — validate threat detection, path traversal prevention, and credential management.
+
+Run the full suite with coverage:
+
+.. code-block:: bash
+
+   uv run pytest unit_test/
+
 Adding a New Adapter
 --------------------
 

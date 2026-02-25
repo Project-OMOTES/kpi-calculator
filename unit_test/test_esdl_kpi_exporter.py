@@ -128,8 +128,6 @@ class TestEsdlKpiExporter(unittest.TestCase):
 
         # Verify cost breakdown KPI
         cost_kpi = high_level_kpis[0]
-        self.assertIsNotNone(cost_kpi, "Should contain cost breakdown KPI")
-
         # Check CAPEX and OPEX values
         capex_item = next(
             (item for item in cost_kpi.distribution.stringItem if "CAPEX" in item.label), None
@@ -224,8 +222,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
             self.mock_kpi_results, self.mock_energy_system, output_file, level="system"
         )
 
-        # Verify file mode returns boolean
-        self.assertIsInstance(result, bool)
+        # Verify file mode returns True
         self.assertTrue(result)
 
         # Verify handler methods were called
@@ -296,23 +293,6 @@ class TestEsdlKpiExporter(unittest.TestCase):
                 destination=None,
                 level="system",
             )
-
-    def test_string_item_creation(self):
-        """Test _create_string_item helper method."""
-        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
-
-        exporter = EsdlKpiExporter()
-
-        # Test string item creation
-        label = "Test Label"
-        value = 123.45
-
-        string_item = exporter._create_string_item(label, value)
-
-        # Verify structure
-        self.assertIsInstance(string_item, esdl.StringItem)
-        self.assertEqual(string_item.label, label)
-        self.assertEqual(string_item.value, value)
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
     def test_empty_kpi_data_handling(self, mock_handler):

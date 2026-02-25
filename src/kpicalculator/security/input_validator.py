@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from ..common.constants import (
+    APIPA_FIRST_OCTET,
+    APIPA_SECOND_OCTET,
     DANGEROUS_PORTS,
     HOSTNAME_REGEX_PATTERN,
     LOCALHOST_ADDRESSES,
@@ -22,6 +24,12 @@ from ..common.constants import (
     MIN_PORT_NUMBER,
     MINIMUM_PASSWORD_LENGTH,
     PATH_TRAVERSAL_PATTERNS,
+    PRIVATE_IPV4_172_FIRST_OCTET,
+    PRIVATE_IPV4_172_SECOND_OCTET_MAX,
+    PRIVATE_IPV4_172_SECOND_OCTET_MIN,
+    PRIVATE_IPV4_192_FIRST_OCTET,
+    PRIVATE_IPV4_192_SECOND_OCTET,
+    PRIVATE_IPV4_RESERVED_FIRST_OCTETS,
     RFC_1035_HOSTNAME_LIMIT,
     SECURE_DATABASE_PORTS,
     SUSPICIOUS_USERNAMES,
@@ -476,26 +484,39 @@ class InputValidator:
         if host.lower() in LOCALHOST_ADDRESSES and not allow_localhost:
             raise SecurityError(f"Localhost access is disallowed in production: {host}")
 
-        # Validate hostname format
-        if not InputValidator.HOSTNAME_PATTERN.match(host):
-            # Check if it's a valid public IP address
+        # Determine whether the host is an IPv4 address, IPv6 address, or hostname.
+        try:
+            socket.inet_aton(host)  # succeeds only for valid IPv4 dotted-decimal strings
+            is_ipv4 = len(host.split(".")) == 4
+        except OSError:
+            is_ipv4 = False
+
+        if is_ipv4:
+            # Enforce RFC-1918 private and reserved range restrictions for IPv4
+            octets = host.split(".")
+            first_octet = int(octets[0])
+            second_octet = int(octets[1])
+            if not allow_localhost and (
+                first_octet in PRIVATE_IPV4_RESERVED_FIRST_OCTETS
+                or (
+                    first_octet == PRIVATE_IPV4_172_FIRST_OCTET
+                    and PRIVATE_IPV4_172_SECOND_OCTET_MIN
+                    <= second_octet
+                    <= PRIVATE_IPV4_172_SECOND_OCTET_MAX
+                )
+                or (
+                    first_octet == PRIVATE_IPV4_192_FIRST_OCTET
+                    and second_octet == PRIVATE_IPV4_192_SECOND_OCTET
+                )
+                or (first_octet == APIPA_FIRST_OCTET and second_octet == APIPA_SECOND_OCTET)
+            ):
+                raise SecurityError(f"Reserved or private IP address not allowed: {host}")
+        else:
+            # Not IPv4 — try IPv6, then fall back to hostname regex validation
             try:
-                socket.inet_aton(host)  # IPv4
-                # Additional check for public IP ranges
-                octets = host.split(".")
-                if len(octets) == 4:
-                    first_octet = int(octets[0])
-                    # Prevent reserved IP ranges (allow in development mode)
-                    if not allow_localhost and (
-                        first_octet in [0, 10, 127]
-                        or (first_octet == 172 and 16 <= int(octets[1]) <= 31)
-                        or (first_octet == 192 and octets[1] == "168")
-                    ):
-                        raise SecurityError(f"Reserved or private IP address not allowed: {host}")
-            except (OSError, ValueError):
-                try:
-                    socket.inet_pton(socket.AF_INET6, host)  # IPv6
-                except OSError as e:
+                socket.inet_pton(socket.AF_INET6, host)  # IPv6: accept unconditionally
+            except OSError as e:
+                if not InputValidator.HOSTNAME_PATTERN.match(host):
                     raise ValidationError(f"Invalid hostname or IP address format: {host}") from e
 
         return host

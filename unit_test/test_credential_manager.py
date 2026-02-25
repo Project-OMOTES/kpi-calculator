@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from kpicalculator.common.types import DatabaseCredentials
-from kpicalculator.exceptions import SecurityError
+from kpicalculator.exceptions import CredentialError, SecurityError
 from kpicalculator.security.credential_manager import (
     ChainedCredentialManager,
     ConfigFileCredentialManager,
@@ -17,6 +17,24 @@ from kpicalculator.security.credential_manager import (
     SecureCredentialManager,
     create_default_credential_manager,
 )
+
+# ---------------------------------------------------------------------------
+# Test constants — avoid magic numbers throughout the test suite
+# ---------------------------------------------------------------------------
+
+# Ports
+INFLUXDB_PORT = 8086  # Standard InfluxDB port; used for simulator-worker tests
+HTTPS_PORT = 443  # Generic HTTPS port; used as a stand-in for "some port"
+UNCONFIGURED_PORT = 9999  # Valid TCP port with no credentials configured; triggers CredentialError
+
+# Default database name as defined by SecureCredentialManager
+DEFAULT_DATABASE = "energy_profiles"
+
+# File permission modes (octal) used when testing _validate_file_permissions
+FILE_MODE_SECURE = 0o100600  # Owner read/write only (rw-------)
+FILE_MODE_INSECURE = 0o100644  # World-readable (rw-r--r--)
+STAT_S_IRGRP = 0o040  # Group-read bitmask
+STAT_S_IROTH = 0o004  # Other-read bitmask
 
 
 class TestSecureCredentialManager(unittest.TestCase):
@@ -54,11 +72,11 @@ class TestSecureCredentialManager(unittest.TestCase):
     )
     def test_get_database_credentials_success(self) -> None:
         """Test successful credential retrieval from environment."""
-        credentials = self.manager.get_database_credentials("example.com", 443)
+        credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
 
         self.assertIsNotNone(credentials)
         self.assertEqual(credentials.host, "example.com")
-        self.assertEqual(credentials.port, 443)
+        self.assertEqual(credentials.port, HTTPS_PORT)
         self.assertEqual(credentials.username, "testuser")
         self.assertEqual(credentials.password, "testpass")
         self.assertEqual(credentials.database, "testdb")
@@ -75,18 +93,12 @@ class TestSecureCredentialManager(unittest.TestCase):
     )
     def test_get_database_credentials_defaults(self) -> None:
         """Test credential retrieval with default SSL settings."""
-        credentials = self.manager.get_database_credentials("example.com", 443)
+        credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
 
         self.assertIsNotNone(credentials)
-        self.assertFalse(
-            credentials.ssl
-        )  # Default from code: ssl_env.lower() in ("true", "1", "yes", "on")
-        self.assertFalse(
-            credentials.verify_ssl
-        )  # Default from code: verify_ssl_env.lower() in ("true", "1", "yes", "on")
-        self.assertEqual(
-            credentials.database, "energy_profiles"
-        )  # Default from code: os.getenv(..., "energy_profiles")
+        self.assertFalse(credentials.ssl)
+        self.assertFalse(credentials.verify_ssl)
+        self.assertEqual(credentials.database, DEFAULT_DATABASE)
 
     @patch.dict(
         os.environ,
@@ -107,7 +119,7 @@ class TestSecureCredentialManager(unittest.TestCase):
         clean_env = self._filter_env_vars("KPI_DB_NONEXISTENT_COM_443_")
 
         with patch.dict(os.environ, clean_env, clear=True):
-            credentials = self.manager.get_database_credentials("nonexistent.com", 443)
+            credentials = self.manager.get_database_credentials("nonexistent.com", HTTPS_PORT)
             self.assertIsNone(credentials)
 
     def test_get_database_credentials_invalid_inputs(self) -> None:
@@ -129,7 +141,7 @@ class TestSecureCredentialManager(unittest.TestCase):
                     test_env["KPI_DB_EXAMPLE_COM_443_PASSWORD"] = password
 
                 with patch.dict(os.environ, test_env, clear=True):
-                    credentials = self.manager.get_database_credentials("example.com", 443)
+                    credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
                     self.assertEqual(credentials, expected)
 
     @patch.dict(
@@ -142,16 +154,16 @@ class TestSecureCredentialManager(unittest.TestCase):
     )
     def test_get_database_credentials_influxdb_fallback(self) -> None:
         """Test fallback to INFLUXDB_* variables for simulator-worker compatibility."""
-        credentials = self.manager.get_database_credentials("localhost", 8086)
+        credentials = self.manager.get_database_credentials("localhost", INFLUXDB_PORT)
 
         self.assertIsNotNone(credentials)
         self.assertEqual(credentials.host, "localhost")
-        self.assertEqual(credentials.port, 8086)
+        self.assertEqual(credentials.port, INFLUXDB_PORT)
         self.assertEqual(credentials.username, "simulator_user")
         self.assertEqual(credentials.password, "simulator_pass")
         self.assertEqual(credentials.database, "simulator_db")
-        self.assertFalse(credentials.ssl)  # Default
-        self.assertFalse(credentials.verify_ssl)  # Default
+        self.assertFalse(credentials.ssl)
+        self.assertFalse(credentials.verify_ssl)
 
     @patch.dict(
         os.environ,
@@ -164,7 +176,7 @@ class TestSecureCredentialManager(unittest.TestCase):
     )
     def test_get_database_credentials_kpi_takes_precedence(self) -> None:
         """Test that KPI_DB_* variables take precedence over INFLUXDB_* variables."""
-        credentials = self.manager.get_database_credentials("localhost", 8086)
+        credentials = self.manager.get_database_credentials("localhost", INFLUXDB_PORT)
 
         self.assertIsNotNone(credentials)
         self.assertEqual(credentials.username, "kpi_user")  # KPI_DB_* wins
@@ -190,7 +202,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             "databases": {
                 "example.com: 443": {
                     "host": "example.com",
-                    "port": 443,
+                    "port": HTTPS_PORT,
                     "username": "testuser",
                     "password": "testpass",
                     "database": "testdb",
@@ -200,15 +212,14 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             }
         }
 
-        # Write config file and mock secure permissions
         self.config_path.write_text(json.dumps(config_data))
 
         with patch.object(self.manager, "_validate_file_permissions"):
-            credentials = self.manager.get_database_credentials("example.com", 443)
+            credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
 
             self.assertIsNotNone(credentials)
             self.assertEqual(credentials.host, "example.com")
-            self.assertEqual(credentials.port, 443)
+            self.assertEqual(credentials.port, HTTPS_PORT)
             self.assertEqual(credentials.username, "testuser")
             self.assertEqual(credentials.password, "testpass")
             self.assertEqual(credentials.database, "testdb")
@@ -221,7 +232,7 @@ class TestConfigFileCredentialManager(unittest.TestCase):
             "databases": {
                 "other.com: 443": {
                     "host": "other.com",
-                    "port": 443,
+                    "port": HTTPS_PORT,
                     "username": "otheruser",
                     "password": "otherpass",
                 }
@@ -231,33 +242,31 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.config_path.write_text(json.dumps(config_data))
 
         with patch.object(self.manager, "_validate_file_permissions"):
-            credentials = self.manager.get_database_credentials("example.com", 443)
+            credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
             self.assertIsNone(credentials)
 
     def test_get_database_credentials_file_not_exists(self) -> None:
         """Test credential retrieval when config file doesn't exist."""
-        # Don't create the file - returns empty dict as per implementation
-        credentials = self.manager.get_database_credentials("example.com", 443)
+        credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
         self.assertIsNone(credentials)
 
     def test_get_database_credentials_invalid_json(self) -> None:
         """Test credential retrieval with invalid JSON."""
-        # Write invalid JSON - should raise ConfigurationError
         self.config_path.write_text("invalid json content")
 
         with self.assertRaises(Exception):  # ConfigurationError expected
-            self.manager.get_database_credentials("example.com", 443)
+            self.manager.get_database_credentials("example.com", HTTPS_PORT)
 
     def test_get_database_credentials_minimal_config(self) -> None:
-        """Test credential retrieval with minimal configuration."""
+        """Test credential retrieval with minimal configuration (defaults applied)."""
         config_data = {
             "databases": {
                 "example.com: 443": {
                     "host": "example.com",
-                    "port": 443,
+                    "port": HTTPS_PORT,
                     "username": "testuser",
                     "password": "testpass",
-                    # No database, ssl, or verify_ssl - should use defaults
+                    # No database, ssl, or verify_ssl — defaults should be used
                 }
             }
         }
@@ -265,22 +274,22 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         self.config_path.write_text(json.dumps(config_data))
 
         with patch.object(self.manager, "_validate_file_permissions"):
-            credentials = self.manager.get_database_credentials("example.com", 443)
+            credentials = self.manager.get_database_credentials("example.com", HTTPS_PORT)
 
             self.assertIsNotNone(credentials)
             self.assertEqual(credentials.username, "testuser")
             self.assertEqual(credentials.password, "testpass")
-            self.assertEqual(credentials.database, "energy_profiles")  # Default from code
-            self.assertFalse(credentials.ssl)  # Default from code
-            self.assertFalse(credentials.verify_ssl)  # Default from code
+            self.assertEqual(credentials.database, DEFAULT_DATABASE)
+            self.assertFalse(credentials.ssl)
+            self.assertFalse(credentials.verify_ssl)
 
     def test_validate_file_permissions_secure(self) -> None:
-        """Test file permission validation when permissions are secure."""
+        """Test file permission validation when permissions are secure (owner rw only)."""
         config_data = {
             "databases": {
                 "test.com: 443": {
                     "host": "test.com",
-                    "port": 443,
+                    "port": HTTPS_PORT,
                     "username": "user",
                     "password": "password123",
                 }
@@ -288,27 +297,24 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         }
         self.config_path.write_text(json.dumps(config_data))
 
-        # Mock secure permissions (owner read/write only, no group/other bits)
         mock_stat_result = Mock()
-        mock_stat_result.st_mode = 0o100600  # Regular file with 600 permissions
+        mock_stat_result.st_mode = FILE_MODE_SECURE
 
-        # Patch the stat module attributes directly in the credential manager module
         with patch("pathlib.Path.stat", return_value=mock_stat_result):
             with (
-                patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040),
-                patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004),
+                patch("kpicalculator.security.credential_manager.stat.S_IRGRP", STAT_S_IRGRP),
+                patch("kpicalculator.security.credential_manager.stat.S_IROTH", STAT_S_IROTH),
             ):
-                # Should not raise any exception - secure permissions
-                credentials = self.manager.get_database_credentials("test.com", 443)
+                credentials = self.manager.get_database_credentials("test.com", HTTPS_PORT)
                 self.assertIsNotNone(credentials)
 
     def test_validate_file_permissions_insecure(self) -> None:
-        """Test file permission validation when permissions are insecure."""
+        """Test file permission validation when permissions are insecure (world-readable)."""
         config_data = {
             "databases": {
                 "test.com: 443": {
                     "host": "test.com",
-                    "port": 443,
+                    "port": HTTPS_PORT,
                     "username": "user",
                     "password": "password123",
                 }
@@ -316,17 +322,16 @@ class TestConfigFileCredentialManager(unittest.TestCase):
         }
         self.config_path.write_text(json.dumps(config_data))
 
-        # Mock insecure permissions (readable by others)
         mock_stat_result = Mock()
-        mock_stat_result.st_mode = 0o100644  # Regular file with 644 permissions (world readable)
+        mock_stat_result.st_mode = FILE_MODE_INSECURE
 
         with patch("pathlib.Path.stat", return_value=mock_stat_result):
             with (
-                patch("kpicalculator.security.credential_manager.stat.S_IRGRP", 0o040),
-                patch("kpicalculator.security.credential_manager.stat.S_IROTH", 0o004),
+                patch("kpicalculator.security.credential_manager.stat.S_IRGRP", STAT_S_IRGRP),
+                patch("kpicalculator.security.credential_manager.stat.S_IROTH", STAT_S_IROTH),
             ):
                 with self.assertRaises(SecurityError) as context:
-                    self.manager.get_database_credentials("test.com", 443)
+                    self.manager.get_database_credentials("test.com", HTTPS_PORT)
 
                 error = context.exception
                 self.assertIn("Credentials file has insecure permissions", str(error))
@@ -357,7 +362,7 @@ class TestChainedCredentialManager(unittest.TestCase):
         """Test credential retrieval when first manager succeeds."""
         test_credentials = DatabaseCredentials(
             host="example.com",
-            port=443,
+            port=HTTPS_PORT,
             username="user",
             password="password123",
             database="db",
@@ -372,19 +377,17 @@ class TestChainedCredentialManager(unittest.TestCase):
 
         chained = ChainedCredentialManager(manager1, manager2)
 
-        credentials = chained.get_database_credentials("example.com", 443)
+        credentials = chained.get_database_credentials("example.com", HTTPS_PORT)
 
         self.assertEqual(credentials, test_credentials)
-        # First manager should be called
-        manager1.get_database_credentials.assert_called_once_with("example.com", 443)
-        # Second manager should not be called
+        manager1.get_database_credentials.assert_called_once_with("example.com", HTTPS_PORT)
         manager2.get_database_credentials.assert_not_called()
 
     def test_get_database_credentials_fallback_to_second(self) -> None:
         """Test credential retrieval falls back to second manager."""
         test_credentials = DatabaseCredentials(
             host="example.com",
-            port=443,
+            port=HTTPS_PORT,
             username="user",
             password="password123",
             database="db",
@@ -393,19 +396,18 @@ class TestChainedCredentialManager(unittest.TestCase):
         )
 
         manager1 = Mock(spec=CredentialManager)
-        manager1.get_database_credentials.return_value = None  # First fails
+        manager1.get_database_credentials.return_value = None
 
         manager2 = Mock(spec=CredentialManager)
-        manager2.get_database_credentials.return_value = test_credentials  # Second succeeds
+        manager2.get_database_credentials.return_value = test_credentials
 
         chained = ChainedCredentialManager(manager1, manager2)
 
-        credentials = chained.get_database_credentials("example.com", 443)
+        credentials = chained.get_database_credentials("example.com", HTTPS_PORT)
 
         self.assertEqual(credentials, test_credentials)
-        # Both managers should be called
-        manager1.get_database_credentials.assert_called_once_with("example.com", 443)
-        manager2.get_database_credentials.assert_called_once_with("example.com", 443)
+        manager1.get_database_credentials.assert_called_once_with("example.com", HTTPS_PORT)
+        manager2.get_database_credentials.assert_called_once_with("example.com", HTTPS_PORT)
 
     def test_get_database_credentials_all_fail(self) -> None:
         """Test credential retrieval when all managers fail."""
@@ -418,12 +420,11 @@ class TestChainedCredentialManager(unittest.TestCase):
         with patch("kpicalculator.common.logging_utils.get_database_logger"):
             chained = ChainedCredentialManager(manager1, manager2)
 
-            credentials = chained.get_database_credentials("example.com", 443)
+            credentials = chained.get_database_credentials("example.com", HTTPS_PORT)
 
             self.assertIsNone(credentials)
-            # Both managers should be called
-            manager1.get_database_credentials.assert_called_once_with("example.com", 443)
-            manager2.get_database_credentials.assert_called_once_with("example.com", 443)
+            manager1.get_database_credentials.assert_called_once_with("example.com", HTTPS_PORT)
+            manager2.get_database_credentials.assert_called_once_with("example.com", HTTPS_PORT)
 
     def test_get_database_credentials_exception_handling(self) -> None:
         """Test credential retrieval with manager exceptions."""
@@ -432,7 +433,7 @@ class TestChainedCredentialManager(unittest.TestCase):
 
         test_credentials = DatabaseCredentials(
             host="example.com",
-            port=443,
+            port=HTTPS_PORT,
             username="user",
             password="password123",
             database="db",
@@ -445,9 +446,8 @@ class TestChainedCredentialManager(unittest.TestCase):
         with patch("kpicalculator.common.logging_utils.get_database_logger"):
             chained = ChainedCredentialManager(manager1, manager2)
 
-            # Exception should propagate - not handled by ChainedCredentialManager
             with self.assertRaises(Exception):
-                chained.get_database_credentials("example.com", 443)
+                chained.get_database_credentials("example.com", HTTPS_PORT)
 
     def test_get_database_credentials_three_managers(self) -> None:
         """Test credential retrieval with three managers."""
@@ -459,7 +459,7 @@ class TestChainedCredentialManager(unittest.TestCase):
 
         test_credentials = DatabaseCredentials(
             host="example.com",
-            port=443,
+            port=HTTPS_PORT,
             username="user",
             password="password123",
             database="db",
@@ -471,10 +471,9 @@ class TestChainedCredentialManager(unittest.TestCase):
 
         chained = ChainedCredentialManager(manager1, manager2, manager3)
 
-        credentials = chained.get_database_credentials("example.com", 443)
+        credentials = chained.get_database_credentials("example.com", HTTPS_PORT)
 
         self.assertEqual(credentials, test_credentials)
-        # All three should be called
         manager1.get_database_credentials.assert_called_once()
         manager2.get_database_credentials.assert_called_once()
         manager3.get_database_credentials.assert_called_once()
@@ -505,22 +504,21 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
             },
         ):
             manager = create_default_credential_manager()
-            credentials = manager.get_database_credentials("test.host", 443)
+            credentials = manager.get_database_credentials("test.host", HTTPS_PORT)
 
             self.assertIsNotNone(credentials)
             self.assertEqual(credentials.username, "envuser")
             self.assertEqual(credentials.password, "envpassword123")
 
     def test_default_manager_fallback(self) -> None:
-        """Test default manager fallback to config file."""
-        # Create a temporary config file
+        """Test default manager fallback to config file when env vars are absent."""
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "credentials.json"
             config_data = {
                 "databases": {
                     "fallback.host: 443": {
                         "host": "fallback.host",
-                        "port": 443,
+                        "port": HTTPS_PORT,
                         "username": "configuser",
                         "password": "configpass",
                     }
@@ -528,7 +526,6 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
             }
             config_path.write_text(json.dumps(config_data))
 
-            # Create manager with custom config path
             env_manager = SecureCredentialManager()
             config_manager = ConfigFileCredentialManager(config_path)
 
@@ -536,7 +533,6 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
                 with patch.object(config_manager, "_validate_file_permissions"):
                     manager = ChainedCredentialManager(env_manager, config_manager)
 
-                    # Should fall back to config file since env vars are not set
                     clean_env = {
                         k: v
                         for k, v in os.environ.items()
@@ -544,7 +540,7 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
                     }
 
                     with patch.dict(os.environ, clean_env, clear=True):
-                        credentials = manager.get_database_credentials("fallback.host", 443)
+                        credentials = manager.get_database_credentials("fallback.host", HTTPS_PORT)
 
                         self.assertIsNotNone(credentials)
                         self.assertEqual(credentials.username, "configuser")
@@ -581,10 +577,58 @@ class TestCredentialManagerErrorHandling(unittest.TestCase):
                     if mock_exception:
                         with patch("builtins.open", side_effect=mock_exception):
                             with self.assertRaises(Exception):  # ConfigurationError expected
-                                manager.get_database_credentials("test.host", 443)
+                                manager.get_database_credentials("test.host", HTTPS_PORT)
                     else:
                         with self.assertRaises(Exception):  # ConfigurationError expected
-                            manager.get_database_credentials("test.host", 443)
+                            manager.get_database_credentials("test.host", HTTPS_PORT)
+
+
+class TestCredentialManagerDatabaseLoaderIntegration(unittest.TestCase):
+    """Integration tests between credential managers and DatabaseTimeSeriesLoader.
+
+    These tests verify the contract between the credential layer and the
+    database loader — specifically that credentials are retrieved correctly
+    and that the expected exception is raised when they are missing.
+    """
+
+    @patch.dict(
+        os.environ,
+        {
+            "KPI_DB_INTEGRATION_TEST_COM_8086_USERNAME": "integration_user",
+            "KPI_DB_INTEGRATION_TEST_COM_8086_PASSWORD": "integration_pass",
+        },
+    )
+    def test_database_loader_uses_secure_credentials(self) -> None:
+        """DatabaseTimeSeriesLoader._get_secure_credentials returns env-sourced credentials."""
+        from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
+
+        loader = DatabaseTimeSeriesLoader(SecureCredentialManager())
+        creds = loader._get_secure_credentials("integration.test.com", INFLUXDB_PORT)
+
+        self.assertEqual(creds.username, "integration_user")
+        self.assertEqual(creds.password, "integration_pass")
+
+    def test_database_loader_raises_credential_error_when_missing(self) -> None:
+        """_get_secure_credentials raises CredentialError with host:port in the message."""
+        from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
+
+        loader = DatabaseTimeSeriesLoader(SecureCredentialManager())
+
+        with self.assertRaises(CredentialError) as ctx:
+            loader._get_secure_credentials("missing.example.com", UNCONFIGURED_PORT)
+
+        self.assertIn("No credentials found", str(ctx.exception))
+        self.assertIn(f"missing.example.com: {UNCONFIGURED_PORT}", str(ctx.exception))
+
+    def test_create_default_credential_manager_structure(self) -> None:
+        """create_default_credential_manager returns a ChainedCredentialManager with
+        SecureCredentialManager first and ConfigFileCredentialManager second."""
+        manager = create_default_credential_manager()
+
+        self.assertIsInstance(manager, ChainedCredentialManager)
+        self.assertEqual(len(manager.managers), 2)
+        self.assertIsInstance(manager.managers[0], SecureCredentialManager)
+        self.assertIsInstance(manager.managers[1], ConfigFileCredentialManager)
 
 
 if __name__ == "__main__":

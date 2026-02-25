@@ -1,5 +1,5 @@
 # src/kpicalculator/calculators/emission_calculator.py
-# No typing imports needed currently
+import warnings
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
 from ..common.constants import (
@@ -76,7 +76,19 @@ class EmissionCalculator:
 
         Returns:
             CO2 emissions in kg/GJ
+
+        Warning:
+            This method is not yet wired into KpiManager.calculate_all_kpis().
+            Results are not included in the standard KPI output. Call
+            get_emissions_per_mwh() for the equivalent metric that is part of
+            the public API.
         """
+        warnings.warn(
+            "get_emissions_per_energy_unit() is not yet integrated into the KPI output. "
+            "Use get_emissions_per_mwh() for the equivalent metric available via KpiManager.",
+            UserWarning,
+            stacklevel=2,
+        )
         from .energy_calculator import EnergyCalculator
 
         energy_calc = EnergyCalculator(self.energy_system)
