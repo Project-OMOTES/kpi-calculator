@@ -92,6 +92,15 @@ KNOWN_TIME_SERIES_FIELDS: frozenset[str] = frozenset(
 DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM
 # Secure database ports (allowed for SSL/TLS connections)
 SECURE_DATABASE_PORTS = {443, 8443}
+# IANA well-known port boundary: ports 0–1023 are privileged/system ports.
+# Ports in this range that are not explicitly recognised (e.g. not in SECURE_DATABASE_PORTS
+# or common_db_ports) generate an advisory warning in DatabaseCredentials.validate_port_range.
+PRIVILEGED_PORT_MAX = 1023
+
+# Power warning threshold: asset power values above this (1 GW) are physically plausible
+# in district heating infrastructure but unusual — validate_power_realistic emits a
+# UserWarning for values above this threshold to flag potential unit-conversion errors.
+POWER_WARNING_THRESHOLD_W = 1e9  # 1 GW
 
 # Asset property validation ranges
 ASSET_VALIDATION_RANGES = {
@@ -119,6 +128,20 @@ MOD_SUFFIX_LENGTH = 4  # len("mod") + 1 for underscore
 
 # Localhost addresses
 LOCALHOST_ADDRESSES = ["localhost", "127.0.0.1", "::1"]
+
+# Non-routable IPv4 ranges blocked to prevent SSRF and misconfiguration.
+# First octets that are always reserved: 0 (this network), 10 (class A private), 127 (loopback)
+PRIVATE_IPV4_RESERVED_FIRST_OCTETS = {0, 10, 127}
+# 172.16.0.0/12 — class B private range covers 172.16–172.31
+PRIVATE_IPV4_172_FIRST_OCTET = 172
+PRIVATE_IPV4_172_SECOND_OCTET_MIN = 16
+PRIVATE_IPV4_172_SECOND_OCTET_MAX = 31
+# 192.168.0.0/16 — class C private range
+PRIVATE_IPV4_192_FIRST_OCTET = 192
+PRIVATE_IPV4_192_SECOND_OCTET = 168
+# 169.254.0.0/16 — APIPA link-local range (non-routable)
+APIPA_FIRST_OCTET = 169
+APIPA_SECOND_OCTET = 254
 
 # Suspicious usernames (for warning purposes)
 SUSPICIOUS_USERNAMES = {"admin", "root", "administrator", "sa", "test", "guest"}

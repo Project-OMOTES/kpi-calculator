@@ -1,6 +1,5 @@
 """Unit tests for ESDL cost extraction functionality."""
 
-import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -8,9 +7,6 @@ from unittest.mock import MagicMock
 # Get the absolute path to the test directory
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"
-
-# Add the src directory to the Python path
-sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from esdl import esdl  # noqa: E402
 from esdl.esdl_handler import EnergySystemHandler  # noqa: E402

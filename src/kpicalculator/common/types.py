@@ -7,6 +7,12 @@ import warnings
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from kpicalculator.common.constants import (
+    POWER_WARNING_THRESHOLD_W,
+    PRIVILEGED_PORT_MAX,
+    SECURE_DATABASE_PORTS,
+)
+
 
 class DatabaseCredentials(BaseModel):
     """Database connection credentials with automatic validation.
@@ -53,10 +59,10 @@ class DatabaseCredentials(BaseModel):
     @classmethod
     def validate_port_range(cls, v: int) -> int:
         """Validate port is in valid range and warn for unusual ports."""
-        # Standard database ports for reference
-        common_db_ports = {3306, 5432, 1521, 1433, 3389, 27017, 6379, 8086}
+        # Standard database ports; SECURE_DATABASE_PORTS covers HTTPS/InfluxDB (443, 8443)
+        common_db_ports = {3306, 5432, 1521, 1433, 27017, 6379, 8086} | SECURE_DATABASE_PORTS
 
-        if v not in common_db_ports and v < 1024:
+        if v not in common_db_ports and v <= PRIVILEGED_PORT_MAX:
             # Log warning for unusual ports (but don't fail)
             warnings.warn(
                 f"Port {v} is unusual for database connections. "
@@ -140,7 +146,7 @@ class AssetProperties(BaseModel):
         if v is None:
             return v
 
-        if v > 1e9:  # Warning for very large values (>1 GW)
+        if v > POWER_WARNING_THRESHOLD_W:
             warnings.warn(f"Very large power value: {v:,.0f} W", UserWarning, stacklevel=2)
 
         return v

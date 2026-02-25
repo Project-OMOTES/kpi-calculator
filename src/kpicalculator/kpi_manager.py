@@ -1,4 +1,5 @@
 # src/kpicalculator/kpi_manager.py
+import logging
 from typing import Any, TypedDict
 
 import pandas as pd  # type: ignore[import-untyped]
@@ -6,6 +7,8 @@ from esdl import esdl
 
 from .adapters.common_model import EnergySystem
 from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
+
+_logger = logging.getLogger(__name__)
 
 
 class CostResults(TypedDict):
@@ -168,6 +171,14 @@ class KpiManager:
                 "per_mwh": emission_calc.get_emissions_per_mwh(),
             },
         }
+
+        no_asset_has_time_series = not any(asset.time_series for asset in self.energy_system.assets)
+        if no_asset_has_time_series:
+            _logger.warning(
+                "No time series data found for any asset. All energy and emission KPIs "
+                "will be 0.0. Provide time_series_file or timeseries_dataframes to "
+                "load_from_esdl(), or use load_from_esdl_string() with dataframes."
+            )
 
         return results
 

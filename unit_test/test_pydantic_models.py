@@ -14,6 +14,14 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
+from kpicalculator.common.constants import (
+    MAX_PORT_NUMBER,
+    MAX_USERNAME_LENGTH,
+    MIN_PORT_NUMBER,
+    MINIMUM_PASSWORD_LENGTH,
+    POWER_WARNING_THRESHOLD_W,
+    PRIVILEGED_PORT_MAX,
+)
 from kpicalculator.common.types import AssetProperties, DatabaseCredentials, TimeSeriesData
 
 
@@ -23,9 +31,11 @@ class TestDatabaseCredentials:
     @settings(suppress_health_check=[HealthCheck.too_slow])
     @given(
         host=st.text(min_size=1, max_size=50).filter(lambda x: x.strip()),
-        port=st.integers(min_value=1, max_value=65535),
-        username=st.one_of(st.none(), st.text(min_size=1, max_size=20)),
-        password=st.one_of(st.none(), st.text(min_size=8, max_size=64)),
+        port=st.integers(min_value=PRIVILEGED_PORT_MAX + 1, max_value=MAX_PORT_NUMBER),
+        username=st.one_of(st.none(), st.text(min_size=1, max_size=MAX_USERNAME_LENGTH)),
+        password=st.one_of(
+            st.none(), st.text(min_size=MINIMUM_PASSWORD_LENGTH, max_size=MAX_USERNAME_LENGTH)
+        ),
     )
     def test_valid_credentials_always_pass(
         self, host: str, port: int, username: str | None, password: str | None
@@ -42,13 +52,13 @@ class TestDatabaseCredentials:
             # Expected for invalid hosts/formats - test passes
             pass
 
-    @given(port=st.integers().filter(lambda x: x < 1 or x > 65535))
+    @given(port=st.integers().filter(lambda x: x < MIN_PORT_NUMBER or x > MAX_PORT_NUMBER))
     def test_invalid_ports_always_fail(self, port: int) -> None:
         """Test that invalid port numbers always raise ValidationError."""
         with pytest.raises(ValidationError):
             DatabaseCredentials(host="localhost", port=port)
 
-    @given(password=st.text(max_size=7))
+    @given(password=st.text(max_size=MINIMUM_PASSWORD_LENGTH - 1))
     def test_short_passwords_always_fail(self, password: str) -> None:
         """Test that passwords shorter than 8 characters always fail."""
         with pytest.raises(ValidationError):
@@ -77,7 +87,13 @@ class TestAssetProperties:
         name=st.text(min_size=1, max_size=255).filter(lambda x: x.strip()),
         asset_type=st.text(min_size=1, max_size=100).filter(lambda x: x.strip()),
         power=st.one_of(
-            st.none(), st.floats(min_value=0, max_value=1e12, allow_nan=False, allow_infinity=False)
+            st.none(),
+            st.floats(
+                min_value=0,
+                max_value=POWER_WARNING_THRESHOLD_W,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
         ),
         cop=st.one_of(
             st.none(), st.floats(min_value=0, max_value=10, allow_nan=False, allow_infinity=False)
@@ -190,7 +206,8 @@ class TestEdgeCaseDiscovery:
                 "name": st.text(min_size=1, max_size=255),
                 "asset_type": st.text(min_size=1, max_size=100),
                 "power": st.one_of(
-                    st.none(), st.floats(min_value=0, max_value=1e12, allow_nan=False)
+                    st.none(),
+                    st.floats(min_value=0, max_value=POWER_WARNING_THRESHOLD_W, allow_nan=False),
                 ),
             }
         )
