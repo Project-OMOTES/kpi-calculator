@@ -260,6 +260,16 @@ Calculators
 
 All three calculators take an ``EnergySystem`` and return part of the ``KpiResults`` dict. They are independent of each other.
 
+Error Handling
+^^^^^^^^^^^^^^
+
+All calculators use Python's ``logging`` module with the logger name set to their module path (e.g. ``kpicalculator.calculators.cost_calculator``). Two log levels are used:
+
+- **DEBUG** — expected missing-data conditions: no time series on an asset, no matching field name in the time series. These are normal when assets lack simulation results.
+- **WARNING** — unexpected or potentially lossy conditions: unsupported cost units (the cost is zeroed), non-positive duration time series (would cause ``ZeroDivisionError`` or incorrect annualization).
+
+In all cases the calculator returns ``0.0`` for the affected asset rather than raising an exception. Input validation (e.g. ``technical_lifetime <= 0``) is handled upstream by ``BaseAdapter._validate_energy_system()`` and is not duplicated in the calculators.
+
 Cost Calculator
 ^^^^^^^^^^^^^^^
 
@@ -269,6 +279,8 @@ Cost Calculator
 - **OPEX**: Sum of (fixed_operational + variable_operational + fixed_maintenance + variable_maintenance) per asset
 - **NPV**: Standard discounted cash flow: ``CAPEX + Sum(OPEX_t / (1 + rate/100)^t)`` over system lifetime (default 30 years, 5% discount rate). Includes asset replacement costs when technical lifetime < system lifetime.
 - **LCOE**: ``NPV / discounted_energy_delivered``
+
+Each of the six ``_calculate_*_cost()`` methods validates the unit string against an ``allowed_units`` list. If the unit is not supported, a warning is logged and the cost is returned as ``0.0``. Variable cost methods (operational and maintenance) also guard against zero-duration time series.
 
 Lifetime Handling
 """""""""""""""""
@@ -286,7 +298,7 @@ Energy Calculator
 - **Consumption/Production/Demand**: Sums time series values × time step, annualized
 - **Efficiency**: consumption / production
 
-Without time series, energy values are returned as zero (no rated-capacity fallback is implemented).
+Without time series, energy values are returned as zero (no rated-capacity fallback is implemented). Missing data is logged at DEBUG level; zero-duration time series are logged at WARNING level.
 
 Emission Calculator
 ^^^^^^^^^^^^^^^^^^^
@@ -296,7 +308,7 @@ Emission Calculator
 - **Total emissions**: Sum of (emission_factor × energy) per asset, converted to tonnes
 - **Emissions per MWh**: total_emissions / consumption_in_MWh
 
-Emission factors come from ESDL carrier definitions (kg CO2/GJ).
+Emission factors come from ESDL carrier definitions (kg CO2/GJ). The same logging conventions apply: missing data at DEBUG, zero duration at WARNING.
 
 ESDL Export
 -----------
@@ -398,9 +410,6 @@ To add a new data source (e.g., MESIDO optimization results):
 
 The calculators don't need to change — they only depend on the common model.
 
-<<<<<<< Updated upstream
-The ``base_adapter.py`` file defines protocols for ``MesidoResultsProtocol`` and ``SimulatorResultsProtocol`` as a starting point, though the actual interface can be adjusted to match what the source system provides.
-=======
 **BaseAdapter design principle**: the base class enforces only the ``EnergySystem``
 return type. Each adapter owns its own loading signature. ``KpiManager`` calls the
 specific adapter it knows about directly, not through the base class interface. The
@@ -412,4 +421,3 @@ The ``# type: ignore[override]`` annotations on ``load_data`` and ``validate_sou
 in concrete adapters are intentional — they narrow the inherited ``Any`` signature to
 specific types without breaking Liskov substitutability in practice, because callers
 always use the concrete type directly.
->>>>>>> Stashed changes

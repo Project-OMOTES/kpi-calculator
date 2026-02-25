@@ -1234,6 +1234,54 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             "variable_maintenance_cost",
         )
 
+    # ------------------------------------------------------------------ #
+    # Zero-duration guards (prevent ZeroDivisionError)                     #
+    # ------------------------------------------------------------------ #
+
+    def test_energy_calculator_zero_duration_returns_zero(self) -> None:
+        """A time series with time_step=0 must not crash with ZeroDivisionError."""
+        from kpicalculator.adapters.common_model import AssetType, TimeSeries
+        from kpicalculator.calculators.energy_calculator import EnergyCalculator
+
+        ts = TimeSeries(time_step=0.0, values=[100.0] * 10)
+        asset = self._make_asset(
+            asset_type=AssetType.CONSUMER,
+            time_series={"ThermalConsumption": ts},
+        )
+        calc = EnergyCalculator(self._make_system(asset))
+
+        self.assertEqual(calc.get_total_energy_consumption_per_year(), 0.0)
+
+    def test_emission_calculator_zero_duration_returns_zero(self) -> None:
+        """A time series with time_step=0 must not crash with ZeroDivisionError."""
+        from kpicalculator.adapters.common_model import AssetType, TimeSeries
+        from kpicalculator.calculators.emission_calculator import EmissionCalculator
+
+        ts = TimeSeries(time_step=0.0, values=[100.0] * 10)
+        asset = self._make_asset(
+            asset_type=AssetType.PRODUCER,
+            emission_factor=1e-9,
+            time_series={"ThermalProduction": ts},
+        )
+        calc = EmissionCalculator(self._make_system(asset))
+
+        self.assertEqual(calc.get_total_emissions(), 0.0)
+
+    def test_cost_calculator_zero_duration_returns_zero(self) -> None:
+        """Variable cost with time_step=0 must not crash with ZeroDivisionError."""
+        from kpicalculator.adapters.common_model import TimeSeries
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        ts = TimeSeries(time_step=0.0, values=[100.0] * 10)
+        asset = self._make_asset(
+            variable_operational_cost=5.0,
+            variable_operational_cost_unit="EUR/MWh",
+            time_series={"heat_supplied": ts},
+        )
+        calc = CostCalculator(self._make_system(asset))
+
+        self.assertEqual(calc._calculate_variable_operational_cost(asset), 0.0)
+
 
 class BaseAdapterValidationTest(unittest.TestCase):
     """Tests for BaseAdapter._validate_energy_system().
