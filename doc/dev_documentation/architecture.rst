@@ -398,4 +398,18 @@ To add a new data source (e.g., MESIDO optimization results):
 
 The calculators don't need to change — they only depend on the common model.
 
+<<<<<<< Updated upstream
 The ``base_adapter.py`` file defines protocols for ``MesidoResultsProtocol`` and ``SimulatorResultsProtocol`` as a starting point, though the actual interface can be adjusted to match what the source system provides.
+=======
+**BaseAdapter design principle**: the base class enforces only the ``EnergySystem``
+return type. Each adapter owns its own loading signature. ``KpiManager`` calls the
+specific adapter it knows about directly, not through the base class interface. The
+``SimulatorAdapter`` (``adapters/simulator_adapter.py``) is the reference implementation
+for this pattern: it accepts a ``(pd.DataFrame, esdl_string)`` pair, resolves port IDs
+to asset IDs, and delegates cost extraction to ``EsdlAdapter.load_from_esdl_object()``.
+
+The ``# type: ignore[override]`` annotations on ``load_data`` and ``validate_source``
+in concrete adapters are intentional — they narrow the inherited ``Any`` signature to
+specific types without breaking Liskov substitutability in practice, because callers
+always use the concrete type directly.
+>>>>>>> Stashed changes
