@@ -31,8 +31,8 @@ dependencies = [
     "types-xmltodict", # Type stubs for xmltodict
     "influxdb>=5.3.2",
     "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
-    "urllib3>=2.6.3", # Security: CVE fixes in 2.6.3+
-    "filelock>=3.20.1", # Security: CVE fixes in 3.20.1+
+    "urllib3>=2.6.3", # Security: CVE fixes
+    "filelock>=3.25.0", # Security: CVE fixes
 ]
 
 [dependency-groups]
