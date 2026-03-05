@@ -1,0 +1,47 @@
+# Pre-commit hooks for KPI Calculator
+repos:
+  # Ruff linting and formatting (replaces flake8, isort, and black)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.1
+    hooks:
+      # Linting: auto-fix what can be fixed, then fail on remaining issues
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff
+        name: ruff (strict)
+        args: []
+      # Formatting (replaces black)
+      - id: ruff-format
+
+  # mypy type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        args: [--no-error-summary]
+        additional_dependencies:
+          - types-xmltodict
+          - pydantic>=2.0.0
+        files: ^src/kpicalculator/.*\.py$
+
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-statements
+
+  # pytest testing
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: python -m pytest unit_test -v
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
