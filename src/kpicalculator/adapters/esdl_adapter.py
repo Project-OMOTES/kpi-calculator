@@ -22,7 +22,6 @@ from .base_adapter import BaseAdapter, ValidationResult
 from .common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .database_time_series_loader import DatabaseTimeSeriesLoader
 from .time_series_manager import TimeSeriesManager
-from .xml_time_series_adapter import PiXmlTimeSeries
 
 
 class EsdlAdapter(BaseAdapter):
@@ -149,12 +148,7 @@ class EsdlAdapter(BaseAdapter):
         if not esdl_string or not esdl_string.strip():
             raise ValidationError("ESDL string content cannot be empty")
 
-        # Parse ESDL string with error handling
-        esh = EnergySystemHandler()
-        try:
-            es = esh.load_from_string(esdl_string)
-        except Exception as e:
-            raise ValidationError(f"Failed to parse ESDL string: {e}") from e
+        es = self._parse_esdl_string(esdl_string)
 
         # Use energy system name if available, otherwise default
         model_name = es.name if es.name else "esdl_from_string"
@@ -226,7 +220,32 @@ class EsdlAdapter(BaseAdapter):
         Returns:
             EnergySystem object with processed assets and costs
         """
-        # Load time series data using centralized TimeSeriesManager
+        time_series_dict = self._load_time_series(
+            es, time_series_file, timeseries_dataframes, use_database_profiles
+        )
+
+        energy_system = EnergySystem(
+            name=model_name,
+            assets=[],
+            unit_conversion=self.unit_conversions or {},
+            source_metadata=source_metadata,
+            esdl_energy_system=es,
+        )
+
+        self._populate_assets(es, time_series_dict, energy_system)
+        self._log_session_summary()
+        self._check_energy_system(energy_system)
+
+        return energy_system
+
+    def _load_time_series(
+        self,
+        es: esdl.EnergySystem,
+        time_series_file: str | None,
+        timeseries_dataframes: dict[str, pd.DataFrame] | None,
+        use_database_profiles: bool,
+    ) -> dict[str, TimeSeries]:
+        """Load time series from available sources in priority order."""
         source_priority = ["dataframes"]
         if use_database_profiles:
             source_priority.append("database")
@@ -241,58 +260,39 @@ class EsdlAdapter(BaseAdapter):
             source_priority=source_priority,
         )
 
-        # Log time series loading results
         if not ts_validation.is_valid:
             for error in ts_validation.errors:
                 self.logger.error(f"Time series loading error: {error}")
         for warning in ts_validation.warnings:
             self.logger.warning(f"Time series loading warning: {warning}")
 
-        # Create XML time series adapter for asset processing (legacy compatibility)
-        xml_time_series = None
-        if time_series_file:
-            try:
-                xml_time_series = PiXmlTimeSeries(time_series_file, "locationId", "parameterId")
-                self.logger.debug("Created XML time series adapter for legacy compatibility")
-            except Exception as e:
-                self.logger.warning(f"Failed to create XML time series adapter: {e}")
+        return time_series_dict
 
-        energy_system = EnergySystem(
-            name=model_name,
-            assets=[],
-            unit_conversion=self.unit_conversions or {},
-            source_metadata=source_metadata,
-            esdl_energy_system=es,
-        )
-
-        # Process assets
+    def _populate_assets(
+        self,
+        es: esdl.EnergySystem,
+        time_series_dict: dict[str, TimeSeries],
+        energy_system: EnergySystem,
+    ) -> None:
+        """Iterate ESDL contents and add supported assets to the energy system."""
         for esdl_element in es.eAllContents():
-            if isinstance(esdl_element, esdl.Asset):
-                if isinstance(esdl_element, esdl.Joint):
-                    continue
-                # Check if the asset is enabled
-                if (
-                    hasattr(esdl_element, "state")
-                    and esdl_element.state
-                    and esdl_element.state.value != 0
-                ):
-                    continue
+            if not isinstance(esdl_element, esdl.Asset):
+                continue
+            if isinstance(esdl_element, esdl.Joint):
+                continue
+            if (
+                hasattr(esdl_element, "state")
+                and esdl_element.state
+                and esdl_element.state.value != 0
+            ):
+                continue
 
-                asset = self._create_asset_from_esdl(
-                    esdl_element,
-                    time_series_dict,
-                    xml_time_series,
-                    model_name,
-                )
+            asset = self._create_asset_from_esdl(esdl_element, time_series_dict)
+            if asset:
+                energy_system.assets.append(asset)
 
-                if asset:
-                    energy_system.assets.append(asset)
-
-        # Log summary of any session warnings to provide final context
-        self._log_session_summary()
-
-        # Warnings (e.g. empty system) are non-fatal; errors (e.g. negative power)
-        # indicate a corrupt EnergySystem and must not be silently swallowed.
+    def _check_energy_system(self, energy_system: EnergySystem) -> None:
+        """Validate the populated energy system, raising on structural errors."""
         validation = self._validate_energy_system(energy_system)
         for warning in validation.warnings:
             self.logger.warning("Energy system validation: %s", warning)
@@ -302,8 +302,6 @@ class EsdlAdapter(BaseAdapter):
             raise ValidationError(
                 f"Energy system failed structural validation: {validation.errors}"
             )
-
-        return energy_system
 
     def validate_source(self, source: str) -> ValidationResult:  # type: ignore[override]
         """Validate ESDL file path and basic structure.
@@ -349,16 +347,12 @@ class EsdlAdapter(BaseAdapter):
         self,
         esdl_element: esdl.Asset,
         time_series_dict: dict[str, TimeSeries],
-        xml_time_series_dict: PiXmlTimeSeries | None,
-        model_name: str,
     ) -> Asset | None:
         """Create an Asset object from an ESDL element.
 
         Args:
             esdl_element: ESDL element
             time_series_dict: Time series dictionary
-            xml_time_series_dict: XML time series adapter (legacy)
-            model_name: Model name
 
         Returns:
             Asset object or None if the element is not supported

@@ -147,8 +147,8 @@ class DatabaseTimeSeriesLoader:
         self.db_logger.info("Starting InfluxDB profile loading from ESDL")
 
         time_series_data: dict[str, TimeSeries] = {}
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         try:
             # Find all InfluxDBProfile elements in the ESDL
@@ -167,54 +167,11 @@ class DatabaseTimeSeriesLoader:
             failed_loads = 0
 
             for profile in influx_profiles:
-                try:
-                    # Extract asset ID associated with this profile
-                    asset_id = self._extract_asset_id(profile)
-
-                    # Extract field name (parameter) from profile
-                    field_name = profile.field
-                    if not field_name:
-                        self.db_logger.warning(
-                            f"InfluxDB profile for asset {asset_id} has no field name, skipping"
-                        )
-                        failed_loads += 1
-                        continue
-
-                    # Load time series data
-                    profile_start = time.time()
-                    time_series = self._load_profile_data(profile)
-                    profile_time = time.time() - profile_start
-
-                    if time_series:
-                        # Create composite key: asset_id|field_name to preserve parameter info
-                        composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{field_name}"
-                        time_series_data[composite_key] = time_series
-                        successful_loads += 1
-
-                        self.db_logger.log_time_series_processing(
-                            asset_id, len(time_series.values), time_series.time_step, profile_time
-                        )
-                        self.db_logger.debug(
-                            f"Loaded {field_name} time series for asset {asset_id}"
-                        )
-                    else:
-                        failed_loads += 1
-
-                except Exception as e:
+                success = self._process_single_profile(profile, time_series_data, errors)
+                if success:
+                    successful_loads += 1
+                else:
                     failed_loads += 1
-                    error_msg = self._categorize_profile_error(e, profile.field)
-                    errors.append(error_msg)
-
-                    self.db_logger.error(
-                        "Profile loading failed",
-                        {
-                            "profile_field": profile.field,
-                            "profile_measurement": profile.measurement,
-                            "profile_host": profile.host,
-                            "profile_port": profile.port,
-                        },
-                        e,
-                    )
 
             # Log summary
             total_time = time.time() - start_time
@@ -229,7 +186,7 @@ class DatabaseTimeSeriesLoader:
             )
 
         except Exception as e:
-            errors.append(f"Failed to process InfluxDB profiles: {str(e)}")
+            errors.append(f"Failed to process InfluxDB profiles: {e!s}")
             self.db_logger.error("Critical error during profile loading", exception=e)
 
         validation_result = ValidationResult(
@@ -237,6 +194,60 @@ class DatabaseTimeSeriesLoader:
         )
 
         return time_series_data, validation_result
+
+    def _process_single_profile(
+        self,
+        profile: esdl.InfluxDBProfile,
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+    ) -> bool:
+        """Process a single InfluxDB profile and add it to time_series_data.
+
+        Args:
+            profile: ESDL InfluxDBProfile element to process.
+            time_series_data: Dict to populate with the loaded TimeSeries on success.
+            errors: List to append error messages to on failure.
+
+        Returns:
+            True if the profile was loaded successfully, False otherwise.
+        """
+        try:
+            asset_id = self._extract_asset_id(profile)
+            field_name = profile.field
+            if not field_name:
+                self.db_logger.warning(
+                    f"InfluxDB profile for asset {asset_id} has no field name, skipping"
+                )
+                return False
+
+            profile_start = time.time()
+            time_series = self._load_profile_data(profile)
+            profile_time = time.time() - profile_start
+
+            if not time_series:
+                return False
+
+            composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{field_name}"
+            time_series_data[composite_key] = time_series
+            self.db_logger.log_time_series_processing(
+                asset_id, len(time_series.values), time_series.time_step, profile_time
+            )
+            self.db_logger.debug(f"Loaded {field_name} time series for asset {asset_id}")
+            return True
+
+        except Exception as e:
+            errors.append(self._categorize_profile_error(e, profile.field))
+            self.db_logger.error(
+                "Profile loading failed",
+                {
+                    "profile_field": profile.field,
+                    "profile_measurement": profile.measurement,
+                    "profile_host": profile.host,
+                    "profile_port": profile.port,
+                },
+                e,
+            )
+            return False
 
     def _extract_asset_id(self, profile: esdl.InfluxDBProfile) -> str:
         """Extract asset ID from InfluxDB profile container."""
@@ -576,12 +587,12 @@ class DatabaseTimeSeriesLoader:
             that help identify the root cause and appropriate resolution steps.
         """
         if isinstance(error, CredentialError | SecurityError | ValidationError):
-            return f"Configuration error loading profile {profile_field}: {str(error)}"
+            return f"Configuration error loading profile {profile_field}: {error!s}"
         if isinstance(error, ConnectionError | TimeoutError):
-            return f"Database connection failed for profile {profile_field}: {str(error)}"
+            return f"Database connection failed for profile {profile_field}: {error!s}"
         if isinstance(error, ValueError | KeyError | AttributeError):
-            return f"Data processing error for profile {profile_field}: {str(error)}"
-        return f"Unexpected error loading profile {profile_field}: {str(error)}"
+            return f"Data processing error for profile {profile_field}: {error!s}"
+        return f"Unexpected error loading profile {profile_field}: {error!s}"
 
     def _handle_query_error(self, error: Exception, measurement: str, field: str) -> None:
         """Handle query execution errors with graceful degradation.

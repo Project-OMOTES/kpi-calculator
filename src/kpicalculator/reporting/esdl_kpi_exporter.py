@@ -3,7 +3,6 @@
 import logging
 import uuid
 from pathlib import Path
-from typing import Any
 
 from esdl import esdl
 from esdl.esdl_handler import EnergySystemHandler
@@ -41,7 +40,6 @@ class EsdlKpiExporter(BaseExporter):
         destination: str | Path | None = None,
         level: str = "system",
         source_esdl_file: str | Path | None = None,
-        **kwargs: Any,
     ) -> bool | esdl.EnergySystem:
         """Export pre-calculated KPI results to ESDL format.
 
@@ -61,7 +59,6 @@ class EsdlKpiExporter(BaseExporter):
                 energy_system.esdl_energy_system is None. Resolution order:
                 (1) energy_system.esdl_energy_system (preferred, avoids disk I/O),
                 (2) this parameter, (3) energy_system.source_metadata['esdl_file'].
-            **kwargs: Reserved for future export options.
 
         Returns:
             When destination provided: Always True on success; raises on failure.

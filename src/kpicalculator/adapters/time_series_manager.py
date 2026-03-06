@@ -11,7 +11,6 @@ from ..security.credential_manager import CredentialManager
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
 from .database_time_series_loader import DatabaseTimeSeriesLoader
-from .time_series_protocols import TimeSeriesProvider
 from .xml_time_series_adapter import PiXmlTimeSeries
 
 
@@ -84,7 +83,7 @@ class TimeSeriesManager:
         # If no sources succeeded, return empty with warnings
         self.logger.info("No time series data loaded - using empty time series")
         return {}, ValidationResult(
-            is_valid=True, warnings=["No time series data loaded"] + validation_results
+            is_valid=True, warnings=["No time series data loaded", *validation_results]
         )
 
     def _load_from_dataframes(
@@ -318,52 +317,19 @@ class TimeSeriesManager:
             Tuple of (time_series_dict, validation_result)
         """
         try:
-            # Use PiXmlTimeSeries adapter with clear interface contract
-            xml_adapter: TimeSeriesProvider = PiXmlTimeSeries(xml_file, "locationId", "parameterId")
-            time_series_dict = {}
-            warnings = []
-
-            # Extract asset IDs from ESDL to match time series
+            xml_adapter = PiXmlTimeSeries(xml_file, "locationId", "parameterId")
             esdl_asset_ids = {
                 asset.id
                 for asset in energy_system.eAllContents()
                 if isinstance(asset, esdl.Asset) and asset.id
             }
 
-            # Extract all time series with parameter information from XML
-            # Use public interface to preserve parameter names
-            try:
-                asset_parameters = xml_adapter.get_time_series_with_parameters()
-                for asset_id, parameters in asset_parameters.items():
-                    if asset_id in esdl_asset_ids:
-                        for parameter_name, (values, time_step) in parameters.items():
-                            # Create composite key to preserve parameter information
-                            composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{parameter_name}"
-                            time_series_dict[composite_key] = TimeSeries(
-                                time_step=time_step,
-                                values=values,
-                            )
-                            self.logger.debug(
-                                f"Loaded XML time series for asset {asset_id} "
-                                f"parameter {parameter_name} with time step {time_step}s"
-                            )
-            except Exception as e:
-                warnings.append(f"Failed to access XML time series with parameter info: {e}")
-
-            # Fallback: use the simplified interface if parameter extraction fails
+            time_series_dict, warnings = self._load_xml_with_parameters(xml_adapter, esdl_asset_ids)
             if not time_series_dict:
-                try:
-                    for key, value in xml_adapter.time_series.items():
-                        if key in esdl_asset_ids and value:
-                            time_series_dict[key] = TimeSeries(
-                                time_step=3600.0,
-                                values=value,
-                            )
-                            warnings.append(
-                                f"XML time series for {key} loaded without parameter information"
-                            )
-                except Exception as e:
-                    warnings.append(f"Failed to access time_series property: {e}")
+                time_series_dict, fallback_warnings = self._load_xml_fallback(
+                    xml_adapter, esdl_asset_ids
+                )
+                warnings.extend(fallback_warnings)
 
             return time_series_dict, ValidationResult(is_valid=True, warnings=warnings)
 
@@ -371,3 +337,60 @@ class TimeSeriesManager:
             error_msg = f"Failed to load XML time series from {xml_file}: {e}"
             self.logger.error(error_msg)
             return {}, ValidationResult(is_valid=False, errors=[error_msg])
+
+    def _load_xml_with_parameters(
+        self, xml_adapter: PiXmlTimeSeries, esdl_asset_ids: set[str]
+    ) -> tuple[dict[str, TimeSeries], list[str]]:
+        """Load XML time series using the parameter-aware interface.
+
+        Args:
+            xml_adapter: Initialised PiXmlTimeSeries adapter.
+            esdl_asset_ids: Set of asset IDs from the ESDL for filtering.
+
+        Returns:
+            Tuple of (time_series_dict, warnings).
+        """
+        try:
+            time_series_dict: dict[str, TimeSeries] = {}
+            asset_parameters = xml_adapter.get_time_series_with_parameters()
+            for asset_id, parameters in asset_parameters.items():
+                if asset_id in esdl_asset_ids:
+                    for parameter_name, (values, time_step) in parameters.items():
+                        composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{parameter_name}"
+                        time_series_dict[composite_key] = TimeSeries(
+                            time_step=time_step, values=values
+                        )
+                        self.logger.debug(
+                            f"Loaded XML time series for asset {asset_id} "
+                            f"parameter {parameter_name} with time step {time_step}s"
+                        )
+            return time_series_dict, []
+        except Exception as e:
+            return {}, [f"Failed to access XML time series with parameter info: {e}"]
+
+    def _load_xml_fallback(
+        self, xml_adapter: PiXmlTimeSeries, esdl_asset_ids: set[str]
+    ) -> tuple[dict[str, TimeSeries], list[str]]:
+        """Load XML time series using the simplified fallback interface.
+
+        Used when the parameter-aware interface fails or returns no data.
+
+        Args:
+            xml_adapter: Initialised PiXmlTimeSeries adapter.
+            esdl_asset_ids: Set of asset IDs from the ESDL for filtering.
+
+        Returns:
+            Tuple of (time_series_dict, warnings).
+        """
+        try:
+            time_series_dict: dict[str, TimeSeries] = {}
+            warnings: list[str] = []
+            for key, value in xml_adapter.time_series.items():
+                if key in esdl_asset_ids and value:
+                    time_series_dict[key] = TimeSeries(time_step=3600.0, values=value)
+                    warnings.append(
+                        f"XML time series for {key} loaded without parameter information"
+                    )
+            return time_series_dict, warnings
+        except Exception as e:
+            return {}, [f"Failed to access time_series property: {e}"]

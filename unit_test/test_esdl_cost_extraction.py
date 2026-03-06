@@ -270,7 +270,7 @@ class TestEsdlCostExtraction(unittest.TestCase):
         mock_unit_spec = MagicMock()
         # Cause an AttributeError
         type(mock_unit_spec).perUnit = property(
-            lambda self: (_ for _ in ()).throw(AttributeError("Test error"))
+            lambda self: (_ for _ in ()).throw(AttributeError("Test error"))  # noqa: ARG005
         )
 
         unit_string = self.adapter._extract_unit_string(mock_unit_spec)
@@ -314,7 +314,7 @@ class TestApiCostExtraction(unittest.TestCase):
 
     def test_api_extracts_esdl_costs(self) -> None:
         """Test that calculate_kpis extracts costs from ESDL file."""
-        from kpicalculator.api import calculate_kpis  # noqa: E402
+        from kpicalculator.api import calculate_kpis
 
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
         time_series = DATA_DIR / "power_timeseries.xml"

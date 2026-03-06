@@ -69,7 +69,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         return energy_system
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_create_distribution_kpi(self, mock_handler):
+    def test_create_distribution_kpi(self, _mock_handler):
         """Test _create_distribution_kpi method creates correct ESDL structure."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 
@@ -106,7 +106,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
             self.assertEqual(item.value, expected_value)
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_add_cost_kpis(self, mock_handler):
+    def test_add_cost_kpis(self, _mock_handler):
         """Test _add_cost_kpis method adds correct cost KPI structure."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 
@@ -147,7 +147,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         self.assertAlmostEqual(float(opex_item.value), expected_opex, places=2)
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_add_energy_kpis(self, mock_handler):
+    def test_add_energy_kpis(self, _mock_handler):
         """Test _add_energy_kpis method adds correct energy KPI structure."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 
@@ -178,7 +178,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         self.assertGreater(len(efficiency_kpis), 0, "Should add efficiency KPI")
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_add_emission_kpis(self, mock_handler):
+    def test_add_emission_kpis(self, _mock_handler):
         """Test _add_emission_kpis method adds correct emission KPI structure."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 
@@ -274,7 +274,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
             )
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_missing_source_metadata_raises_error(self, mock_handler):
+    def test_missing_source_metadata_raises_error(self, _mock_handler):
         """Test that missing source metadata raises ValueError."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 

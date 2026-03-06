@@ -22,10 +22,10 @@ class TestBaseAdapter(unittest.TestCase):
 
         # Since BaseAdapter is abstract, we need to create a concrete implementation
         class ConcreteAdapter(BaseAdapter):
-            def load_data(self, source, **kwargs) -> None:
+            def load_data(self, _source, **_kwargs) -> None:
                 return Mock()
 
-            def validate_source(self, source) -> None:
+            def validate_source(self, _source) -> None:
                 return ValidationResult(True)
 
             def get_supported_source_type(self) -> None:

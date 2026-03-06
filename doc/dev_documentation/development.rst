@@ -54,15 +54,16 @@ To run linting, formatting, or type checking independently:
 
 The project uses `Ruff <https://docs.astral.sh/ruff/>`_ for both linting and formatting, and mypy for static type checking. All three checks are enforced in CI on every push and pull request.
 
-Shorthand commands are available via ``run.py`` (cross-platform):
+``uv run check.py`` is a shorthand for ``uv run pre-commit run --all-files``, which runs the
+full hook suite (ruff, mypy, pytest, and file checks) in one command. Run this before opening
+a pull request.
+
+Pass ``--full`` to also run pylint code analysis (duplicate code, complexity, too-many-locals)
+after the pre-commit suite:
 
 .. code-block:: bash
 
-   uv run run.py lint         # ruff check
-   uv run run.py format       # ruff format --check
-   uv run run.py check        # lint + format + mypy
-   uv run run.py test         # pytest
-   uv run run.py pre-commit   # all pre-commit hooks
+   uv run check.py --full
 
 Testing
 -------
@@ -79,15 +80,6 @@ With coverage:
 
 The minimum coverage threshold is configured via ``--cov-fail-under`` in ``pyproject.toml`` and enforced in CI. Test data lives in ``unit_test/data/`` and includes ESDL files and XML time series.
 
-Full Validation Pipeline
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-Run all checks before opening a pull request:
-
-.. code-block:: bash
-
-   uv run run.py pre-commit
-
 Building Documentation
 ----------------------
 
@@ -100,8 +92,9 @@ included when you run ``uv sync --all-extras``. To build the HTML docs locally:
 
 Then open ``doc/_build/html/index.html`` in a browser.
 
-``doc/requirements.txt`` is kept alongside for ReadTheDocs, which uses pip internally and reads
-the file during its CI build. Keep both files in sync when adding Sphinx extensions.
+Documentation dependencies are declared in the ``docs`` optional dependency group in
+``pyproject.toml``. ReadTheDocs installs them via ``.readthedocs.yaml``
+(``extra_requirements: docs``). When adding a Sphinx extension, add it there.
 
 Analysis Tools
 --------------
@@ -109,15 +102,34 @@ Analysis Tools
 The ``analysis`` dependency group (installed with ``uv sync --all-extras``) provides tools for
 deeper code investigation that are not part of the standard pre-commit or CI pipeline.
 
+**Duplicate code and complexity analysis** with `Pylint <https://pylint.readthedocs.io/>`_:
+
+.. code-block:: bash
+
+   uv run check.py --full
+
+Runs pylint with duplicate code detection, too-many-branches, too-many-statements, and
+too-many-locals checks. Use this before major refactors or releases to surface extraction
+opportunities. Findings require human judgement — not every finding warrants a change.
+
+**Cyclomatic complexity** with `Radon <https://radon.readthedocs.io/>`_:
+
+.. code-block:: bash
+
+   uv run radon cc src/ --min C --show-complexity
+
+Reports functions rated C or above. Use when a function feels hard to test or understand.
+Ruff's C901 rule (max-complexity=12) is the enforced gate; radon is a supplementary view.
+
 **Dead code detection** with `Vulture <https://github.com/jendrikseipp/vulture>`_:
 
 .. code-block:: bash
 
    uv run vulture src/kpicalculator/
 
-Vulture reports attributes, functions, and classes that appear to have no callers. Use this when
-you suspect a code path is unreachable — for example, to check whether unit-conversion branches
-in the cost calculator are made redundant by upstream ESDL adapter pre-conversion.
+Vulture reports attributes, functions, and classes that appear to have no callers. Has a high
+false-positive rate for this codebase (Pydantic validators, public API methods) — review
+findings carefully before acting on them.
 
 **Dependency vulnerability scanning** with `pip-audit <https://pypi.org/project/pip-audit/>`_:
 

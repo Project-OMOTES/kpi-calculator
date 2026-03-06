@@ -4,7 +4,11 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from esdl import esdl  # type: ignore[import-untyped]
+from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped]
+
 from ..common.constants import COST_UNIT_FACTORS
+from ..exceptions import ValidationError
 from .common_model import EnergySystem
 
 
@@ -43,7 +47,7 @@ class BaseAdapter(ABC):
         self.unit_conversions: dict[str, float] = dict(COST_UNIT_FACTORS)
 
     @abstractmethod
-    def load_data(self, source: Any, **kwargs: Any) -> EnergySystem:
+    def load_data(self, source: Any) -> EnergySystem:
         """Load data from source and convert to the common model.
 
         Concrete adapters narrow ``source: Any`` to their actual input type.
@@ -57,6 +61,7 @@ class BaseAdapter(ABC):
             ValidationError: If source data is invalid.
             DataSourceError: If data loading fails.
         """
+        ...
 
     @abstractmethod
     def validate_source(self, source: Any) -> ValidationResult:
@@ -68,6 +73,7 @@ class BaseAdapter(ABC):
         Returns:
             ValidationResult indicating if source is valid.
         """
+        ...
 
     @abstractmethod
     def get_supported_source_type(self) -> str:
@@ -76,6 +82,7 @@ class BaseAdapter(ABC):
         Returns:
             String identifier, e.g. ``"esdl"``, ``"mesido"``, ``"simulator"``.
         """
+        ...
 
     def get_supported_parameters(self) -> list[str]:
         """Return optional parameter names accepted by ``load_data``.
@@ -84,6 +91,25 @@ class BaseAdapter(ABC):
             List of parameter names this adapter supports beyond ``source``.
         """
         return []
+
+    @staticmethod
+    def _parse_esdl_string(esdl_string: str) -> esdl.EnergySystem:
+        """Parse an ESDL XML string into a PyESDL EnergySystem object.
+
+        Args:
+            esdl_string: ESDL XML content as a string.
+
+        Returns:
+            Parsed PyESDL EnergySystem object.
+
+        Raises:
+            ValidationError: If the string cannot be parsed.
+        """
+        esh = EnergySystemHandler()
+        try:
+            return esh.load_from_string(esdl_string)
+        except Exception as e:
+            raise ValidationError(f"Failed to parse ESDL string: {e}") from e
 
     def _validate_energy_system(self, energy_system: EnergySystem) -> ValidationResult:
         """Validate the constructed energy system for consistency.

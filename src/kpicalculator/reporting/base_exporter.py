@@ -17,7 +17,6 @@ class BaseExporter(ABC):
         results: KpiResults,
         energy_system: EnergySystem,
         destination: str | Path | None = None,
-        **kwargs: Any,
     ) -> bool | Any:
         """Export KPI results to specified destination.
 
@@ -25,7 +24,6 @@ class BaseExporter(ABC):
             results: KPI calculation results
             energy_system: Energy system with metadata
             destination: Export destination (file path, etc.). If None, return data structure.
-            **kwargs: Additional export parameters
 
         Returns:
             bool: True if file export succeeded, False otherwise
@@ -34,4 +32,4 @@ class BaseExporter(ABC):
         Raises:
             ValueError: If required parameters are missing or invalid
         """
-        pass
+        ...

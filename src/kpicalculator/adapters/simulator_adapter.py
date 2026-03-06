@@ -8,7 +8,6 @@ from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
 from esdl import esdl  # type: ignore[import-untyped]
-from esdl.esdl_handler import EnergySystemHandler  # type: ignore[import-untyped]
 
 from ..exceptions import ValidationError
 from .base_adapter import BaseAdapter, ValidationResult
@@ -43,11 +42,10 @@ class SimulatorAdapter(BaseAdapter):
         results = kpi_manager.calculate_all_kpis()
     """
 
-    def load_data(  # type: ignore[override]  # narrows source: Any → pd.DataFrame intentionally
+    def load_data(  # type: ignore[override]
         self,
         source: pd.DataFrame,
         esdl_string: str,
-        **kwargs: Any,
     ) -> EnergySystem:
         """Load simulator results into the common model.
 
@@ -74,11 +72,7 @@ class SimulatorAdapter(BaseAdapter):
 
         # Parse once — reuse the same object for both port→asset resolution
         # and cost extraction via EsdlAdapter.load_from_esdl_object().
-        esh = EnergySystemHandler()
-        try:
-            es = esh.load_from_string(esdl_string)
-        except Exception as e:
-            raise ValidationError(f"Failed to parse ESDL string: {e}") from e
+        es = self._parse_esdl_string(esdl_string)
 
         # Convert (port_id, property) columns → asset_id-keyed DataFrames.
         timeseries_by_asset = self._convert_to_asset_dataframes(source, es)

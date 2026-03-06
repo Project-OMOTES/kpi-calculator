@@ -135,11 +135,11 @@ class KpiManager:
         self.energy_system = adapter.load_data(simulator_result, esdl_string=esdl_string)
         self.source_esdl_file = None
 
-    def load_from_mesido(self, mesido_data: Any) -> None:
+    def load_from_mesido(self, _mesido_data: Any) -> None:
         """Load energy system data from mesido data structure.
 
         Args:
-            mesido_data: Mesido data structure
+            _mesido_data: Mesido data structure (unused, placeholder for future implementation)
         """
         # TODO: Implement mesido adapter
         raise NotImplementedError("Mesido adapter not implemented yet")
@@ -226,8 +226,8 @@ class KpiManager:
             source_esdl_file=self.source_esdl_file,
         )
 
-    def get_esdl_with_kpis(self, results: KpiResults, level: str = "system") -> esdl.EnergySystem:
-        """Get ESDL energy system with KPIs added as data structure.
+    def build_esdl_with_kpis(self, results: KpiResults, level: str = "system") -> esdl.EnergySystem:
+        """Build an ESDL energy system data structure with KPI results embedded.
 
         Args:
             results: KPI calculation results from calculate_all_kpis()

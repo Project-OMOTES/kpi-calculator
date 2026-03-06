@@ -52,6 +52,7 @@ analysis = [
     "vulture>=2.0.0",      # Dead code detection
     "bandit>=1.7.0",       # Security vulnerability scanner
     "radon>=6.0.0",        # Code complexity analysis
+    "pylint>=3.0.0",       # Duplicate code detection (run with --disable=all --enable=similarities)
     "pipdeptree>=2.0.0",   # Dependency analysis and visualization
     "pip-audit>=2.0.0",    # Official Python package vulnerability scanner
     # Note: For tree functionality, use native OS tree command or ls for basic listing
@@ -126,31 +127,39 @@ exclude = [".venv", "venv", "doc", "code_bases"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "B",   # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "UP",  # pyupgrade
-    "S",   # bandit (security)
-    "T20", # flake8-print
-    "RET", # flake8-return
-    "SIM", # flake8-simplify
-    "PTH", # flake8-use-pathlib
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "C9",   # McCabe complexity
+    "UP",   # pyupgrade
+    "S",    # bandit (security)
+    "T20",  # flake8-print
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "PTH",  # flake8-use-pathlib
+    "ARG",  # flake8-unused-arguments
+    "PIE",  # flake8-pie (unnecessary code patterns)
+    "RSE",  # flake8-raise (unnecessary exception parentheses)
+    "PERF", # perflint (performance anti-patterns)
+    "RUF",  # ruff-specific rules
 ]
 ignore = [
-    "E203", # Space before colon (conflicts with formatter)
     "C408", # Suggestion to use dict() over {}
-    "S101", # Use of assert detected (expected in tests)
-    "S106", # Possible hardcoded password (test data)
     "B019", # lru_cache on methods (intentional design choice)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"test_*.py" = ["D100", "D101", "D102", "D103", "B017", "SIM117"]  # Allow Exception assertions and nested with in tests
+"test_*.py" = ["S101", "S106", "SIM117"]  # Tests: bare asserts, test-data passwords, nested patch contexts
+"unit_test/test_credential_manager.py" = ["B017"]  # Broad exception assertions in edge-case tests
 "src/kpicalculator/adapters/xml_time_series_adapter.py" = ["ALL"]  # Testing only - exclude from all linting
+"src/kpicalculator/security/input_validator.py" = ["C901"]  # Security validation is inherently branchy - complexity checked manually
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
 
 [tool.ruff.format]
 quote-style = "double"
