@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from typing import ClassVar
 
 import pandas as pd
 
@@ -496,7 +497,7 @@ class TestTimeSeriesManagerValidation(unittest.TestCase):
             return original_is_numeric(series)
 
         with patch("pandas.api.types.is_numeric_dtype", side_effect=is_numeric_side_effect):
-            ts_dict, validation = self.manager.load_time_series(
+            _ts_dict, validation = self.manager.load_time_series(
                 self.energy_system,
                 timeseries_dataframes={self.ASSET_ID: df},
             )
@@ -542,9 +543,9 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
         self.assertIn("CAPEX", content)
         self.assertIn("OPEX", content)
 
-    def test_get_esdl_with_kpis_data_structure(self) -> None:
-        """get_esdl_with_kpis returns an EnergySystem containing cost KPI elements."""
-        esdl_with_kpis = self.kpi_manager.get_esdl_with_kpis(self.kpi_results)
+    def test_build_esdl_with_kpis_data_structure(self) -> None:
+        """build_esdl_with_kpis returns an EnergySystem containing cost KPI elements."""
+        esdl_with_kpis = self.kpi_manager.build_esdl_with_kpis(self.kpi_results)
 
         self.assertIsInstance(esdl_with_kpis, esdl.EnergySystem)
         main_area = esdl_with_kpis.instance[0].area
@@ -559,7 +560,7 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
 
     def test_kpi_content_accuracy(self) -> None:
         """Exported CAPEX and OPEX values match the values returned by calculate_all_kpis."""
-        esdl_with_kpis = self.kpi_manager.get_esdl_with_kpis(self.kpi_results)
+        esdl_with_kpis = self.kpi_manager.build_esdl_with_kpis(self.kpi_results)
         main_area = esdl_with_kpis.instance[0].area
 
         high_level_kpi = next(
@@ -592,7 +593,7 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
 
     def test_kpi_structure_compliance(self) -> None:
         """Every exported KPI follows the ESDL DistributionKPI schema."""
-        esdl_with_kpis = self.kpi_manager.get_esdl_with_kpis(self.kpi_results)
+        esdl_with_kpis = self.kpi_manager.build_esdl_with_kpis(self.kpi_results)
         main_area = esdl_with_kpis.instance[0].area
 
         self.assertIsInstance(main_area.KPIs, esdl.KPIs)
@@ -614,7 +615,7 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
 
     def test_multiple_kpi_categories(self) -> None:
         """Exported ESDL contains KPIs for all three categories: cost, energy, emissions."""
-        esdl_with_kpis = self.kpi_manager.get_esdl_with_kpis(self.kpi_results)
+        esdl_with_kpis = self.kpi_manager.build_esdl_with_kpis(self.kpi_results)
         kpi_names = [kpi.name.lower() for kpi in esdl_with_kpis.instance[0].area.KPIs.kpi]
 
         self.assertTrue(any("cost" in name for name in kpi_names))
@@ -622,17 +623,17 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
         self.assertTrue(any("emission" in name or "co2" in name for name in kpi_names))
 
     def test_error_handling_no_energy_system(self) -> None:
-        """export_to_esdl and get_esdl_with_kpis raise ValueError when no system is loaded."""
+        """export_to_esdl and build_esdl_with_kpis raise ValueError when no system is loaded."""
         empty_manager = KpiManager()
 
         with self.assertRaises(ValueError):
             empty_manager.export_to_esdl({}, "output.esdl")
         with self.assertRaises(ValueError):
-            empty_manager.get_esdl_with_kpis({})
+            empty_manager.build_esdl_with_kpis({})
 
     def test_uuid_generation(self) -> None:
         """Every KPI element has a unique, well-formed UUID."""
-        esdl_with_kpis = self.kpi_manager.get_esdl_with_kpis(self.kpi_results)
+        esdl_with_kpis = self.kpi_manager.build_esdl_with_kpis(self.kpi_results)
         main_area = esdl_with_kpis.instance[0].area
 
         seen: set[str] = set()
@@ -780,7 +781,7 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
     """
 
     # Unit conversion factors matching COST_UNIT_FACTORS in constants.py
-    _UNIT_CONVERSION: dict[str, float] = {
+    _UNIT_CONVERSION: ClassVar[dict[str, float]] = {
         "EUR/kW": 1.0 / 1_000,
         "EUR/MW": 1.0 / 1_000_000,
         "EUR/m": 1.0,

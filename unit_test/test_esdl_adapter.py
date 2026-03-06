@@ -241,7 +241,7 @@ class TestAssetSkipping(unittest.TestCase):
 
         joint = _mock_asset(esdl.Joint, "joint-1", "Joint1")
 
-        with patch("kpicalculator.adapters.esdl_adapter.EnergySystemHandler") as MockHandler:
+        with patch("kpicalculator.adapters.base_adapter.EnergySystemHandler") as MockHandler:
             mock_es = MagicMock()
             mock_es.name = "TestSystem"
             mock_es.eAllContents.return_value = iter([joint])
@@ -266,7 +266,7 @@ class TestAssetSkipping(unittest.TestCase):
         disabled.state = state_mock
         disabled.power = 100_000.0
 
-        with patch("kpicalculator.adapters.esdl_adapter.EnergySystemHandler") as MockHandler:
+        with patch("kpicalculator.adapters.base_adapter.EnergySystemHandler") as MockHandler:
             mock_es = MagicMock()
             mock_es.name = "TestSystem"
             mock_es.eAllContents.return_value = iter([disabled])
@@ -294,7 +294,7 @@ class TestAssetSkipping(unittest.TestCase):
         enabled.power = 100_000.0
 
         with (
-            patch("kpicalculator.adapters.esdl_adapter.EnergySystemHandler") as MockHandler,
+            patch("kpicalculator.adapters.base_adapter.EnergySystemHandler") as MockHandler,
             patch.object(self.adapter, "_create_asset_from_esdl", return_value=None) as mock_create,
         ):
             mock_es = MagicMock()
@@ -446,8 +446,6 @@ class TestLegacyTimeSeriesWarning(unittest.TestCase):
             self.adapter._create_asset_from_esdl(
                 producer,
                 ts_dict,
-                xml_time_series_dict=None,
-                model_name="test_model",
             )
 
         self.assertTrue(
@@ -477,12 +475,8 @@ class TestLegacyTimeSeriesWarning(unittest.TestCase):
         producer_2.power = 200_000.0
 
         with self.assertLogs("kpicalculator.adapters.esdl_adapter", level="WARNING") as log_ctx:
-            self.adapter._create_asset_from_esdl(
-                producer_1, ts_dict, xml_time_series_dict=None, model_name="test_model"
-            )
-            self.adapter._create_asset_from_esdl(
-                producer_2, ts_dict, xml_time_series_dict=None, model_name="test_model"
-            )
+            self.adapter._create_asset_from_esdl(producer_1, ts_dict)
+            self.adapter._create_asset_from_esdl(producer_2, ts_dict)
 
         # Only one warning message about legacy time series should appear
         legacy_warnings = [msg for msg in log_ctx.output if "no parameter information" in msg]
@@ -509,12 +503,8 @@ class TestLegacyTimeSeriesWarning(unittest.TestCase):
         producer_2.power = 200_000.0
 
         with self.assertLogs("kpicalculator.adapters.esdl_adapter", level="WARNING"):
-            self.adapter._create_asset_from_esdl(
-                producer_1, ts_dict, xml_time_series_dict=None, model_name="test_model"
-            )
-            self.adapter._create_asset_from_esdl(
-                producer_2, ts_dict, xml_time_series_dict=None, model_name="test_model"
-            )
+            self.adapter._create_asset_from_esdl(producer_1, ts_dict)
+            self.adapter._create_asset_from_esdl(producer_2, ts_dict)
 
         self.assertEqual(self.adapter._legacy_asset_count, 2)
 
@@ -554,9 +544,7 @@ class TestAssetValidationFailure(unittest.TestCase):
             "kpicalculator.adapters.esdl_adapter.InputValidator.validate_asset_properties",
             side_effect=ValidationError("simulated validation failure"),
         ):
-            result = self.adapter._create_asset_from_esdl(
-                producer, {}, xml_time_series_dict=None, model_name="test_model"
-            )
+            result = self.adapter._create_asset_from_esdl(producer, {})
 
         self.assertIsNone(result)
 
@@ -573,9 +561,7 @@ class TestAssetValidationFailure(unittest.TestCase):
             "kpicalculator.adapters.esdl_adapter.InputValidator.validate_asset_properties",
             side_effect=SecurityError("simulated security failure"),
         ):
-            result = self.adapter._create_asset_from_esdl(
-                producer, {}, xml_time_series_dict=None, model_name="test_model"
-            )
+            result = self.adapter._create_asset_from_esdl(producer, {})
 
         self.assertIsNone(result)
 
@@ -596,9 +582,7 @@ class TestAssetValidationFailure(unittest.TestCase):
             ),
             self.assertLogs("kpicalculator.adapters.esdl_adapter", level="WARNING") as log_ctx,
         ):
-            self.adapter._create_asset_from_esdl(
-                producer, {}, xml_time_series_dict=None, model_name="test_model"
-            )
+            self.adapter._create_asset_from_esdl(producer, {})
 
         self.assertTrue(
             any(asset_id in msg for msg in log_ctx.output),
@@ -622,7 +606,7 @@ class TestAssetValidationFailure(unittest.TestCase):
         producer.power = 100_000.0
 
         with (
-            patch("kpicalculator.adapters.esdl_adapter.EnergySystemHandler") as MockHandler,
+            patch("kpicalculator.adapters.base_adapter.EnergySystemHandler") as MockHandler,
             patch(
                 "kpicalculator.adapters.esdl_adapter.InputValidator.validate_asset_properties",
                 side_effect=ValidationError("cannot validate"),

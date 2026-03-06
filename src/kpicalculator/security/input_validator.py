@@ -6,7 +6,7 @@ import re
 import socket
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from ..common.constants import (
     APIPA_FIRST_OCTET,
@@ -46,15 +46,17 @@ class InputValidator:
 
     # Compiled regex patterns for performance
     HOSTNAME_PATTERN = re.compile(HOSTNAME_REGEX_PATTERN)
-    PATH_TRAVERSAL_PATTERNS = [
+    PATH_TRAVERSAL_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
         re.compile(pattern, re.IGNORECASE) for pattern in PATH_TRAVERSAL_PATTERNS
     ]
-    XXE_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS]
+    XXE_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
+        re.compile(pattern, re.IGNORECASE) for pattern in XXE_ATTACK_PATTERNS
+    ]
     DATABASE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9_]+$")
     DATABASE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
     @staticmethod
-    def validate_file_path(
+    def validate_file_path(  # pylint: disable=too-many-branches
         file_path: str | Path,
         allowed_extensions: list[str] | None = None,
         must_exist: bool = True,
@@ -80,7 +82,7 @@ class InputValidator:
         try:
             path_obj = Path(file_path) if isinstance(file_path, str) else file_path
         except Exception as e:
-            raise ValidationError(f"Invalid file path format: {file_path} (error: {str(e)})") from e
+            raise ValidationError(f"Invalid file path format: {file_path} (error: {e!s})") from e
 
         # Convert to string for pattern matching
         path_str = str(path_obj)
@@ -118,7 +120,7 @@ class InputValidator:
         try:
             resolved_path = path_obj.resolve()
         except Exception as e:
-            raise ValidationError(f"Cannot resolve file path: {file_path} (error: {str(e)})") from e
+            raise ValidationError(f"Cannot resolve file path: {file_path} (error: {e!s})") from e
 
         # Check if file exists (if required)
         if must_exist:
@@ -147,7 +149,7 @@ class InputValidator:
         return resolved_path
 
     @staticmethod
-    def validate_database_credentials(credentials: DatabaseCredentials) -> None:
+    def validate_database_credentials(credentials: DatabaseCredentials) -> None:  # pylint: disable=too-many-branches
         """Validate database credentials for security and correctness.
 
         Args:

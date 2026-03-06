@@ -60,7 +60,6 @@ MAX_PATH_LENGTH = 4096
 MAX_FILENAME_LENGTH = 255
 MAX_DATABASE_NAME_LENGTH = 64
 MAX_USERNAME_LENGTH = 64
-MAX_STRING_FIELD_LENGTH = 255
 
 # Network constants
 RFC_1035_HOSTNAME_LIMIT = 253
@@ -70,7 +69,6 @@ MINIMUM_PASSWORD_LENGTH = 8
 
 # Time series composite key format
 COMPOSITE_KEY_SEPARATOR = "|"
-COMPOSITE_KEY_FORMAT = "{asset_id}" + COMPOSITE_KEY_SEPARATOR + "{field_name}"
 
 # Field name lookup lists used by the KPI calculators.
 # Each tuple defines the priority order in which field names are tried for
@@ -92,7 +90,7 @@ KNOWN_TIME_SERIES_FIELDS: frozenset[str] = frozenset(
 DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM
 # Secure database ports (allowed for SSL/TLS connections)
 SECURE_DATABASE_PORTS = {443, 8443}
-# IANA well-known port boundary: ports 0–1023 are privileged/system ports.
+# IANA well-known port boundary: ports 0-1023 are privileged/system ports.
 # Ports in this range that are not explicitly recognised (e.g. not in SECURE_DATABASE_PORTS
 # or common_db_ports) generate an advisory warning in DatabaseCredentials.validate_port_range.
 PRIVILEGED_PORT_MAX = 1023
@@ -101,18 +99,6 @@ PRIVILEGED_PORT_MAX = 1023
 # in district heating infrastructure but unusual — validate_power_realistic emits a
 # UserWarning for values above this threshold to flag potential unit-conversion errors.
 POWER_WARNING_THRESHOLD_W = 1e9  # 1 GW
-
-# Asset property validation ranges
-ASSET_VALIDATION_RANGES = {
-    "power": (0, 1e12),  # 0 to 1 TW
-    "length": (0, 1e6),  # 0 to 1000 km
-    "volume": (0, 1e9),  # 0 to 1 million m³
-    "cop": (0, 10),  # COP typically 0-10
-    "technical_lifetime": (0, 100),  # 0-100 years
-    "discount_rate": (0, 100),  # 0-100%
-    "emission_factor": (0, 1000),  # 0-1000 kg/GJ
-    "aggregation_count": (1, 10000),  # 1-10000 units
-}
 
 # Time series validation
 MAX_TIME_SERIES_LENGTH = HOURS_PER_YEAR * 10  # 10 years of hourly data
@@ -132,7 +118,7 @@ LOCALHOST_ADDRESSES = ["localhost", "127.0.0.1", "::1"]
 # Non-routable IPv4 ranges blocked to prevent SSRF and misconfiguration.
 # First octets that are always reserved: 0 (this network), 10 (class A private), 127 (loopback)
 PRIVATE_IPV4_RESERVED_FIRST_OCTETS = {0, 10, 127}
-# 172.16.0.0/12 — class B private range covers 172.16–172.31
+# 172.16.0.0/12 - class B private range covers 172.16-172.31
 PRIVATE_IPV4_172_FIRST_OCTET = 172
 PRIVATE_IPV4_172_SECOND_OCTET_MIN = 16
 PRIVATE_IPV4_172_SECOND_OCTET_MAX = 31
@@ -171,13 +157,6 @@ WINDOWS_RESERVED_NAMES = [
     "lpt8",
     "lpt9",
 ]
-
-# File extensions
-ALLOWED_FILE_EXTENSIONS = {".esdl", ".xml", ".csv", ".json", ".txt"}
-ESDL_EXTENSION = ".esdl"
-
-# File permissions (octal)
-SECURE_FILE_PERMISSIONS = 0o600  # Read/write for owner only
 
 # HTTP status codes and patterns for validation
 HTTP_SCHEMA_URL = "http://www.w3.org/2001/XMLSchema-instance"

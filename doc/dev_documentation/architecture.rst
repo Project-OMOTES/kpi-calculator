@@ -183,7 +183,7 @@ The full priority order when all sources are enabled is:
 
 1. **pandas DataFrames** — passed directly via the ``timeseries_dataframes`` parameter
 2. **InfluxDB profiles** — loaded from ``InfluxDBProfile`` references found in the ESDL
-3. **XML files** — loaded from the ``time_series`` parameter
+3. **XML files** — loaded from the ``time_series`` parameter (``xml_time_series_adapter.py``, used in tests only — not a supported production input)
 4. **No data** — calculators return zero for energy values (no rated-capacity fallback is implemented)
 
 Each source is attempted in order. If one fails, it logs a warning and tries the next. In the OMOTES pipeline, the simulator-worker provides time series via DataFrames, bypassing InfluxDB entirely.
@@ -340,12 +340,12 @@ Project Layout
    ├── kpi_manager.py                  # Orchestrator + result TypedDicts
    ├── exceptions.py                   # Custom exception hierarchy
    ├── adapters/
-   │   ├── base_adapter.py             # Abstract base + protocols
+   │   ├── base_adapter.py             # Abstract base class + ValidationResult
    │   ├── common_model.py             # Asset, TimeSeries, EnergySystem
    │   ├── esdl_adapter.py             # ESDL parsing + cost extraction
    │   ├── time_series_manager.py      # Multi-source time series loading
    │   ├── database_time_series_loader.py  # InfluxDB integration
-   │   └── xml_time_series_adapter.py  # XML time series (testing)
+   │   └── xml_time_series_adapter.py  # XML time series (testing only)
    ├── calculators/
    │   ├── cost_calculator.py          # CAPEX, OPEX, NPV, LCOE
    │   ├── energy_calculator.py        # Consumption, production, efficiency
@@ -416,6 +416,11 @@ specific adapter it knows about directly, not through the base class interface. 
 ``SimulatorAdapter`` (``adapters/simulator_adapter.py``) is the reference implementation
 for this pattern: it accepts a ``(pd.DataFrame, esdl_string)`` pair, resolves port IDs
 to asset IDs, and delegates cost extraction to ``EsdlAdapter.load_from_esdl_object()``.
+
+``BaseAdapter`` also provides ``_parse_esdl_string(esdl_string)`` — a shared static
+helper that wraps ``EnergySystemHandler.load_from_string()`` and raises a uniform
+``ValidationError`` on failure. Both ``EsdlAdapter`` and ``SimulatorAdapter`` use it,
+keeping ESDL parsing logic in one place.
 
 The ``# type: ignore[override]`` annotations on ``load_data`` and ``validate_source``
 in concrete adapters are intentional — they narrow the inherited ``Any`` signature to

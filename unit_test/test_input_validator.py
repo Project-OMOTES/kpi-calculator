@@ -26,6 +26,7 @@ import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 from pydantic import ValidationError as PydanticValidationError
@@ -700,7 +701,7 @@ class TestValidateDatabasePort(unittest.TestCase):
                 self.assertIn("Port must be integer", str(ctx.exception))
 
     def test_out_of_range_port_raises_validation_error(self) -> None:
-        """Ports outside 1–65535 are rejected as invalid TCP port numbers.
+        """Ports outside 1-65535 are rejected as invalid TCP port numbers.
 
         Port 0 is the wildcard port (OS-assigned) and 65536 exceeds the 16-bit
         TCP port range.  Neither is a valid database port.
@@ -1008,7 +1009,7 @@ class TestValidateDatabaseCredentialsMissingBranches(unittest.TestCase):
 
     # A set of credentials that passes every InputValidator check — used as a
     # valid baseline that individual tests modify one field at a time.
-    _VALID = dict(
+    _VALID: ClassVar[dict[str, Any]] = dict(
         host="database.example.com",
         port=5432,  # Standard PostgreSQL port — accepted by _is_database_port_allowed
         username="dbuser",

@@ -7,11 +7,10 @@ from xml.dom import minidom
 import xmltodict  # type: ignore[import-untyped]
 
 from ..common.constants import DEFAULT_WEEK_TIME_STEP, HTTP_SCHEMA_URL
-from .time_series_protocols import TimeSeriesProvider
 
 
 # Class to load and read from and to PiXml files
-class PiXmlTimeSeries(TimeSeriesProvider):
+class PiXmlTimeSeries:
     def __init__(
         self,
         time_series_xml_file: str,

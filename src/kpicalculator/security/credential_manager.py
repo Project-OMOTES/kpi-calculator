@@ -26,7 +26,7 @@ class CredentialManager(ABC):
         Returns:
             DatabaseCredentials if found, None otherwise
         """
-        pass
+        ...
 
     @abstractmethod
     def supports_environment_credentials(self) -> bool:
@@ -35,7 +35,7 @@ class CredentialManager(ABC):
         Returns:
             True if manager can read from environment variables
         """
-        pass
+        ...
 
 
 class SecureCredentialManager(CredentialManager):
@@ -187,11 +187,11 @@ class ConfigFileCredentialManager(CredentialManager):
                 config = json.load(f)
         except json.JSONDecodeError as e:
             raise ConfigurationError(
-                f"Invalid JSON in credentials file: {self.config_path} (error: {str(e)})"
+                f"Invalid JSON in credentials file: {self.config_path} (error: {e!s})"
             ) from e
         except Exception as e:
             raise ConfigurationError(
-                f"Failed to read credentials file: {self.config_path} (error: {str(e)})"
+                f"Failed to read credentials file: {self.config_path} (error: {e!s})"
             ) from e
 
         # Parse and validate credentials
@@ -212,7 +212,7 @@ class ConfigFileCredentialManager(CredentialManager):
             except (KeyError, TypeError) as e:
                 raise ConfigurationError(
                     f"Invalid credential configuration for {host_port} "
-                    f"(error: {str(e)}, config: {creds_config})"
+                    f"(error: {e!s}, config: {creds_config})"
                 ) from e
 
         self._cached_credentials = credentials
