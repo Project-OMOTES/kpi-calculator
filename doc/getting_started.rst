@@ -136,7 +136,7 @@ Export calculated KPIs back into ESDL as ``DistributionKPI`` elements for visual
 
 .. code-block:: python
 
-   esdl_with_kpis = manager.get_esdl_with_kpis(results)
+   esdl_with_kpis = manager.build_esdl_with_kpis(results)
 
 .. note::
    Both export patterns are validated by `test_string_loaded_esdl_export <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
