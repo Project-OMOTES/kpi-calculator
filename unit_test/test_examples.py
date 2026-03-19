@@ -193,3 +193,60 @@ class TestReadmeExamples:
         assert npv_items["NPV"] == expected_npv, (
             f"Exported NPV {npv_items['NPV']} != calculated {expected_npv}"
         )
+
+    def test_build_esdl_string_with_kpis(self) -> None:
+        """Test that build_esdl_string_with_kpis embeds KPIs into an ESDL XML string.
+
+        Verifies that:
+        - The returned value is a non-empty string containing KPI XML elements.
+        - manager.energy_system.esdl_energy_system is unchanged after the call.
+        """
+        from pathlib import Path
+
+        import xmltodict
+
+        esdl_path = Path("unit_test/data/Unit_test_ESDL.esdl")
+        esdl_string = esdl_path.read_text(encoding="utf-8")
+
+        manager = KpiManager()
+        manager.load_from_esdl_string(esdl_string)
+        results = manager.calculate_all_kpis()
+
+        original_esdl_object = manager.energy_system.esdl_energy_system
+
+        output_string = manager.build_esdl_string_with_kpis(esdl_string, results)
+
+        # State is restored after the call
+        assert manager.energy_system.esdl_energy_system is original_esdl_object
+
+        # Output is a non-empty string
+        assert isinstance(output_string, str)
+        assert len(output_string) > 0
+
+        # KPI elements are present in the output XML
+        parsed = xmltodict.parse(output_string)
+        area = parsed["esdl:EnergySystem"]["instance"]["area"]
+        assert "KPIs" in area, "KPIs element missing from output ESDL"
+        kpi_by_name = {kpi["@name"]: kpi for kpi in area["KPIs"]["kpi"]}
+        assert "High level cost breakdown [EUR]" in kpi_by_name
+        assert "Energy breakdown [Wh]" in kpi_by_name
+        assert "CO2 emissions [g]" in kpi_by_name
+
+        # KPI values round-trip the calculated results exactly
+        expected_capex = results["costs"]["capex"]["All"]
+        expected_opex = results["costs"]["opex"]["All"]
+        expected_npv = results["costs"]["npv"]
+        assert expected_capex > 0, "Fixture ESDL has cost data; CAPEX should be non-zero"
+        assert expected_opex > 0, "Fixture ESDL has cost data; OPEX should be non-zero"
+        assert expected_npv > 0, "Fixture ESDL has cost data; NPV should be non-zero"
+
+        cost_items = {
+            item["@label"]: float(item["@value"])
+            for item in kpi_by_name["High level cost breakdown [EUR]"]["distribution"]["stringItem"]
+        }
+        assert cost_items["CAPEX (total)"] == expected_capex
+        assert cost_items["OPEX (yearly)"] == expected_opex
+
+        # NPV has a single stringItem — xmltodict returns a dict, not a list
+        npv_item = kpi_by_name["Net Present Value [EUR]"]["distribution"]["stringItem"]
+        assert float(npv_item["@value"]) == expected_npv
