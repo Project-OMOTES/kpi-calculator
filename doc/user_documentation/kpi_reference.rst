@@ -22,10 +22,10 @@ The calculators search for time series data on each asset using specific key nam
      - ``ThermalConsumption``, ``Consumption``, ``Energy``
    * - Production
      - Producer, Geothermal
-     - ``ThermalProduction``, ``Production``, ``Energy``
+     - ``ThermalProduction``, ``Production``, ``heat_supplied``, ``Energy``
    * - Demand
      - Consumer
-     - ``ThermalDemand``, ``Demand`` (falls back to consumption keys)
+     - ``ThermalDemand``, ``Demand``, ``heat_demand`` (falls back to consumption keys)
 
 **Emission calculator:**
 
@@ -37,7 +37,7 @@ The calculators search for time series data on each asset using specific key nam
      - Keys searched (in order)
      - Notes
    * - Producer, Geothermal
-     - ``ThermalProduction``, ``Production``, ``Energy``
+     - ``ThermalProduction``, ``Production``, ``heat_supplied``, ``Energy``
      - Same as energy production
    * - Consumer
      - ``ThermalConsumption``, ``Consumption``, ``Energy``
