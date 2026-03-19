@@ -22,13 +22,10 @@ classifiers = [
 ]
 
 dependencies = [
-    "coloredlogs~=15.0.1",
     "numpy>=2.1.0,<3.0", # Compatible with simulator-worker
     "pandas>=2.2.2,<3.0", # Requires pandas >=2.2.2 for numpy 2.x compatibility
-    "pandas-stubs~= 2.1.1", # Type stubs for pandas
     "pyesdl~=26.2", # Compatible with simulator-worker
     "xmltodict==0.14.2",
-    "types-xmltodict", # Type stubs for xmltodict
     "influxdb>=5.3.2",
     "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
     "urllib3>=2.6.3", # Security: CVE fixes
@@ -46,12 +43,12 @@ lint = [
     "ruff>=0.6.0",
     "mypy ~= 1.5.1",
     "pre-commit ~= 3.6.0",
+    "pandas-stubs", # Type stubs for pandas
+    "types-xmltodict", # Type stubs for xmltodict
 ]
 analysis = [
     "codespell>=2.0.0",    # Spell checking
     "vulture>=2.0.0",      # Dead code detection
-    "bandit>=1.7.0",       # Security vulnerability scanner
-    "radon>=6.0.0",        # Code complexity analysis
     "pylint>=3.0.0",       # Duplicate code detection (run with --disable=all --enable=similarities)
     "pipdeptree>=2.0.0",   # Dependency analysis and visualization
     "pip-audit>=2.0.0",    # Official Python package vulnerability scanner
@@ -176,7 +173,7 @@ exclude = ['.venv/*', 'venv/*', 'doc/*', 'ci/*']
 
 # mypy per-module options:
 [[tool.mypy.overrides]]
-module = ["unit_test.*", "coloredlogs.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*", "jinja2.*"]
+module = ["unit_test.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*", "jinja2.*"]
 check_untyped_defs = true
 ignore_missing_imports = true
 
