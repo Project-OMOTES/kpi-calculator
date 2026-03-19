@@ -66,8 +66,10 @@ The package supports three time series sources (DataFrames, InfluxDB profiles, a
 **pandas DataFrames** — pass a dictionary of DataFrames keyed by asset ID. Each DataFrame column
 represents a time series field; the column name must match a field name recognised by the KPI
 calculators (``ThermalConsumption``, ``ThermalProduction``, ``ThermalDemand``, ``Consumption``,
-``Production``, ``Demand``, ``ElectricalConsumption``, or ``Energy``). Unrecognised column names
-are stored but will not contribute to any KPI — a warning is logged in that case:
+``Production``, ``Demand``, ``ElectricalConsumption``, ``Energy``, or ``heat_demand``).
+The simulator-specific column ``heat_supplied`` is also recognised on producer assets.
+Unrecognised column names are stored but will not contribute to any KPI — a warning is logged
+in that case:
 
 .. code-block:: python
 
@@ -138,10 +140,44 @@ Export calculated KPIs back into ESDL as ``DistributionKPI`` elements for visual
 
    esdl_with_kpis = manager.build_esdl_with_kpis(results)
 
+**Get ESDL string (preferred for in-memory workflows):**
+
+When working with ESDL strings end-to-end (for example, in simulator-worker), use
+``build_esdl_string_with_kpis`` to embed KPIs into an existing ESDL string and get an
+updated string back. This avoids temporary files and does not require manipulating
+internal adapter state:
+
+.. code-block:: python
+
+   # manager and results from a previous load_from_esdl_string() call (see above)
+   esdl_string_with_kpis = manager.build_esdl_string_with_kpis(esdl_string, results)
+
 .. note::
    Both export patterns are validated by `test_string_loaded_esdl_export <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
 
 Export works with both file-loaded and string-loaded ESDL — no temporary files needed for in-memory workflows.
+
+From OMOTES Simulator Results
+------------------------------
+
+When integrating with the OMOTES simulator-worker, use ``load_from_simulator`` to load the
+simulator's port-indexed DataFrame together with the input ESDL string. The adapter resolves
+port IDs to assets and extracts cost data in one step. Use ``build_esdl_string_with_kpis`` to
+embed the results into the output ESDL string:
+
+.. code-block:: python
+
+   from kpicalculator import KpiManager
+
+   manager = KpiManager()
+   # input_esdl: the ESDL string submitted to the simulator (used to resolve port IDs and cost data)
+   # output_esdl: the ESDL string returned by the simulator (KPIs will be embedded into this)
+   manager.load_from_simulator(simulator_result_df, esdl_string=input_esdl)
+   results = manager.calculate_all_kpis(system_lifetime=30)
+   output_esdl_with_kpis = manager.build_esdl_string_with_kpis(output_esdl, results)
+
+The simulator produces columns named ``heat_demand`` and ``heat_supplied``. These are
+recognised directly by the energy and emission calculators — no column renaming is needed.
 
 .. _results-structure:
 
