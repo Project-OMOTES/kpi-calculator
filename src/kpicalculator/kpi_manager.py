@@ -1,6 +1,6 @@
 # src/kpicalculator/kpi_manager.py
 import logging
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 import pandas as pd  # type: ignore[import-untyped]
 from esdl import esdl
@@ -243,6 +243,52 @@ class KpiManager:
         if not isinstance(result, esdl.EnergySystem):
             raise ValueError("Failed to generate ESDL data structure")
         return result
+
+    def build_esdl_string_with_kpis(
+        self, esdl_string: str, results: KpiResults, level: str = "system"
+    ) -> str:
+        """Embed KPI results into an ESDL XML string and return the updated string.
+
+        This is the preferred integration method for systems that work with ESDL
+        strings (e.g. simulator-worker). It avoids the need to manipulate internal
+        adapter state and produces a self-contained output string.
+
+        Args:
+            esdl_string: Input ESDL XML string to embed KPIs into.
+            results: KPI calculation results from calculate_all_kpis()
+            level: KPI level ('system', 'area', 'asset')
+
+        Returns:
+            ESDL XML string with KPIs embedded.
+
+        Raises:
+            ValueError: If no energy system is loaded, esdl_string is empty,
+                or invalid parameters are provided.
+        """
+        if not self.energy_system:
+            raise ValueError("No energy system loaded. Call one of the load methods first.")
+        if not esdl_string.strip():
+            raise ValueError("esdl_string must not be empty.")
+
+        from esdl.esdl_handler import EnergySystemHandler
+
+        from .reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        esh = EnergySystemHandler()
+        esh.load_from_string(esdl_string)
+
+        # Redirect the exporter to the target ESDL object tree so KPIs are written
+        # into the correct output. Safe because the exporter reads this attribute
+        # once into a local variable; try/finally restores the original reference.
+        original_esdl_energy_system = self.energy_system.esdl_energy_system
+        self.energy_system.esdl_energy_system = esh.energy_system
+        try:
+            exporter = EsdlKpiExporter()
+            exporter.export(results, self.energy_system, destination=None, level=level)
+        finally:
+            self.energy_system.esdl_energy_system = original_esdl_energy_system
+
+        return cast(str, esh.to_string())
 
 
 # TODO: Add method to save the results
