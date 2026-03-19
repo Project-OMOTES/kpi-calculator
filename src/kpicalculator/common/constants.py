@@ -75,8 +75,8 @@ COMPOSITE_KEY_SEPARATOR = "|"
 # a given energy category. The calculators import these directly so there
 # is a single source of truth.
 CONSUMPTION_FIELDS: tuple[str, ...] = ("ThermalConsumption", "Consumption", "Energy")
-DEMAND_FIELDS: tuple[str, ...] = ("ThermalDemand", "Demand")
-PRODUCTION_FIELDS: tuple[str, ...] = ("ThermalProduction", "Production", "Energy")
+DEMAND_FIELDS: tuple[str, ...] = ("ThermalDemand", "Demand", "heat_demand")
+PRODUCTION_FIELDS: tuple[str, ...] = ("ThermalProduction", "Production", "heat_supplied", "Energy")
 ELECTRICAL_CONSUMPTION_FIELDS: tuple[str, ...] = ("ElectricalConsumption",)
 CONVERSION_FIELDS: tuple[str, ...] = ("ElectricalConsumption", "ThermalProduction")
 
@@ -85,7 +85,6 @@ CONVERSION_FIELDS: tuple[str, ...] = ("ElectricalConsumption", "ThermalProductio
 KNOWN_TIME_SERIES_FIELDS: frozenset[str] = frozenset(
     CONSUMPTION_FIELDS + DEMAND_FIELDS + PRODUCTION_FIELDS + ELECTRICAL_CONSUMPTION_FIELDS
 )
-
 # Security-related ports to validate against
 DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM
 # Secure database ports (allowed for SSL/TLS connections)
