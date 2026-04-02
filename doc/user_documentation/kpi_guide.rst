@@ -32,6 +32,14 @@ KPI Summary
      - EUR/MWh
      - €30-80
      - Cost-effectiveness ranking
+   * - EAC
+     - EUR/year
+     - Project-specific
+     - Per-asset annualized cost; annual budget comparison across different asset lifetimes
+   * - TCO
+     - EUR
+     - Project-specific
+     - Undiscounted lifecycle cost; comparable to MESIDO optimizer output
    * - Consumption
      - Joules
      - Demand-driven
@@ -100,14 +108,17 @@ Total lifecycle cost in today's money, accounting for the time value of future e
    r = discount_rate / 100
 
    CAPEX_npv = Sum over assets of:
-       (investment + installation) × Sum over replacements n=0,1,...:
-           1 / (1 + r) ^ (technical_lifetime × n)
+       (investment + installation) × Sum over replacements k=0,1,...,ceil(lifetime/TL)-1:
+           1 / (1 + r) ^ (technical_lifetime × k)
+
+   Let N = floor(system_lifetime), f = system_lifetime - N
 
    OPEX_npv = Sum over assets of:
-       annual_opex × Sum over years t=0..system_lifetime-1:
-           1 / (1 + r) ^ t
+       annual_opex × (Sum t=1..N of 1/(1+r)^t  +  f/(1+r)^(N+1))
 
    NPV = CAPEX_npv + OPEX_npv
+
+CAPEX is paid at the start of each replacement cycle (start-of-period). OPEX follows the standard engineering economics end-of-period convention — costs incurred at the end of each year are discounted accordingly. A fractional final year is prorated linearly.
 
 When an asset's technical lifetime is shorter than the system lifetime, the CAPEX term includes replacement costs — each replacement is discounted to its installation year. For example, an asset with a 15-year technical lifetime in a 30-year analysis has two replacement events, each discounted further into the future.
 
@@ -118,14 +129,15 @@ NPV captures the full cost picture: a system with high CAPEX but low OPEX can ha
 LCOE (Levelized Cost of Energy)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Average cost per MWh of energy delivered over the system lifetime, in EUR/MWh. Energy delivered is discounted using the same discount rate and lifetime as for NPV, so costs and energy are on a consistent present-value basis. This is the most useful metric for comparing designs of different sizes and technologies.
+Average cost per MWh of energy delivered over the system lifetime, in EUR/MWh. Energy is discounted using the same end-of-period convention and parameters as NPV OPEX, so costs and energy are on a consistent present-value basis. This is the most useful metric for comparing designs of different sizes and technologies.
 
 .. code-block:: text
 
    r = discount_rate / 100
 
-   Discounted_Energy = Sum over years t=0..system_lifetime-1:
-       annual_energy_MWh / (1 + r) ^ t
+   Let N = floor(system_lifetime), f = system_lifetime - N
+
+   Discounted_Energy = Sum t=1..N of annual_energy_MWh/(1+r)^t  +  f×annual_energy_MWh/(1+r)^(N+1)
 
    LCOE [EUR/MWh] = NPV [EUR] / Discounted_Energy [MWh]
 
@@ -136,6 +148,68 @@ Typical benchmarks:
 - District heating: €30-50/MWh
 
 Lower LCOE means more cost-effective, but the cheapest option may not meet emission targets.
+
+EAC (Equivalent Annual Cost)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Sum of per-asset annualized costs, in EUR/year. Each asset's CAPEX is spread over its
+own technical lifetime using the annuity formula; OPEX is already annual and is added
+directly.
+
+.. code-block:: text
+
+   For each asset:
+       r   = asset discount_rate / 100  (from ESDL, or system default)
+       TL  = asset technical_lifetime
+
+       annualized_CAPEX = (investment + installation) × r / (1 - (1 + r) ^ -TL)
+
+       Special case (r = 0):
+       annualized_CAPEX = (investment + installation) / TL
+
+       annualized_OPEX = annual_opex  (fixed + variable operational + maintenance)
+
+   EAC = Sum over assets of (annualized_CAPEX + annualized_OPEX)
+
+The annuity formula is identical to ``calculate_annuity_factor`` in the MESIDO
+optimizer (``financial_mixin.py``).
+
+**Replacement assumption:** the annuity spreads one asset purchase over its technical
+lifetime, implicitly assuming the asset is always replaced when it reaches end of life.
+The annual charge is therefore the same regardless of how many replacements occur within
+the system lifetime — a pipe with a 40-year lifetime and a heat pump with a 15-year
+lifetime each carry their own constant annual charge. This avoids the need to count
+replacement cycles explicitly and makes EAC independent of ``system_lifetime``.
+
+The implication is that EAC does not account for salvage value at the end of the system
+lifetime. If an asset is replaced partway through the final cycle, the unused residual
+life is not credited. For long system lifetimes relative to asset lifetimes this effect
+is small; for short system lifetimes it may be material.
+
+Use EAC when you need to answer: *"What does this system cost per year, on average?"*
+It is particularly useful when comparing designs with assets of different technical
+lifetimes — NPV alone can be misleading because a longer-lived system accumulates more
+discounted cost even if it is cheaper per year.
+
+TCO (Total Cost of Ownership)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Undiscounted sum of all costs over the system lifetime, in EUR. Unlike NPV, future costs are not discounted to present value — each euro spent in year 25 counts the same as a euro spent today.
+
+.. code-block:: text
+
+   For each asset:
+       replacement_factor = ceil(system_lifetime / technical_lifetime)
+       CAPEX_tco = (investment + installation) × replacement_factor
+       OPEX_tco  = annual_opex × system_lifetime
+
+   TCO = Sum over all assets of (CAPEX_tco + OPEX_tco)
+
+The replacement factor counts the number of full asset purchases needed to keep the system operational over its lifetime (e.g. 2 for a 30-year system with a 15-year asset). This is the financially exact count and is consistent with the CAPEX replacement logic in NPV.
+
+Pass ``mesido_compatible=True`` to ``CostCalculator.calculate_tco()`` to use the continuous factor ``max(1, system_lifetime / technical_lifetime)`` instead. MESIDO's ``MinimizeTCO`` goal uses this approximation to keep the optimizer objective smooth and differentiable. Use this only when comparing output against MESIDO results.
+
+TCO is always greater than or equal to NPV at any positive discount rate — discounting makes future costs smaller, so the undiscounted sum is always higher. Use TCO when you want to verify optimizer results from MESIDO, or when comparing total expenditure without assuming a particular cost of capital.
 
 Energy KPIs
 -----------
@@ -231,6 +305,14 @@ Here's an example of how KPIs can inform a design decision:
      - €1.05M
      - €750k
      - €600k
+   * - EAC (30yr, 5%)
+     - €68k/yr
+     - €49k/yr
+     - €39k/yr
+   * - TCO (30yr)
+     - €1.45M
+     - €1.30M
+     - €1.45M
    * - LCOE
      - €52/MWh
      - €48/MWh
@@ -242,6 +324,8 @@ Here's an example of how KPIs can inform a design decision:
 
 The gas boiler is cheapest to build but most expensive over its lifetime. District heating requires the largest upfront investment but has the lowest lifecycle cost and emissions. The heat pump sits in between on every metric.
 
+EAC makes the annual budget impact explicit: district heating costs €39k/year on average, versus €68k for gas. TCO shows the undiscounted total spend — useful for verifying against MESIDO optimizer output.
+
 Which option is "best" depends on priorities: budget constraints, long-term cost targets, or climate compliance requirements.
 
 Key Assumptions
@@ -249,9 +333,9 @@ Key Assumptions
 
 These defaults affect all calculations. Understanding them helps interpret results and compare scenarios.
 
-**System lifetime:** 30 years. Standard for energy infrastructure. Override with ``system_lifetime=25`` in ``calculate_kpis()``.
+**System lifetime:** 30 years. Standard for energy infrastructure. Override with ``system_lifetime=25`` in ``calculate_all_kpis()``.
 
-**Discount rate:** 5%. Represents the cost of capital for energy infrastructure. Not currently overridable through the public API.
+**Discount rate:** 5%. Represents the cost of capital for energy infrastructure. Override with ``discount_rate=3`` in ``calculate_all_kpis()``.
 
 **Technical lifetime per asset:** 40 years if not specified in ESDL. Real values vary widely — pipes last 40-50 years, heat pumps 15-20.
 

@@ -578,6 +578,30 @@ class EsdlAdapter(BaseAdapter):
 
         cost_info = esdl_asset.costInformation
 
+        # Extract per-asset discount rate (percentage, e.g. 5 for 5%).
+        # The ESDL schema stores discountRate as a plain float with no embedded unit.
+        # Values outside [0, 100] are rejected. Values in (0, 1) likely indicate a
+        # ratio (e.g. 0.05 instead of 5) and are warned about but stored as-is.
+        if hasattr(cost_info, "discountRate") and cost_info.discountRate is not None:
+            raw_rate = float(cost_info.discountRate)
+            if raw_rate < 0 or raw_rate > 100:
+                self.logger.warning(
+                    "Asset '%s' has discountRate=%s outside [0, 100]. "
+                    "Expected a percentage (e.g. 5 for 5%%). Skipping.",
+                    esdl_asset.name,
+                    raw_rate,
+                )
+            else:
+                if 0 < raw_rate < 1:
+                    self.logger.warning(
+                        "Asset '%s' has discountRate=%s which looks like a ratio "
+                        "rather than a percentage. Expected e.g. 5 for 5%%. "
+                        "Storing as-is; verify the ESDL source.",
+                        esdl_asset.name,
+                        raw_rate,
+                    )
+                costs["discount_rate"] = raw_rate
+
         # Mapping of ESDL cost fields to asset dict keys
         cost_mappings = {
             "investmentCosts": ("investment_cost", "investment_cost_unit"),
