@@ -8,7 +8,7 @@ from esdl import esdl
 from .adapters.common_model import EnergySystem
 from .adapters.esdl_adapter import EsdlAdapter
 from .adapters.simulator_adapter import SimulatorAdapter
-from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
+from .common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_SYSTEM_LIFETIME_YEARS
 
 _logger = logging.getLogger(__name__)
 
@@ -20,6 +20,8 @@ class CostResults(TypedDict):
     opex: dict[str, float]
     npv: float
     lcoe: float
+    eac: float
+    tco: float
 
 
 class EnergyResults(TypedDict):
@@ -145,18 +147,34 @@ class KpiManager:
         raise NotImplementedError("Mesido adapter not implemented yet")
 
     def calculate_all_kpis(
-        self, system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS
+        self,
+        system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
+        discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT,
+        round_up_replacement: bool = True,
     ) -> KpiResults:
         """Calculate all KPIs for the energy system.
 
+        Raises:
+            ValueError: If no energy system is loaded, ``system_lifetime <= 0``,
+                or ``discount_rate`` is outside [0, 100].
+
         Args:
-            system_lifetime: System lifetime in years
+            system_lifetime: System lifetime in years. Must be positive.
+            discount_rate: Discount rate in percentage (e.g. 5 for 5%). Must be in [0, 100].
+            round_up_replacement: If True (default), NPV, LCOE, and TCO use ``ceil``
+                for the asset replacement count (financially exact). If False, uses the
+                continuous factor ``max(1, n / technical_lifetime)`` for optimizer
+                compatibility.
 
         Returns:
-            Dictionary with all KPI results
+            Dictionary with all KPI results.
         """
         if not self.energy_system:
             raise ValueError("No energy system loaded. Call one of the load methods first.")
+        if system_lifetime <= 0:
+            raise ValueError(f"system_lifetime must be positive (got {system_lifetime}).")
+        if discount_rate < 0 or discount_rate > 100:
+            raise ValueError(f"discount_rate must be between 0 and 100 (got {discount_rate}).")
 
         from .calculators.cost_calculator import CostCalculator
         from .calculators.emission_calculator import EmissionCalculator
@@ -170,8 +188,17 @@ class KpiManager:
             "costs": {
                 "capex": cost_calc.get_capex_by_category(),
                 "opex": cost_calc.get_opex_by_category(),
-                "npv": cost_calc.calculate_npv(system_lifetime),
-                "lcoe": cost_calc.calculate_lcoe(system_lifetime),
+                "npv": cost_calc.calculate_npv(
+                    system_lifetime, discount_rate, round_up_replacement=round_up_replacement
+                ),
+                "lcoe": cost_calc.calculate_lcoe(
+                    system_lifetime, discount_rate, round_up_replacement=round_up_replacement
+                ),
+                "eac": cost_calc.calculate_eac(discount_rate),
+                # TCO is intentionally undiscounted — discount_rate is not used.
+                "tco": cost_calc.calculate_tco(
+                    system_lifetime, round_up_replacement=round_up_replacement
+                ),
             },
             "energy": {
                 "consumption": energy_calc.get_total_energy_consumption_per_year(),

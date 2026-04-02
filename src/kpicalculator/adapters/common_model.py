@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from esdl import esdl
 
-from ..common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_TECHNICAL_LIFETIME_YEARS
+from ..common.constants import DEFAULT_TECHNICAL_LIFETIME_YEARS
 
 
 class AssetType(Enum):
@@ -55,8 +55,10 @@ class Asset:
     variable_maintenance_cost_unit: str = "EUR/MWh"
 
     # Lifecycle properties
+    # discount_rate is None when not set in ESDL costInformation; calculate_eac
+    # then falls back to its discount_rate parameter.
     technical_lifetime: float = DEFAULT_TECHNICAL_LIFETIME_YEARS  # years
-    discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT  # %
+    discount_rate: float | None = None  # %
     emission_factor: float = 0.0  # kg/J (converted from ESDL kg/GJ by adapter)
 
     # Aggregation
