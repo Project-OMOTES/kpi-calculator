@@ -30,6 +30,7 @@ def calculate_kpis(
     time_series: str | Path | None = None,
     timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
+    round_up_replacement: bool = True,
 ) -> KpiResults:
     """Calculate KPIs from ESDL files with supporting data.
 
@@ -48,6 +49,10 @@ def calculate_kpis(
             with time-indexed energy/power data. When provided, takes precedence
             over database loading and time_series file parameter.
         system_lifetime: System lifetime in years
+        round_up_replacement: If True (default), NPV, LCOE, and TCO use ``ceil``
+            for the asset replacement count (financially exact). If False, uses the
+            continuous factor ``max(1, n / technical_lifetime)`` for optimizer
+            compatibility.
 
     Returns:
         KpiResults containing calculated KPIs
@@ -74,7 +79,10 @@ def calculate_kpis(
         )
 
         logger.info("Calculating KPIs...")
-        results = kpi_manager.calculate_all_kpis(system_lifetime=system_lifetime)
+        results = kpi_manager.calculate_all_kpis(
+            system_lifetime=system_lifetime,
+            round_up_replacement=round_up_replacement,
+        )
         logger.info("KPI calculation completed successfully")
 
         return results
