@@ -210,6 +210,22 @@ class EsdlKpiExporter(BaseExporter):
             )
             kpis.kpi.append(kpi)
 
+        # EAC KPI
+        if "eac" in cost_data:
+            items = [("EAC", cost_data["eac"])]
+            kpi = self._create_distribution_kpi(
+                "Equivalent Annual Cost [EUR/yr]", "COST", "EURO", items, per_unit="YEAR"
+            )
+            kpis.kpi.append(kpi)
+
+        # TCO KPI
+        if "tco" in cost_data:
+            items = [("TCO", cost_data["tco"])]
+            kpi = self._create_distribution_kpi(
+                "Total Cost of Ownership [EUR]", "COST", "EURO", items
+            )
+            kpis.kpi.append(kpi)
+
     def _add_energy_kpis(self, kpis: esdl.KPIs, energy_data: EnergyResults) -> None:
         """Add energy-related KPIs to the ESDL KPIs container.
 

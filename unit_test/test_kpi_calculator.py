@@ -1384,5 +1384,448 @@ class BaseAdapterValidationTest(unittest.TestCase):
         self.assertEqual(len(result.errors), 2)
 
 
+class EacTcoCalculatorTest(unittest.TestCase):
+    """Unit tests for EAC and TCO calculations in CostCalculator.
+
+    Uses a minimal synthetic EnergySystem — no file I/O, no ESDL parsing — so
+    tests are fast and isolated.  Each test pins a specific mathematical property
+    of the formulas.
+    """
+
+    def _make_system(
+        self,
+        investment: float = 100_000.0,
+        opex_annual: float = 5_000.0,
+        technical_lifetime: float = 40.0,
+    ) -> "EnergySystem":  # noqa: F821
+        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
+
+        asset = Asset(
+            id="test_asset",
+            name="Test Asset",
+            asset_type=AssetType.PRODUCER,
+            investment_cost=investment,
+            investment_cost_unit="EUR",
+            fixed_operational_cost=opex_annual,
+            fixed_operational_cost_unit="EUR/yr",
+            technical_lifetime=technical_lifetime,
+        )
+        return EnergySystem(name="Test System", assets=[asset])
+
+    # --- Annuity factor spot checks (ported from mesido test_end_scenario_sizing_annualized.py) ---
+
+    def test_annuity_factor_zero_discount_rate_n1(self) -> None:
+        """annuity_factor(r=0, TL=1) == 1.0: EAC = CAPEX / TL = CAPEX.
+
+        At r=0 the annuity degenerates to CAPEX / TL. For TL=1, annualized_CAPEX = CAPEX.
+        Ported from mesido Assertion 4.
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 1_000.0
+        system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=1.0)
+        calc = CostCalculator(system)
+        eac = calc.calculate_eac(discount_rate=0.0)
+
+        self.assertAlmostEqual(eac, investment, places=10)
+
+    def test_annuity_factor_10pct_discount_rate_tl1(self) -> None:
+        """annuity_factor(r=0.10, TL=1) == 1.1: annualized_CAPEX = CAPEX × 1.1.
+
+        For TL=1: factor = r / (1 - (1+r)^-1) = 1+r = 1.1.
+        Ported from mesido Assertion 4.
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 1_000.0
+        system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=1.0)
+        calc = CostCalculator(system)
+        eac = calc.calculate_eac(discount_rate=10.0)
+
+        self.assertAlmostEqual(eac, investment * 1.1, places=10)
+
+    # --- EAC tests ---
+
+    def test_eac_annuity_formula_per_asset(self) -> None:
+        """EAC applies annuity formula per asset using technical_lifetime, not system_lifetime.
+
+        For a single asset: investment=100,000, r=5%, TL=40yr:
+            annuity_factor = 0.05 / (1 - 1.05^-40)
+            EAC = investment × annuity_factor
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 100_000.0
+        technical_lifetime = 40.0
+        discount_rate = 5.0
+        system = self._make_system(
+            investment=investment, opex_annual=0.0, technical_lifetime=technical_lifetime
+        )
+        calc = CostCalculator(system)
+        eac = calc.calculate_eac(discount_rate=discount_rate)
+
+        r = discount_rate / 100.0
+        expected = investment * r / (1.0 - (1.0 + r) ** -technical_lifetime)
+        self.assertAlmostEqual(eac, expected, places=10)
+
+    def test_eac_zero_discount_rate_equals_capex_divided_by_technical_lifetime(self) -> None:
+        """At r=0, EAC = CAPEX / technical_lifetime (simple straight-line depreciation)."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 100_000.0
+        technical_lifetime = 40.0
+        system = self._make_system(
+            investment=investment, opex_annual=0.0, technical_lifetime=technical_lifetime
+        )
+        calc = CostCalculator(system)
+        eac = calc.calculate_eac(discount_rate=0.0)
+
+        self.assertAlmostEqual(eac, investment / technical_lifetime, places=10)
+
+    def test_eac_higher_discount_rate_yields_higher_eac(self) -> None:
+        """Higher discount rate produces higher EAC (higher annuity factor)."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        system = self._make_system()
+        calc = CostCalculator(system)
+
+        eac_low = calc.calculate_eac(discount_rate=2.0)
+        eac_high = calc.calculate_eac(discount_rate=8.0)
+
+        self.assertGreater(eac_high, eac_low)
+
+    def test_eac_per_asset_discount_rate_overrides_fallback(self) -> None:
+        """Per-asset discount_rate takes precedence over the fallback parameter.
+
+        When asset.discount_rate is set, calculate_eac must use it instead of
+        the discount_rate argument.  This test constructs two systems that are
+        identical except for how the rate is supplied — directly on the asset vs.
+        via the fallback parameter — and asserts they produce the same EAC.
+        """
+        import math
+
+        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 100_000.0
+        technical_lifetime = 40.0
+        asset_rate = 7.0  # rate stored on the asset
+        fallback_rate = 3.0  # different fallback — must be ignored
+
+        # OPEX is explicitly zero so EAC == annualized CAPEX and the expected
+        # formula below can use investment directly without an OPEX term.
+        asset_with_rate = Asset(
+            id="asset_a",
+            name="Asset A",
+            asset_type=AssetType.PRODUCER,
+            investment_cost=investment,
+            investment_cost_unit="EUR",
+            fixed_operational_cost=0.0,
+            technical_lifetime=technical_lifetime,
+            discount_rate=asset_rate,
+        )
+        system_with_rate = EnergySystem(name="System A", assets=[asset_with_rate])
+
+        # Reference system: no per-asset rate, fallback matches asset_rate
+        asset_no_rate = Asset(
+            id="asset_b",
+            name="Asset B",
+            asset_type=AssetType.PRODUCER,
+            investment_cost=investment,
+            investment_cost_unit="EUR",
+            fixed_operational_cost=0.0,
+            technical_lifetime=technical_lifetime,
+        )
+        system_no_rate = EnergySystem(name="System B", assets=[asset_no_rate])
+
+        eac_asset_rate = CostCalculator(system_with_rate).calculate_eac(discount_rate=fallback_rate)
+        eac_fallback = CostCalculator(system_no_rate).calculate_eac(discount_rate=asset_rate)
+
+        # Both should equal the annuity at asset_rate
+        r = asset_rate / 100.0
+        expected = investment * r / (1.0 - math.pow(1.0 + r, -technical_lifetime))
+        self.assertAlmostEqual(eac_asset_rate, expected, places=10)
+        self.assertAlmostEqual(eac_asset_rate, eac_fallback, places=10)
+
+        # Confirm it differs from what the fallback_rate would give
+        eac_at_fallback_rate = CostCalculator(system_no_rate).calculate_eac(
+            discount_rate=fallback_rate
+        )
+        self.assertNotAlmostEqual(eac_asset_rate, eac_at_fallback_rate, places=2)
+
+    def test_eac_opex_passed_through_directly(self) -> None:
+        """EAC includes annual OPEX directly — OPEX is not annualized."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        opex_annual = 5_000.0
+        system = self._make_system(investment=0.0, opex_annual=opex_annual, technical_lifetime=40.0)
+        calc = CostCalculator(system)
+        eac = calc.calculate_eac(discount_rate=5.0)
+
+        self.assertAlmostEqual(eac, opex_annual, places=10)
+
+    def test_npv_opex_end_of_period_discounting(self) -> None:
+        """NPV discounts OPEX using end-of-period convention: year t at (1+r)^t, t=1..n.
+
+        For a single asset with no CAPEX, r=10%, n=3 years, OPEX=1000/yr:
+            NPV = 1000/1.1^1 + 1000/1.1^2 + 1000/1.1^3
+                = 909.09 + 826.45 + 751.31 = 2486.85
+        A start-of-period sum (t=0..2) would give a different result:
+            1000/1.1^0 + 1000/1.1^1 + 1000/1.1^2 = 2735.54
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        system = self._make_system(investment=0.0, opex_annual=1_000.0, technical_lifetime=40.0)
+        calc = CostCalculator(system)
+        npv = calc.calculate_npv(system_lifetime=3.0, discount_rate=10.0)
+
+        r = 0.10
+        expected = sum(1_000.0 / (1 + r) ** t for t in range(1, 4))
+        self.assertAlmostEqual(npv, expected, places=6)
+
+    def test_npv_fractional_system_lifetime_prorates_final_year(self) -> None:
+        """NPV with a fractional system_lifetime prorates the final partial year of OPEX.
+
+        For system_lifetime=3.5, r=10%, OPEX=1000/yr:
+            NPV = 1000/1.1^1 + 1000/1.1^2 + 1000/1.1^3 + 0.5*1000/1.1^4
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        system = self._make_system(investment=0.0, opex_annual=1_000.0, technical_lifetime=40.0)
+        calc = CostCalculator(system)
+        npv = calc.calculate_npv(system_lifetime=3.5, discount_rate=10.0)
+
+        r = 0.10
+        expected = sum(1_000.0 / (1 + r) ** t for t in range(1, 4))
+        expected += 0.5 * 1_000.0 / (1 + r) ** 4
+        self.assertAlmostEqual(npv, expected, places=6)
+
+    def test_npv_zero_technical_lifetime_raises(self) -> None:
+        """NPV raises CalculationError when any asset has technical_lifetime <= 0."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+        from kpicalculator.exceptions import CalculationError
+
+        system = self._make_system(technical_lifetime=0.0)
+        calc = CostCalculator(system)
+
+        with self.assertRaises(CalculationError):
+            calc.calculate_npv(system_lifetime=30.0)
+
+    def test_eac_zero_technical_lifetime_raises(self) -> None:
+        """EAC raises CalculationError when any asset has technical_lifetime <= 0."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+        from kpicalculator.exceptions import CalculationError
+
+        system = self._make_system(technical_lifetime=0.0)
+        calc = CostCalculator(system)
+
+        with self.assertRaises(CalculationError):
+            calc.calculate_eac()
+
+    def test_tco_zero_technical_lifetime_raises(self) -> None:
+        """TCO raises CalculationError when any asset has technical_lifetime <= 0."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+        from kpicalculator.exceptions import CalculationError
+
+        system = self._make_system(technical_lifetime=0.0)
+        calc = CostCalculator(system)
+
+        with self.assertRaises(CalculationError):
+            calc.calculate_tco(system_lifetime=30.0)
+
+    def test_invalid_system_lifetime_raises_at_calculator_level(self) -> None:
+        """Each calculator method raises CalculationError for system_lifetime <= 0."""
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+        from kpicalculator.exceptions import CalculationError
+
+        calc = CostCalculator(self._make_system())
+
+        for method, kwargs in [
+            (calc.calculate_npv, {}),
+            (calc.calculate_lcoe, {}),
+            (calc.calculate_tco, {}),
+        ]:
+            with self.subTest(method=method.__name__, system_lifetime=0.0):
+                with self.assertRaises(CalculationError):
+                    method(system_lifetime=0.0, **kwargs)
+            with self.subTest(method=method.__name__, system_lifetime=-1.0):
+                with self.assertRaises(CalculationError):
+                    method(system_lifetime=-1.0, **kwargs)
+
+    def test_calculate_all_kpis_invalid_inputs_raise(self) -> None:
+        """calculate_all_kpis() raises ValueError for invalid system_lifetime or discount_rate."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+
+        with self.assertRaisesRegex(ValueError, "system_lifetime must be positive"):
+            kpi_manager.calculate_all_kpis(system_lifetime=0.0)
+
+        with self.assertRaisesRegex(ValueError, "system_lifetime must be positive"):
+            kpi_manager.calculate_all_kpis(system_lifetime=-1.0)
+
+        with self.assertRaisesRegex(ValueError, "discount_rate must be between 0 and 100"):
+            kpi_manager.calculate_all_kpis(discount_rate=-1.0)
+
+        with self.assertRaisesRegex(ValueError, "discount_rate must be between 0 and 100"):
+            kpi_manager.calculate_all_kpis(discount_rate=101.0)
+
+    def test_calculate_all_kpis_zero_discount_rate(self) -> None:
+        """calculate_all_kpis() accepts discount_rate=0 and EAC is positive."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0, discount_rate=0.0)
+
+        self.assertIn("eac", results["costs"])
+        self.assertIsInstance(results["costs"]["eac"], float)
+        self.assertGreaterEqual(results["costs"]["eac"], 0.0)
+
+    def test_eac_present_in_calculate_all_kpis_results(self) -> None:
+        """calculate_all_kpis() result dict includes 'eac' key under costs."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30)
+
+        self.assertIn("eac", results["costs"])
+        self.assertIsInstance(results["costs"]["eac"], float)
+        self.assertGreater(results["costs"]["eac"], 0.0)
+
+    # --- TCO tests ---
+
+    def test_eac_at_zero_discount_rate_is_straight_line_depreciation_plus_opex(self) -> None:
+        """At r=0, EAC = CAPEX / TL + annual_opex (straight-line depreciation).
+
+        EAC no longer relates to NPV or system_lifetime — it is purely per-asset.
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 100_000.0
+        opex_annual = 5_000.0
+        technical_lifetime = 40.0
+        system = self._make_system(
+            investment=investment, opex_annual=opex_annual, technical_lifetime=technical_lifetime
+        )
+        calc = CostCalculator(system)
+        eac = calc.calculate_eac(discount_rate=0.0)
+
+        expected = investment / technical_lifetime + opex_annual
+        self.assertAlmostEqual(eac, expected, places=10)
+
+    def test_tco_zero_discount_rate_equals_npv(self) -> None:
+        """At 0% discount rate, TCO == NPV for any replacement ratio.
+
+        Both NPV and TCO (default) use ceil for replacement counting, so they agree
+        exactly at r=0 — including fractional ratios like technical_lifetime=20,
+        system_lifetime=30 where ceil(1.5) = 2 for both.
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 100_000.0
+        opex_annual = 5_000.0
+        system_lifetime = 30.0
+
+        for technical_lifetime in [40.0, 20.0, 10.0]:
+            with self.subTest(technical_lifetime=technical_lifetime):
+                system = self._make_system(
+                    investment=investment,
+                    opex_annual=opex_annual,
+                    technical_lifetime=technical_lifetime,
+                )
+                calc = CostCalculator(system)
+                npv_zero = calc.calculate_npv(system_lifetime, discount_rate=0.0)
+                tco = calc.calculate_tco(system_lifetime)
+                self.assertAlmostEqual(tco, npv_zero, places=6)
+
+    def test_tco_default_uses_ceil(self) -> None:
+        """Default TCO uses ceil(n/technical_lifetime) — the financially exact replacement count.
+
+        With technical_lifetime=10 and system_lifetime=30: ceil(30/10) = 3.
+        With technical_lifetime=20 and system_lifetime=30: ceil(30/20) = 2
+        (you must buy a second asset at year 20 to keep the system running).
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 50_000.0
+        system_lifetime = 30.0
+
+        # Exact integer ratio — ceil and continuous agree
+        system_exact = self._make_system(
+            investment=investment, opex_annual=0.0, technical_lifetime=10.0
+        )
+        tco_exact = CostCalculator(system_exact).calculate_tco(system_lifetime)
+        self.assertAlmostEqual(tco_exact, 3.0 * investment, places=2)
+
+        # Fractional ratio — ceil gives 2, continuous would give 1.5
+        system_frac = self._make_system(
+            investment=investment, opex_annual=0.0, technical_lifetime=20.0
+        )
+        tco_frac = CostCalculator(system_frac).calculate_tco(system_lifetime)
+        self.assertAlmostEqual(tco_frac, 2.0 * investment, places=2)
+
+    def test_tco_continuous_factor_uses_max_fraction(self) -> None:
+        """round_up_replacement=False uses max(1, n/technical_lifetime) for optimizer comparisons.
+
+        With technical_lifetime=20 and system_lifetime=30: continuous factor = 1.5,
+        matching optimizers such as MESIDO's MinimizeTCO goal (which uses this
+        approximation to keep the objective smooth and differentiable).
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 50_000.0
+        system_lifetime = 30.0
+        system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=20.0)
+        calc = CostCalculator(system)
+
+        tco_default = calc.calculate_tco(system_lifetime)
+        tco_continuous = calc.calculate_tco(system_lifetime, round_up_replacement=False)
+
+        self.assertAlmostEqual(tco_default, 2.0 * investment, places=2)
+        self.assertAlmostEqual(tco_continuous, 1.5 * investment, places=2)
+
+    def test_tco_system_shorter_than_technical_lifetime_counts_one(self) -> None:
+        """When system_lifetime < technical_lifetime, exactly one purchase is counted.
+
+        ceil(10/40) = 1 — the asset is bought once and not replaced.
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        investment = 80_000.0
+        system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=40.0)
+        tco = CostCalculator(system).calculate_tco(system_lifetime=10.0)
+        self.assertAlmostEqual(tco, investment, places=2)
+
+    def test_tco_greater_than_npv_with_positive_discount_rate(self) -> None:
+        """TCO >= NPV when discount_rate > 0.
+
+        NPV discounts future costs to present value (making them smaller), while
+        TCO sums them at face value.  So TCO >= NPV for any positive discount rate.
+        """
+        from kpicalculator.calculators.cost_calculator import CostCalculator
+
+        system_lifetime = 30.0
+        system = self._make_system(
+            investment=100_000.0, opex_annual=5_000.0, technical_lifetime=40.0
+        )
+        calc = CostCalculator(system)
+
+        tco = calc.calculate_tco(system_lifetime)
+        npv = calc.calculate_npv(system_lifetime, discount_rate=5.0)
+
+        self.assertGreaterEqual(tco, npv)
+
+    def test_tco_present_in_calculate_all_kpis_results(self) -> None:
+        """calculate_all_kpis() result dict includes 'tco' key under costs."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30)
+
+        self.assertIn("tco", results["costs"])
+        self.assertIsInstance(results["costs"]["tco"], float)
+        self.assertGreater(results["costs"]["tco"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
