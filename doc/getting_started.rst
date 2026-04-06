@@ -26,8 +26,8 @@ The simplest way to calculate KPIs is from an ESDL file:
    from kpicalculator import calculate_kpis
 
    results = calculate_kpis(esdl_file="path/to/model.esdl")
-   print(f"Total CAPEX: {results['costs']['capex']['All']} EUR")
-   print(f"LCOE: {results['costs']['lcoe']} EUR/MWh")
+   print(f"Total CAPEX: {results['financials']['capex']['All']} EUR")
+   print(f"LCOE: {results['financials']['lcoe']} EUR/MWh")
 
 .. note::
    Validated by `test_quick_start <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
@@ -184,32 +184,51 @@ recognised directly by the energy and emission calculators — no column renamin
 Results Structure
 -----------------
 
-``calculate_kpis()`` returns a dictionary with three categories:
+``calculate_kpis()`` returns a dictionary with four top-level keys:
 
 .. code-block:: python
 
    {
-       "costs": {
+       "financials": {
            "capex": {"All": 1000000, "Production": 500000, "Transport": 300000, ...},
            "opex": {"All": 50000, "Production": 30000, ...},
            "npv": 850000,
-           "lcoe": 45.5
+           "lcoe": 45.5,
+           "eac": 62000,
+           "tco": 1400000,
        },
        "energy": {
            "consumption": 1e10,   # Joules
            "production": 1.1e10,
            "demand": 9.5e9,
-           "efficiency": 0.91
+           "efficiency": 0.91,
        },
        "emissions": {
            "total": 1200,         # tonnes CO2e/year
-           "per_mwh": 178         # kg CO2e/MWh
-       }
+           "per_mwh": 178,        # kg CO2e/MWh
+       },
+       "asset_financials": {
+           "<asset_id>": {
+               "investment_cost": 500000,
+               "installation_cost": 50000,
+               "fixed_operational_cost": 10000,
+               "variable_operational_cost": 5000,
+               "fixed_maintenance_cost": 2000,
+               "variable_maintenance_cost": 1000,
+               "annualized_capex": 18000,
+               "eac": 36000,
+               "npv": 420000,
+               "tco": 700000,
+               "lcoe": 42.0,       # EUR/MWh — None for non-producing assets
+           },
+           ...
+       },
    }
 
-- **Costs**: CAPEX and OPEX are broken down by asset category (Production, Transport, Storage, Conversion, Consumption, and All). NPV is the total lifecycle cost in today's money. LCOE is the average cost per MWh over the system lifetime.
+- **Financials**: Top-level category for all monetary KPIs. This includes cost breakdowns such as CAPEX and OPEX by asset category (Production, Transport, Storage, Conversion, Consumption, and All), as well as derived financial indicators (NPV, LCOE, EAC, TCO). All values are sums over assets.
 - **Energy**: System-wide totals in Joules. Efficiency is the ratio of consumption to production (0 to 1).
 - **Emissions**: Total CO2-equivalent emissions in tonnes and emissions intensity in kg CO2e per MWh of energy consumed.
+- **Asset financials**: Per-asset breakdown of all financial KPIs, keyed by asset ID. System totals in ``"financials"`` are derived by summing these values. ``lcoe`` is ``None`` for non-producing assets (consumers, transport, storage, conversion).
 
 For a detailed explanation of what each KPI means and how to interpret it, see :doc:`user_documentation/kpi_guide`.
 

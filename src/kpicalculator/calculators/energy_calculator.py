@@ -165,6 +165,17 @@ class EnergyCalculator:
 
         return energy_sum * time_factor
 
+    def get_asset_energy_production_per_year(self, asset: Asset) -> float:
+        """Calculate annual energy production for a single producing asset.
+
+        Args:
+            asset: Producing asset (PRODUCER or GEOTHERMAL type).
+
+        Returns:
+            Energy production in joules per year, or 0.0 if no time series data.
+        """
+        return self._calculate_asset_energy_production(asset)
+
     def _calculate_asset_energy_production(self, asset: Asset) -> float:
         """Calculate energy production for a specific asset.
 
