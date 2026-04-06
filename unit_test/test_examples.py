@@ -28,9 +28,9 @@ class TestReadmeExamples:
 
         results = calculate_kpis(esdl_file=esdl_file, time_series=time_series)
 
-        assert "costs" in results
-        assert "capex" in results["costs"]
-        assert "All" in results["costs"]["capex"]
+        assert "financials" in results
+        assert "capex" in results["financials"]
+        assert "All" in results["financials"]["capex"]
 
     def test_basic_usage_production(self) -> None:
         """Test Basic Usage - production example.
@@ -43,7 +43,7 @@ class TestReadmeExamples:
 
         results = calculate_kpis(esdl_file=esdl_file, time_series=time_series)
 
-        assert "costs" in results
+        assert "financials" in results
 
     def test_basic_usage_with_parameters(self) -> None:
         """Test Basic Usage - with optional parameters.
@@ -56,7 +56,7 @@ class TestReadmeExamples:
 
         results = calculate_kpis(esdl_file=esdl_file, system_lifetime=30, time_series=time_series)
 
-        assert "costs" in results
+        assert "financials" in results
 
     def test_basic_usage_testing_override(self) -> None:
         """Test Basic Usage - testing with XML override."""
@@ -65,7 +65,7 @@ class TestReadmeExamples:
 
         results = calculate_kpis(esdl_file=esdl_file, time_series=time_series)
 
-        assert "costs" in results
+        assert "financials" in results
 
     def test_timeseries_dataframes_produce_valid_kpi_results(self) -> None:
         """Test that the timeseries_dataframes parameter works with composite keys.
@@ -95,7 +95,7 @@ class TestReadmeExamples:
 
         results = calculate_kpis(esdl_file=esdl_file, timeseries_dataframes=timeseries_dataframes)
 
-        assert "costs" in results
+        assert "financials" in results
         assert "energy" in results
         assert "emissions" in results
         assert results["energy"]["consumption"] > 0, (
@@ -115,7 +115,7 @@ class TestReadmeExamples:
                 scenario["file"], time_series_file="unit_test/data/power_timeseries.xml"
             )
             results = manager.calculate_all_kpis(system_lifetime=scenario["lifetime"])
-            assert "costs" in results
+            assert "financials" in results
 
     def test_string_loaded_esdl_export(self) -> None:
         """Test full workflow: load ESDL from string, calculate KPIs, export.
@@ -140,7 +140,7 @@ class TestReadmeExamples:
         # Calculate KPIs
         results = manager.calculate_all_kpis()
 
-        assert "costs" in results
+        assert "financials" in results
         assert "energy" in results
 
         # Export to ESDL (data structure mode)
@@ -167,9 +167,9 @@ class TestReadmeExamples:
         assert "CO2 emissions [g]" in kpi_by_name
 
         # Cost values come from ESDL costInformation, not time series — must be non-zero
-        expected_capex = results["costs"]["capex"]["All"]
-        expected_opex = results["costs"]["opex"]["All"]
-        expected_npv = results["costs"]["npv"]
+        expected_capex = results["financials"]["capex"]["All"]
+        expected_opex = results["financials"]["opex"]["All"]
+        expected_npv = results["financials"]["npv"]
         assert expected_capex > 0, "Fixture ESDL has cost data; CAPEX should be non-zero"
         assert expected_opex > 0, "Fixture ESDL has cost data; OPEX should be non-zero"
         assert expected_npv > 0, "Fixture ESDL has cost data; NPV should be non-zero"
@@ -233,9 +233,9 @@ class TestReadmeExamples:
         assert "CO2 emissions [g]" in kpi_by_name
 
         # KPI values round-trip the calculated results exactly
-        expected_capex = results["costs"]["capex"]["All"]
-        expected_opex = results["costs"]["opex"]["All"]
-        expected_npv = results["costs"]["npv"]
+        expected_capex = results["financials"]["capex"]["All"]
+        expected_opex = results["financials"]["opex"]["All"]
+        expected_npv = results["financials"]["npv"]
         assert expected_capex > 0, "Fixture ESDL has cost data; CAPEX should be non-zero"
         assert expected_opex > 0, "Fixture ESDL has cost data; OPEX should be non-zero"
         assert expected_npv > 0, "Fixture ESDL has cost data; NPV should be non-zero"

@@ -325,7 +325,7 @@ class TestApiCostExtraction(unittest.TestCase):
         )
 
         # Verify results structure
-        self.assertIn("costs", results)
+        self.assertIn("financials", results)
         self.assertIn("energy", results)
         self.assertIn("emissions", results)
 

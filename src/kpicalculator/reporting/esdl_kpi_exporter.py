@@ -9,7 +9,7 @@ from esdl.esdl_handler import EnergySystemHandler
 
 from ..adapters.common_model import EnergySystem
 from ..common.constants import TONS_TO_GRAMS
-from ..kpi_manager import CostResults, EmissionResults, EnergyResults, KpiResults
+from ..kpi_manager import EmissionResults, EnergyResults, FinancialResults, KpiResults
 from .base_exporter import BaseExporter
 
 logger = logging.getLogger(__name__)
@@ -139,8 +139,8 @@ class EsdlKpiExporter(BaseExporter):
             main_area.KPIs.kpi.clear()
 
         # Add KPIs by category
-        if "costs" in results:
-            self._add_cost_kpis(main_area.KPIs, results["costs"])
+        if "financials" in results:
+            self._add_financial_kpis(main_area.KPIs, results["financials"])
         if "energy" in results:
             self._add_energy_kpis(main_area.KPIs, results["energy"])
         if "emissions" in results:
@@ -172,15 +172,15 @@ class EsdlKpiExporter(BaseExporter):
         # For now, add to main area - can be extended for per-asset results
         self._add_kpis_to_system(esdl_system, results)
 
-    def _add_cost_kpis(self, kpis: esdl.KPIs, cost_data: CostResults) -> None:
-        """Add cost-related KPIs to the ESDL KPIs container.
+    def _add_financial_kpis(self, kpis: esdl.KPIs, cost_data: FinancialResults) -> None:
+        """Add financial KPIs to the ESDL KPIs container.
 
-        Creates DistributionKPI elements for cost breakdowns, NPV, and LCOE using
-        pre-calculated values from the cost calculator. Does not perform calculations.
+        Creates DistributionKPI elements for CAPEX/OPEX breakdowns, NPV, LCOE, EAC,
+        and TCO using pre-calculated values. Does not perform calculations.
 
         Args:
-            kpis: ESDL KPIs container to add cost KPIs to
-            cost_data: Pre-calculated cost results with 'capex', 'opex', 'npv', 'lcoe'
+            kpis: ESDL KPIs container to add financial KPIs to
+            cost_data: Pre-calculated financial results with 'capex', 'opex', 'npv', 'lcoe'
         """
 
         # High level cost breakdown (using pre-calculated values)

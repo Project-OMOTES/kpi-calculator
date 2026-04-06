@@ -1,6 +1,7 @@
-# src/kpicalculator/calculators/cost_calculator.py
+# src/kpicalculator/calculators/financial_calculator.py
 import logging
 import math
+from typing import TypedDict
 
 from ..adapters.common_model import Asset, AssetType, EnergySystem
 from ..common.constants import (
@@ -12,9 +13,42 @@ from ..exceptions import CalculationError
 
 logger = logging.getLogger(__name__)
 
+# Asset types that produce energy — used for per-asset LCOE eligibility.
+PRODUCER_ASSET_TYPES = frozenset({AssetType.PRODUCER, AssetType.GEOTHERMAL})
 
-class CostCalculator:
-    """Calculator for cost-related KPIs."""
+# Single taxonomy used by all category-based methods.
+_CATEGORY_MAPPING: dict[str, list[AssetType]] = {
+    "Production": [AssetType.PRODUCER, AssetType.GEOTHERMAL],
+    "Consumption": [AssetType.CONSUMER],
+    "Storage": [AssetType.STORAGE],
+    "Transport": [AssetType.TRANSPORT, AssetType.PIPE, AssetType.PUMP],
+    "Conversion": [AssetType.CONVERSION],
+}
+
+
+class AssetFinancialResult(TypedDict):
+    """Per-asset financial KPIs. System totals are derived by summing these across assets.
+
+    ``lcoe`` is ``None`` for non-producing assets (consumers, transport, storage) because
+    LCOE is a ratio of cost to energy output and is only meaningful for assets that
+    produce energy.
+    """
+
+    investment_cost: float
+    installation_cost: float
+    fixed_operational_cost: float
+    variable_operational_cost: float
+    fixed_maintenance_cost: float
+    variable_maintenance_cost: float
+    annualized_capex: float
+    eac: float
+    npv: float
+    tco: float
+    lcoe: float | None
+
+
+class FinancialCalculator:
+    """Calculator for financial KPIs (CAPEX, OPEX, NPV, LCOE, EAC, TCO)."""
 
     def __init__(self, energy_system: EnergySystem):
         """Initialize the cost calculator.
@@ -23,34 +57,6 @@ class CostCalculator:
             energy_system: Energy system to calculate KPIs for
         """
         self.energy_system = energy_system
-
-    def get_capex_by_category(self) -> dict[str, float]:
-        """Get CAPEX by asset category.
-
-        Returns:
-            Dictionary with CAPEX by category
-        """
-        categories = ["Production", "Consumption", "Storage", "Transport", "Conversion", "All"]
-        result = {}
-
-        for category in categories:
-            result[category] = self._calculate_capex_for_category(category)
-
-        return result
-
-    def get_opex_by_category(self) -> dict[str, float]:
-        """Get OPEX by asset category.
-
-        Returns:
-            Dictionary with OPEX by category
-        """
-        categories = ["Production", "Consumption", "Storage", "Transport", "Conversion", "All"]
-        result = {}
-
-        for category in categories:
-            result[category] = self._calculate_opex_for_category(category)
-
-        return result
 
     def calculate_npv(
         self,
@@ -101,7 +107,6 @@ class CostCalculator:
                     f"({asset.technical_lifetime}). Cannot compute NPV."
                 )
 
-            # Calculate NPV for CAPEX
             capex = asset.investment_cost + asset.installation_cost
             if round_up_replacement:
                 capex_npv = capex * sum(
@@ -112,7 +117,6 @@ class CostCalculator:
                 replacements = max(1.0, system_lifetime / asset.technical_lifetime)
                 capex_npv = capex * replacements
 
-            # Calculate NPV for OPEX
             opex_annual = (
                 self._calculate_fixed_operational_cost(asset)
                 + self._calculate_fixed_maintenance_cost(asset)
@@ -120,18 +124,11 @@ class CostCalculator:
                 + self._calculate_variable_maintenance_cost(asset)
             )
 
-            # End-of-period convention (standard engineering economics): OPEX at year t
-            # is discounted by (1+r)^t, t = 1..n. Consistent with the annuity formula
-            # in calculate_eac. A fractional final year is prorated linearly.
             full_years = int(system_lifetime)
-            opex_npv = opex_annual * sum(
-                1.0 / math.pow(1.0 + discount_rate_ratio, t) for t in range(1, full_years + 1)
-            )
             fraction = system_lifetime - full_years
-            if fraction > 0:
-                opex_npv += (
-                    opex_annual * fraction / math.pow(1.0 + discount_rate_ratio, full_years + 1)
-                )
+            opex_npv = self._compute_discounted_sum(
+                opex_annual, discount_rate_ratio, full_years, fraction
+            )
 
             npv += capex_npv + opex_npv
 
@@ -182,10 +179,7 @@ class CostCalculator:
             capex = self._calculate_investment_cost(asset) + self._calculate_installation_cost(
                 asset
             )
-            if r == 0.0:
-                annualized_capex = capex / asset.technical_lifetime
-            else:
-                annualized_capex = capex * r / (1.0 - math.pow(1.0 + r, -asset.technical_lifetime))
+            annualized_capex = self._annualize_capex(capex, r, asset.technical_lifetime)
 
             opex_annual = (
                 self._calculate_fixed_operational_cost(asset)
@@ -272,6 +266,7 @@ class CostCalculator:
         system_lifetime: float,
         discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT,
         round_up_replacement: bool = True,
+        system_npv: float | None = None,
     ) -> float:
         """Calculate Levelized Cost of Energy.
 
@@ -294,6 +289,9 @@ class CostCalculator:
             round_up_replacement: Passed through to ``calculate_npv``. If True (default),
                 use ``ceil`` for the replacement count. If False, use the continuous
                 factor for optimizer compatibility.
+            system_npv: Pre-computed system NPV in EUR. When provided, skips the internal
+                ``calculate_npv()`` call. Pass this from ``KpiManager.calculate_all_kpis()``
+                to avoid a redundant full asset iteration.
 
         Returns:
             Levelized Cost of Energy in EUR/MWh.
@@ -311,84 +309,307 @@ class CostCalculator:
         if annual_energy <= 0:
             return 0.0
 
-        npv = self.calculate_npv(
-            system_lifetime, discount_rate, round_up_replacement=round_up_replacement
-        )
-
-        # Calculate discounted energy — end-of-period convention matches NPV OPEX discounting.
-        discount_rate_ratio = discount_rate * PERCENTAGE_TO_DECIMAL
-        full_years = int(system_lifetime)
-        discounted_energy = sum(
-            annual_energy / math.pow(1.0 + discount_rate_ratio, t) for t in range(1, full_years + 1)
-        )
-        fraction = system_lifetime - full_years
-        if fraction > 0:
-            discounted_energy += (
-                annual_energy * fraction / math.pow(1.0 + discount_rate_ratio, full_years + 1)
+        if system_npv is None:
+            system_npv = self.calculate_npv(
+                system_lifetime, discount_rate, round_up_replacement=round_up_replacement
             )
 
-        return npv / discounted_energy
+        discount_rate_ratio = discount_rate * PERCENTAGE_TO_DECIMAL
+        full_years = int(system_lifetime)
+        fraction = system_lifetime - full_years
+        discounted_energy = self._compute_discounted_sum(
+            annual_energy, discount_rate_ratio, full_years, fraction
+        )
 
-    def _calculate_capex_for_category(self, category: str) -> float:
-        """Calculate CAPEX for a specific asset category.
+        return system_npv / discounted_energy
+
+    def get_asset_financial_breakdown(
+        self,
+        system_lifetime: float,
+        discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT,
+        round_up_replacement: bool = True,
+        annual_energy_mwh_by_asset: dict[str, float] | None = None,
+    ) -> dict[str, AssetFinancialResult]:
+        """Compute per-asset financial KPIs.
+
+        Returns a dict keyed by ``asset.id``. System totals for NPV, TCO, EAC are
+        the sum of these values across all assets.
+
+        ``lcoe`` semantics:
+
+        - ``None`` — asset is not a generating type (consumer, storage, transport,
+          conversion), or is a generating asset whose annual energy production is zero
+          or unknown. ``None`` means *not applicable or not computable*, regardless of
+          the output format (ESDL, JSON, or any future schema). Exporters omit the field
+          or write a format-appropriate null for ``None`` values.
+        - ``float`` — EUR/MWh; only set for generating assets with non-zero energy output.
+
+        System LCOE must be computed separately as total NPV / total discounted energy
+        output — it is not the sum of per-asset LCOEs (summing ratios with different
+        denominators is mathematically incorrect).
+
+        Raises:
+            CalculationError: If ``system_lifetime <= 0``, ``discount_rate`` is outside
+                [0, 100], or any asset has a non-positive ``technical_lifetime``.
 
         Args:
-            category: Asset category
+            system_lifetime: System lifetime in years.
+            discount_rate: Fallback discount rate in percentage (e.g. 5 for 5%).
+            round_up_replacement: If True (default), use ``ceil`` for replacement count.
+                If False, use the continuous factor for optimizer compatibility.
+            annual_energy_mwh_by_asset: Optional mapping of asset ID to annual energy
+                production in MWh. When provided, ``lcoe`` is computed for generating
+                assets (those in ``PRODUCER_ASSET_TYPES``) with non-zero energy.
+                When ``None`` (default), ``lcoe`` is ``None`` for all assets.
+                Callers that hold an energy calculator should pre-compute this dict
+                and pass it here rather than relying on a post-hoc fill step.
 
         Returns:
-            CAPEX for the category
+            Dict mapping asset ID to its ``AssetFinancialResult``.
         """
-        capex = 0.0
+        if system_lifetime <= 0:
+            raise CalculationError(f"system_lifetime must be positive (got {system_lifetime}).")
+        if discount_rate < 0 or discount_rate > 100:
+            raise CalculationError(
+                f"discount_rate must be between 0 and 100 (got {discount_rate})."
+            )
+
+        result: dict[str, AssetFinancialResult] = {}
+        discount_rate_ratio = discount_rate * PERCENTAGE_TO_DECIMAL
+        full_years = int(system_lifetime)
+        fraction = system_lifetime - full_years
 
         for asset in self.energy_system.assets:
-            if category == "All" or self._asset_belongs_to_category(asset, category):
-                capex += self._calculate_investment_cost(asset) + self._calculate_installation_cost(
-                    asset
+            if asset.technical_lifetime <= 0:
+                raise CalculationError(
+                    f"Asset '{asset.name}' has non-positive technical_lifetime "
+                    f"({asset.technical_lifetime}). Cannot compute financial breakdown."
                 )
+            result[asset.id] = self._compute_asset_result(
+                asset,
+                system_lifetime,
+                discount_rate,
+                discount_rate_ratio,
+                full_years,
+                fraction,
+                round_up_replacement,
+                annual_energy_mwh_by_asset,
+            )
 
-        return capex
+        return result
 
-    def _calculate_opex_for_category(self, category: str) -> float:
-        """Calculate OPEX for a specific asset category.
+    def _compute_asset_result(  # pylint: disable=too-many-locals
+        self,
+        asset: Asset,
+        system_lifetime: float,
+        discount_rate: float,
+        discount_rate_ratio: float,
+        full_years: int,
+        fraction: float,
+        round_up_replacement: bool,
+        annual_energy_mwh_by_asset: dict[str, float] | None,
+    ) -> AssetFinancialResult:
+        """Compute all financial KPIs for a single asset."""
+        investment_cost = self._calculate_investment_cost(asset)
+        installation_cost = self._calculate_installation_cost(asset)
+        fixed_operational_cost = self._calculate_fixed_operational_cost(asset)
+        variable_operational_cost = self._calculate_variable_operational_cost(asset)
+        fixed_maintenance_cost = self._calculate_fixed_maintenance_cost(asset)
+        variable_maintenance_cost = self._calculate_variable_maintenance_cost(asset)
+
+        capex = investment_cost + installation_cost
+        opex_annual = (
+            fixed_operational_cost
+            + variable_operational_cost
+            + fixed_maintenance_cost
+            + variable_maintenance_cost
+        )
+
+        r = self._get_effective_discount_rate(asset, discount_rate) * PERCENTAGE_TO_DECIMAL
+        annualized_capex = self._annualize_capex(capex, r, asset.technical_lifetime)
+        eac = annualized_capex + opex_annual
+
+        npv, tco = self._compute_asset_npv_tco(
+            capex,
+            opex_annual,
+            asset.technical_lifetime,
+            system_lifetime,
+            discount_rate_ratio,
+            full_years,
+            fraction,
+            round_up_replacement,
+        )
+        lcoe = self._compute_asset_lcoe(
+            npv,
+            asset,
+            annual_energy_mwh_by_asset,
+            discount_rate_ratio,
+            full_years,
+            fraction,
+        )
+
+        return AssetFinancialResult(
+            investment_cost=investment_cost,
+            installation_cost=installation_cost,
+            fixed_operational_cost=fixed_operational_cost,
+            variable_operational_cost=variable_operational_cost,
+            fixed_maintenance_cost=fixed_maintenance_cost,
+            variable_maintenance_cost=variable_maintenance_cost,
+            annualized_capex=annualized_capex,
+            eac=eac,
+            npv=npv,
+            tco=tco,
+            lcoe=lcoe,
+        )
+
+    def _compute_asset_npv_tco(
+        self,
+        capex: float,
+        opex_annual: float,
+        technical_lifetime: float,
+        system_lifetime: float,
+        discount_rate_ratio: float,
+        full_years: int,
+        fraction: float,
+        round_up_replacement: bool,
+    ) -> tuple[float, float]:
+        """Compute NPV and TCO for a single asset."""
+        if round_up_replacement:
+            n_replacements: int = math.ceil(system_lifetime / technical_lifetime)
+            replacements: float = n_replacements
+            capex_npv = capex * sum(
+                1.0 / math.pow(1.0 + discount_rate_ratio, technical_lifetime * n)
+                for n in range(n_replacements)
+            )
+        else:
+            replacements = max(1.0, system_lifetime / technical_lifetime)
+            capex_npv = capex * replacements
+
+        opex_npv = self._compute_discounted_sum(
+            opex_annual, discount_rate_ratio, full_years, fraction
+        )
+
+        npv = capex_npv + opex_npv
+        tco = capex * replacements + opex_annual * system_lifetime
+        return npv, tco
+
+    def _compute_asset_lcoe(
+        self,
+        npv: float,
+        asset: Asset,
+        annual_energy_mwh_by_asset: dict[str, float] | None,
+        discount_rate_ratio: float,
+        full_years: int,
+        fraction: float,
+    ) -> float | None:
+        """Compute per-asset LCOE, or return None if not applicable or not computable."""
+        if annual_energy_mwh_by_asset is None or asset.asset_type not in PRODUCER_ASSET_TYPES:
+            return None
+        annual_energy_mwh = annual_energy_mwh_by_asset.get(asset.id, 0.0)
+        if annual_energy_mwh <= 0:
+            return None
+        discounted_energy = self._compute_discounted_sum(
+            annual_energy_mwh, discount_rate_ratio, full_years, fraction
+        )
+        return npv / discounted_energy if discounted_energy > 0 else None
+
+    def _annualize_capex(self, capex: float, r: float, technical_lifetime: float) -> float:
+        """Annualize a CAPEX amount using the annuity formula.
 
         Args:
-            category: Asset category
+            capex: Capital cost in EUR.
+            r: Discount rate as a decimal (e.g. 0.05 for 5%).
+            technical_lifetime: Asset technical lifetime in years.
 
         Returns:
-            OPEX for the category
+            Annualized CAPEX in EUR/yr.
         """
-        opex = 0.0
+        if r == 0.0:
+            return capex / technical_lifetime
+        return capex * r / (1.0 - math.pow(1.0 + r, -technical_lifetime))
+
+    @staticmethod
+    def _compute_discounted_sum(
+        annual_value: float,
+        discount_rate_ratio: float,
+        full_years: int,
+        fraction: float,
+    ) -> float:
+        """Compute the present value of a constant annual amount over a fractional lifetime.
+
+        Uses end-of-period convention: cash flow at year t is discounted by (1+r)^t.
+        A fractional final year is prorated linearly. Consistent with the annuity
+        formula used in ``_annualize_capex``.
+
+        Args:
+            annual_value: Constant annual amount (e.g. energy MWh or cost EUR/yr).
+            discount_rate_ratio: Discount rate as a decimal (e.g. 0.05 for 5%).
+            full_years: Integer number of complete years.
+            fraction: Fractional remainder of the final year (0 ≤ fraction < 1).
+
+        Returns:
+            Present value of the annual amount stream.
+        """
+        total = annual_value * sum(
+            1.0 / math.pow(1.0 + discount_rate_ratio, t) for t in range(1, full_years + 1)
+        )
+        if fraction > 0:
+            total += annual_value * fraction / math.pow(1.0 + discount_rate_ratio, full_years + 1)
+        return total
+
+    def _get_asset_category(self, asset: Asset) -> str:
+        """Return the named category for an asset, or 'Other' if unrecognised.
+
+        Args:
+            asset: Asset to classify.
+
+        Returns:
+            Category name string.
+        """
+        for category, types in _CATEGORY_MAPPING.items():
+            if asset.asset_type in types:
+                return category
+        return "Other"
+
+    def aggregate_by_category(
+        self, asset_financials: dict[str, "AssetFinancialResult"]
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        """Derive CAPEX and OPEX category breakdowns from a pre-computed asset breakdown.
+
+        Args:
+            asset_financials: Dict mapping asset ID to ``AssetFinancialResult``, as
+                returned by ``get_asset_financial_breakdown()``.
+
+        Returns:
+            Tuple of (capex_by_category, opex_by_category), each a dict with keys
+            ``"Production"``, ``"Consumption"``, ``"Storage"``, ``"Transport"``,
+            ``"Conversion"``, and ``"All"``.
+        """
+        categories = list(_CATEGORY_MAPPING.keys())
+        capex: dict[str, float] = dict.fromkeys(categories, 0.0)
+        capex["All"] = 0.0
+        opex: dict[str, float] = dict.fromkeys(categories, 0.0)
+        opex["All"] = 0.0
 
         for asset in self.energy_system.assets:
-            if category == "All" or self._asset_belongs_to_category(asset, category):
-                opex += (
-                    self._calculate_fixed_operational_cost(asset)
-                    + self._calculate_variable_operational_cost(asset)
-                    + self._calculate_fixed_maintenance_cost(asset)
-                    + self._calculate_variable_maintenance_cost(asset)
-                )
+            financials = asset_financials.get(asset.id)
+            if financials is None:
+                continue
+            cat = self._get_asset_category(asset)
+            asset_capex = financials["investment_cost"] + financials["installation_cost"]
+            asset_opex = (
+                financials["fixed_operational_cost"]
+                + financials["variable_operational_cost"]
+                + financials["fixed_maintenance_cost"]
+                + financials["variable_maintenance_cost"]
+            )
+            if cat in capex:
+                capex[cat] += asset_capex
+                opex[cat] += asset_opex
+            capex["All"] += asset_capex
+            opex["All"] += asset_opex
 
-        return opex
-
-    def _asset_belongs_to_category(self, asset: Asset, category: str) -> bool:
-        """Check if an asset belongs to a specific category.
-
-        Args:
-            asset: Asset to check
-            category: Category to check
-
-        Returns:
-            True if the asset belongs to the category, False otherwise
-        """
-        category_mapping = {
-            "Production": [AssetType.PRODUCER, AssetType.GEOTHERMAL],
-            "Consumption": [AssetType.CONSUMER],
-            "Storage": [AssetType.STORAGE],
-            "Transport": [AssetType.TRANSPORT, AssetType.PIPE, AssetType.PUMP],
-            "Conversion": [AssetType.CONVERSION],
-        }
-
-        return asset.asset_type in category_mapping.get(category, [])
+        return capex, opex
 
     def _calculate_investment_cost(self, asset: Asset) -> float:
         """Calculate investment cost for an asset.

@@ -15,7 +15,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         """Set up test environment with mock data."""
         # Mock KPI results structure
         self.mock_kpi_results = {
-            "costs": {
+            "financials": {
                 "capex": {"All": 100000.0, "Producer": 60000.0, "Consumer": 40000.0},
                 "opex": {"All": 20000.0, "Producer": 15000.0, "Consumer": 5000.0},
                 "npv": 250000.0,
@@ -106,8 +106,8 @@ class TestEsdlKpiExporter(unittest.TestCase):
             self.assertEqual(item.value, expected_value)
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_add_cost_kpis(self, _mock_handler):
-        """Test _add_cost_kpis method adds correct cost KPI structure."""
+    def test_add_financial_kpis(self, _mock_handler):
+        """Test _add_financial_kpis method adds correct cost KPI structure."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 
         exporter = EsdlKpiExporter()
@@ -117,7 +117,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         kpis.id = "test-kpis"
 
         # Add cost KPIs
-        exporter._add_cost_kpis(kpis, self.mock_kpi_results["costs"])
+        exporter._add_financial_kpis(kpis, self.mock_kpi_results["financials"])
 
         # Verify KPIs were added
         self.assertGreater(len(kpis.kpi), 0, "Should add cost KPIs")
@@ -140,8 +140,8 @@ class TestEsdlKpiExporter(unittest.TestCase):
         self.assertIsNotNone(opex_item, "Should contain OPEX item")
 
         # Verify values (use pre-calculated values from cost calculator)
-        expected_capex = self.mock_kpi_results["costs"]["capex"]["All"]
-        expected_opex = self.mock_kpi_results["costs"]["opex"]["All"]
+        expected_capex = self.mock_kpi_results["financials"]["capex"]["All"]
+        expected_opex = self.mock_kpi_results["financials"]["opex"]["All"]
 
         self.assertAlmostEqual(float(capex_item.value), expected_capex, places=2)
         self.assertAlmostEqual(float(opex_item.value), expected_opex, places=2)
@@ -306,7 +306,7 @@ class TestEsdlKpiExporter(unittest.TestCase):
         exporter = EsdlKpiExporter()
 
         # Test with empty results
-        empty_results = {"costs": {}, "energy": {}, "emissions": {}}
+        empty_results = {"financials": {}, "energy": {}, "emissions": {}}
 
         result = exporter.export(
             empty_results, self.mock_energy_system, destination=None, level="system"

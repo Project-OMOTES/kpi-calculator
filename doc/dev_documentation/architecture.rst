@@ -33,7 +33,7 @@ The package has four layers:
    │    kpi_manager.py → KpiManager                           │
    ├──────────────────────────────────────────────────────────┤
    │  Calculators                                             │
-   │    cost_calculator    energy_calculator    emission_calc  │
+   │    financial_calculator    energy_calculator    emission_calc  │
    ├──────────────────────────────────────────────────────────┤
    │  Adapters                                                │
    │    esdl_adapter    time_series_manager    database_loader │
@@ -216,7 +216,7 @@ Non-numeric columns are rejected with an error recorded in ``ValidationResult`` 
 Cost Unit Conversion
 --------------------
 
-The cost calculator (``calculators/cost_calculator.py``) converts cost values from ESDL units to EUR using the asset's physical properties and built-in conversion factors defined in ``COST_UNIT_FACTORS`` (``common/constants.py``). The factors are looked up by ``_get_unit_factor(unit)`` from ``energy_system.unit_conversion``, which is automatically populated by the adapter.
+The financial calculator (``calculators/financial_calculator.py``) converts cost values from ESDL units to EUR using the asset's physical properties and built-in conversion factors defined in ``COST_UNIT_FACTORS`` (``common/constants.py``). The factors are looked up by ``_get_unit_factor(unit)`` from ``energy_system.unit_conversion``, which is automatically populated by the adapter.
 
 **Investment and installation costs** — allowed units:
 
@@ -263,22 +263,24 @@ All three calculators take an ``EnergySystem`` and return part of the ``KpiResul
 Error Handling
 ^^^^^^^^^^^^^^
 
-All calculators use Python's ``logging`` module with the logger name set to their module path (e.g. ``kpicalculator.calculators.cost_calculator``). Two log levels are used:
+All calculators use Python's ``logging`` module with the logger name set to their module path (e.g. ``kpicalculator.calculators.financial_calculator``). Two log levels are used:
 
 - **DEBUG** — expected missing-data conditions: no time series on an asset, no matching field name in the time series. These are normal when assets lack simulation results.
 - **WARNING** — unexpected or potentially lossy conditions: unsupported cost units (the cost is zeroed), non-positive duration time series (would cause ``ZeroDivisionError`` or incorrect annualization).
 
 In all cases the calculator returns ``0.0`` for the affected asset rather than raising an exception. Input validation (e.g. ``technical_lifetime <= 0``) is handled upstream by ``BaseAdapter._validate_energy_system()`` and is not duplicated in the calculators.
 
-Cost Calculator
-^^^^^^^^^^^^^^^
+Financial Calculator
+^^^^^^^^^^^^^^^^^^^^
 
-``calculators/cost_calculator.py`` — the largest calculator.
+``calculators/financial_calculator.py`` — the largest calculator. The public class is ``FinancialCalculator``.
 
 - **CAPEX**: Sum of (investment + installation) per asset, converted from ESDL units, grouped by asset category (Production, Transport, Storage, Conversion, Consumption, All)
 - **OPEX**: Sum of (fixed_operational + variable_operational + fixed_maintenance + variable_maintenance) per asset
 - **NPV**: Standard discounted cash flow: ``CAPEX + Sum(OPEX_t / (1 + rate/100)^t)`` over system lifetime (default 30 years, 5% discount rate). Includes asset replacement costs when technical lifetime < system lifetime.
-- **LCOE**: ``NPV / discounted_energy_delivered``
+- **LCOE**: ``NPV / discounted_energy_delivered``, computed inside ``FinancialCalculator`` using pre-calculated energy values.
+- **Per-asset financial breakdown**: ``get_asset_financial_breakdown(annual_energy_mwh_by_asset)`` returns per-asset CAPEX, OPEX, NPV, and LCOE as ``AssetFinancialResult`` entries, stored in ``KpiResults["asset_financials"]``.
+- **Category aggregation**: ``aggregate_by_category(asset_results)`` groups per-asset results into the category-level totals (Production, Transport, etc.) stored under ``KpiResults["financials"]``.
 
 Each of the six ``_calculate_*_cost()`` methods validates the unit string against an ``allowed_units`` list. If the unit is not supported, a warning is logged and the cost is returned as ``0.0``. Variable cost methods (operational and maintenance) also guard against zero-duration time series.
 
@@ -347,7 +349,7 @@ Project Layout
    │   ├── database_time_series_loader.py  # InfluxDB integration
    │   └── xml_time_series_adapter.py  # XML time series (testing only)
    ├── calculators/
-   │   ├── cost_calculator.py          # CAPEX, OPEX, NPV, LCOE
+   │   ├── financial_calculator.py          # CAPEX, OPEX, NPV, LCOE
    │   ├── energy_calculator.py        # Consumption, production, efficiency
    │   └── emission_calculator.py      # CO2 emissions
    ├── reporting/
