@@ -48,20 +48,22 @@ class TestCalculateKpisHappyPath(unittest.TestCase):
         """
         results = calculate_kpis(ESDL_FILE)
 
-        self.assertIn("costs", results)
+        self.assertIn("financials", results)
         self.assertIn("energy", results)
         self.assertIn("emissions", results)
-        self.assertIn("capex", results["costs"])
-        self.assertIn("opex", results["costs"])
-        self.assertIn("npv", results["costs"])
-        self.assertIn("lcoe", results["costs"])
+        self.assertIn("capex", results["financials"])
+        self.assertIn("opex", results["financials"])
+        self.assertIn("npv", results["financials"])
+        self.assertIn("lcoe", results["financials"])
 
     def test_accepts_path_object(self) -> None:
         """calculate_kpis() accepts a pathlib.Path as well as a string for esdl_file."""
         results_from_path = calculate_kpis(ESDL_FILE)
         results_from_str = calculate_kpis(str(ESDL_FILE))
 
-        self.assertEqual(results_from_path["costs"]["npv"], results_from_str["costs"]["npv"])
+        self.assertEqual(
+            results_from_path["financials"]["npv"], results_from_str["financials"]["npv"]
+        )
 
     def test_with_xml_time_series(self) -> None:
         """calculate_kpis() loads XML time series when the time_series argument is provided.
@@ -72,7 +74,10 @@ class TestCalculateKpisHappyPath(unittest.TestCase):
         results = calculate_kpis(ESDL_FILE, time_series=TIME_SERIES_FILE)
 
         energy = results["energy"]
-        self.assertGreater(energy["consumption"] + energy["production"], 0.0)
+        # The fixture time series has consumption data; verify consumption specifically.
+        self.assertGreater(
+            energy["consumption"], 0.0, "energy consumption must be > 0 with time series"
+        )
 
     def test_with_dataframes(self) -> None:
         """calculate_kpis() with timeseries_dataframes routes data to the energy calculator.
@@ -109,7 +114,7 @@ class TestCalculateKpisHappyPath(unittest.TestCase):
         results_short = calculate_kpis(ESDL_FILE, system_lifetime=10.0)
 
         # NPV over 10 years must be less than NPV over 30 years (default)
-        self.assertLess(results_short["costs"]["npv"], results_default["costs"]["npv"])
+        self.assertLess(results_short["financials"]["npv"], results_default["financials"]["npv"])
 
 
 class TestCalculateKpisErrorHandling(unittest.TestCase):

@@ -19,7 +19,7 @@ Public API
 Calculators
 -----------
 
-.. automodule:: kpicalculator.calculators.cost_calculator
+.. automodule:: kpicalculator.calculators.financial_calculator
    :members:
 
 .. automodule:: kpicalculator.calculators.energy_calculator

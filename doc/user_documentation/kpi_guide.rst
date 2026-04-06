@@ -207,7 +207,7 @@ Undiscounted sum of all costs over the system lifetime, in EUR. Unlike NPV, futu
 
 The replacement factor counts the number of full asset purchases needed to keep the system operational over its lifetime (e.g. 2 for a 30-year system with a 15-year asset). This is the financially exact count and is consistent with the CAPEX replacement logic in NPV.
 
-Pass ``mesido_compatible=True`` to ``CostCalculator.calculate_tco()`` to use the continuous factor ``max(1, system_lifetime / technical_lifetime)`` instead. MESIDO's ``MinimizeTCO`` goal uses this approximation to keep the optimizer objective smooth and differentiable. Use this only when comparing output against MESIDO results.
+Pass ``round_up_replacement=False`` to ``FinancialCalculator.calculate_tco()`` to use the continuous factor ``max(1, system_lifetime / technical_lifetime)`` instead. MESIDO's ``MinimizeTCO`` goal uses this approximation to keep the optimizer objective smooth and differentiable. Use this only when comparing output against MESIDO results.
 
 TCO is always greater than or equal to NPV at any positive discount rate — discounting makes future costs smaller, so the undiscounted sum is always higher. Use TCO when you want to verify optimizer results from MESIDO, or when comparing total expenditure without assuming a particular cost of capital.
 

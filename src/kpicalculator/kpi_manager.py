@@ -8,13 +8,23 @@ from esdl import esdl
 from .adapters.common_model import EnergySystem
 from .adapters.esdl_adapter import EsdlAdapter
 from .adapters.simulator_adapter import SimulatorAdapter
-from .common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_SYSTEM_LIFETIME_YEARS
+from .calculators.emission_calculator import EmissionCalculator
+from .calculators.energy_calculator import EnergyCalculator
+from .calculators.financial_calculator import (
+    PRODUCER_ASSET_TYPES,
+    AssetFinancialResult,
+    FinancialCalculator,
+)
+from .common.constants import (
+    DEFAULT_DISCOUNT_RATE_PERCENT,
+    DEFAULT_SYSTEM_LIFETIME_YEARS,
+)
 
 _logger = logging.getLogger(__name__)
 
 
-class CostResults(TypedDict):
-    """Results structure for cost calculations."""
+class FinancialResults(TypedDict):
+    """System-level financial KPI results. All values are sums over assets."""
 
     capex: dict[str, float]
     opex: dict[str, float]
@@ -43,9 +53,10 @@ class EmissionResults(TypedDict):
 class KpiResults(TypedDict):
     """Complete KPI results structure."""
 
-    costs: CostResults
+    financials: FinancialResults
     energy: EnergyResults
     emissions: EmissionResults
+    asset_financials: dict[str, AssetFinancialResult]
 
 
 class KpiManager:
@@ -176,29 +187,50 @@ class KpiManager:
         if discount_rate < 0 or discount_rate > 100:
             raise ValueError(f"discount_rate must be between 0 and 100 (got {discount_rate}).")
 
-        from .calculators.cost_calculator import CostCalculator
-        from .calculators.emission_calculator import EmissionCalculator
-        from .calculators.energy_calculator import EnergyCalculator
-
-        cost_calc = CostCalculator(self.energy_system)
+        cost_calc = FinancialCalculator(self.energy_system)
         energy_calc = EnergyCalculator(self.energy_system)
         emission_calc = EmissionCalculator(self.energy_system)
 
+        # Pre-compute annual energy production (MWh) for generating assets so
+        # FinancialCalculator can compute per-asset LCOE in its single pass.
+        # Non-generating assets are omitted; FinancialCalculator treats a missing key as 0.
+        annual_energy_mwh_by_asset = {
+            asset.id: energy_calc.get_asset_energy_production_per_year(asset) / 3.6e9
+            for asset in self.energy_system.assets
+            if asset.asset_type in PRODUCER_ASSET_TYPES
+        }
+
+        asset_financials = cost_calc.get_asset_financial_breakdown(
+            system_lifetime,
+            discount_rate,
+            round_up_replacement=round_up_replacement,
+            annual_energy_mwh_by_asset=annual_energy_mwh_by_asset,
+        )
+
+        system_npv = 0.0
+        system_eac = 0.0
+        system_tco = 0.0
+        for r in asset_financials.values():
+            system_npv += r["npv"]
+            system_eac += r["eac"]
+            system_tco += r["tco"]
+        capex_by_cat, opex_by_cat = cost_calc.aggregate_by_category(asset_financials)
+
         results: KpiResults = {
-            "costs": {
-                "capex": cost_calc.get_capex_by_category(),
-                "opex": cost_calc.get_opex_by_category(),
-                "npv": cost_calc.calculate_npv(
-                    system_lifetime, discount_rate, round_up_replacement=round_up_replacement
-                ),
+            "financials": {
+                "capex": capex_by_cat,
+                "opex": opex_by_cat,
+                "npv": system_npv,
+                # System LCOE = total NPV / total discounted energy — not a sum of per-asset LCOEs.
                 "lcoe": cost_calc.calculate_lcoe(
-                    system_lifetime, discount_rate, round_up_replacement=round_up_replacement
+                    system_lifetime,
+                    discount_rate,
+                    round_up_replacement=round_up_replacement,
+                    system_npv=system_npv,
                 ),
-                "eac": cost_calc.calculate_eac(discount_rate),
+                "eac": system_eac,
                 # TCO is intentionally undiscounted — discount_rate is not used.
-                "tco": cost_calc.calculate_tco(
-                    system_lifetime, round_up_replacement=round_up_replacement
-                ),
+                "tco": system_tco,
             },
             "energy": {
                 "consumption": energy_calc.get_total_energy_consumption_per_year(),
@@ -210,6 +242,7 @@ class KpiManager:
                 "total": emission_calc.get_total_emissions(),
                 "per_mwh": emission_calc.get_emissions_per_mwh(),
             },
+            "asset_financials": asset_financials,
         }
 
         no_asset_has_time_series = not any(asset.time_series for asset in self.energy_system.assets)
