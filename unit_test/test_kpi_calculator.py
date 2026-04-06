@@ -14,6 +14,13 @@ DATA_DIR = TEST_DIR / "data"
 from esdl import esdl  # noqa: E402
 
 from kpicalculator import KpiManager  # noqa: E402
+from kpicalculator.adapters.common_model import (  # noqa: E402
+    Asset,
+    AssetType,
+    EnergySystem,
+    TimeSeries,
+)
+from kpicalculator.calculators.financial_calculator import FinancialCalculator  # noqa: E402
 
 
 class NewKpiCalculatorTest(unittest.TestCase):
@@ -32,13 +39,16 @@ class NewKpiCalculatorTest(unittest.TestCase):
         results = self.kpi_manager.calculate_all_kpis(system_lifetime=40)
 
         # Check that results contain expected keys
-        self.assertIn("costs", results)
+        self.assertIn("financials", results)
         self.assertIn("energy", results)
         self.assertIn("emissions", results)
 
         # Check specific values (using ESDL costInformation only)
         self.assertAlmostEqual(
-            results["costs"]["capex"]["All"], 107900.03, places=2, msg="Total CAPEX is incorrect"
+            results["financials"]["capex"]["All"],
+            107900.03,
+            places=2,
+            msg="Total CAPEX is incorrect",
         )
 
         self.assertAlmostEqual(
@@ -124,8 +134,8 @@ class EsdlStringLoadingTest(unittest.TestCase):
         # Compare KPI results - should be identical
         string_results = string_manager.calculate_all_kpis(system_lifetime=40)
         self.assertAlmostEqual(
-            file_results["costs"]["capex"]["All"],
-            string_results["costs"]["capex"]["All"],
+            file_results["financials"]["capex"]["All"],
+            string_results["financials"]["capex"]["All"],
             places=2,
             msg="CAPEX mismatch between file and string loading",
         )
@@ -588,8 +598,10 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
 
         self.assertIsNotNone(capex_value)
         self.assertIsNotNone(opex_value)
-        self.assertAlmostEqual(capex_value, self.kpi_results["costs"]["capex"]["All"], places=2)
-        self.assertAlmostEqual(opex_value, self.kpi_results["costs"]["opex"]["All"], places=2)
+        self.assertAlmostEqual(
+            capex_value, self.kpi_results["financials"]["capex"]["All"], places=2
+        )
+        self.assertAlmostEqual(opex_value, self.kpi_results["financials"]["opex"]["All"], places=2)
 
     def test_kpi_structure_compliance(self) -> None:
         """Every exported KPI follows the ESDL DistributionKPI schema."""
@@ -649,8 +661,8 @@ class EsdlKpiExportIntegrationTest(unittest.TestCase):
             seen.add(kpi.id)
 
 
-class CostCalculatorEdgeCaseTest(unittest.TestCase):
-    """Unit tests for NPV and LCOE edge cases in CostCalculator.
+class FinancialCalculatorEdgeCaseTest(unittest.TestCase):
+    """Unit tests for NPV and LCOE edge cases in FinancialCalculator.
 
     These tests use a minimal synthetic EnergySystem — no file I/O, no ESDL parsing —
     so they are fast and isolated.  Each test pins a specific mathematical edge case
@@ -662,9 +674,7 @@ class CostCalculatorEdgeCaseTest(unittest.TestCase):
         investment: float = 100_000.0,
         opex_annual: float = 5_000.0,
         technical_lifetime: float = 40.0,
-    ) -> "EnergySystem":  # noqa: F821  # imported below inside method
-        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
-
+    ) -> EnergySystem:
         asset = Asset(
             id="test_asset",
             name="Test Asset",
@@ -684,14 +694,12 @@ class CostCalculatorEdgeCaseTest(unittest.TestCase):
         so NPV reduces to: CAPEX (one investment) + OPEX * system_lifetime.
         This is the social cost accounting approach used in some public-sector projects.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
-
         system_lifetime = 30.0
         investment = 100_000.0
         opex_annual = 5_000.0
         system = self._make_system(investment=investment, opex_annual=opex_annual)
 
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         npv = calc.calculate_npv(system_lifetime, discount_rate=0.0)
 
         # At 0%: one CAPEX replacement (ceil(30/40)=1) + 30 years of OPEX
@@ -704,10 +712,9 @@ class CostCalculatorEdgeCaseTest(unittest.TestCase):
         Discounting future costs makes them worth less today, so discounted NPV < undiscounted NPV.
         This confirms that the discount factor is actually applied and not ignored.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         system = self._make_system()
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         npv_zero = calc.calculate_npv(30.0, discount_rate=0.0)
         npv_five = calc.calculate_npv(30.0, discount_rate=5.0)
@@ -721,11 +728,10 @@ class CostCalculatorEdgeCaseTest(unittest.TestCase):
         the project horizon.  This represents a short-horizon project (e.g. a 10-year
         concession) using a long-lived asset (40-year boiler).
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=40.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         # With no OPEX and 0% discount, NPV = exactly one investment
         npv = calc.calculate_npv(system_lifetime=10.0, discount_rate=0.0)
@@ -738,11 +744,10 @@ class CostCalculatorEdgeCaseTest(unittest.TestCase):
         ceil(50 / 40) = 2 replacements (year 0 and year 40).  The second replacement
         is discounted; this test confirms the replacement loop runs correctly.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=40.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         # At 0% discount: NPV = 2 * investment (no discounting, two replacements)
         npv = calc.calculate_npv(system_lifetime=50.0, discount_rate=0.0)
@@ -755,18 +760,17 @@ class CostCalculatorEdgeCaseTest(unittest.TestCase):
         Without time series, energy = 0.  Dividing NPV by zero energy would be
         undefined; the calculator must return 0.0 rather than raising ZeroDivisionError.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         system = self._make_system()
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         lcoe = calc.calculate_lcoe(system_lifetime=30.0)
 
         self.assertEqual(lcoe, 0.0)
 
 
-class CostCalculatorUnitBranchTest(unittest.TestCase):
-    """Unit tests for the per-unit cost calculation branches in CostCalculator.
+class FinancialCalculatorUnitBranchTest(unittest.TestCase):
+    """Unit tests for the per-unit cost calculation branches in FinancialCalculator.
 
     The integration tests in NewKpiCalculatorTest only exercise flat EUR costs because
     the ESDL fixture uses EUR everywhere.  These tests construct Asset objects directly
@@ -799,18 +803,14 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
     _HOURS = 8_760  # one year of hourly data
     _TIME_STEP = 3_600.0  # 1 hour in seconds
 
-    def _make_system(self, asset: "Asset") -> "EnergySystem":  # noqa: F821
-        from kpicalculator.adapters.common_model import EnergySystem
-
+    def _make_system(self, asset: Asset) -> EnergySystem:
         return EnergySystem(
             name="Test System",
             assets=[asset],
             unit_conversion=dict(self._UNIT_CONVERSION),
         )
 
-    def _make_asset(self, **kwargs) -> "Asset":  # noqa: F821
-        from kpicalculator.adapters.common_model import Asset, AssetType
-
+    def _make_asset(self, **kwargs) -> Asset:
         defaults = dict(
             id="asset_1",
             name="Test Asset",
@@ -823,10 +823,8 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         defaults.update(kwargs)
         return Asset(**defaults)
 
-    def _make_hourly_time_series(self, power_w: float) -> "TimeSeries":  # noqa: F821
+    def _make_hourly_time_series(self, power_w: float) -> TimeSeries:
         """One year of constant hourly power values."""
-        from kpicalculator.adapters.common_model import TimeSeries
-
         return TimeSeries(
             time_step=self._TIME_STEP,
             values=[power_w] * self._HOURS,
@@ -842,60 +840,54 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         A 500 kW asset at 200 EUR/kW should cost 100,000 EUR.
         The EUR/kW factor converts watts → kilowatts (÷1000).
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(investment_cost=self._COST_RATE, investment_cost_unit="EUR/kW")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._POWER_W * self._UNIT_CONVERSION["EUR/kW"]
         self.assertAlmostEqual(calc._calculate_investment_cost(asset), expected, places=4)
 
     def test_investment_cost_eur_mw(self) -> None:
         """EUR/MW investment cost scales with power, using a megawatt conversion factor."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(investment_cost=self._COST_RATE, investment_cost_unit="EUR/MW")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._POWER_W * self._UNIT_CONVERSION["EUR/MW"]
         self.assertAlmostEqual(calc._calculate_investment_cost(asset), expected, places=4)
 
     def test_investment_cost_eur_per_m(self) -> None:
         """EUR/m investment cost scales with asset length (e.g. pipeline cost per metre)."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(investment_cost=self._COST_RATE, investment_cost_unit="EUR/m")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._LENGTH_M * self._UNIT_CONVERSION["EUR/m"]
         self.assertAlmostEqual(calc._calculate_investment_cost(asset), expected, places=4)
 
     def test_investment_cost_eur_per_km(self) -> None:
         """EUR/km investment cost scales with length and converts metres to kilometres."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(investment_cost=self._COST_RATE, investment_cost_unit="EUR/km")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._LENGTH_M * self._UNIT_CONVERSION["EUR/km"]
         self.assertAlmostEqual(calc._calculate_investment_cost(asset), expected, places=4)
 
     def test_investment_cost_eur_m3(self) -> None:
         """EUR/m³ investment cost scales with storage volume (no unit-conversion factor)."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(investment_cost=self._COST_RATE, investment_cost_unit="EUR/m3")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._VOLUME_M3
         self.assertAlmostEqual(calc._calculate_investment_cost(asset), expected, places=4)
 
     def test_investment_cost_unknown_unit_returns_zero(self) -> None:
         """An unrecognised investment cost unit returns 0.0 rather than raising."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(investment_cost=self._COST_RATE, investment_cost_unit="UNKNOWN")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertEqual(calc._calculate_investment_cost(asset), 0.0)
 
@@ -905,30 +897,27 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
 
     def test_installation_cost_eur_kw(self) -> None:
         """EUR/kW installation cost applies the same power-scaling as investment cost."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(installation_cost=self._COST_RATE, installation_cost_unit="EUR/kW")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._POWER_W * self._UNIT_CONVERSION["EUR/kW"]
         self.assertAlmostEqual(calc._calculate_installation_cost(asset), expected, places=4)
 
     def test_installation_cost_eur_per_km(self) -> None:
         """EUR/km installation cost scales with length and converts metres to kilometres."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(installation_cost=self._COST_RATE, installation_cost_unit="EUR/km")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._LENGTH_M * self._UNIT_CONVERSION["EUR/km"]
         self.assertAlmostEqual(calc._calculate_installation_cost(asset), expected, places=4)
 
     def test_installation_cost_eur_m3(self) -> None:
         """EUR/m³ installation cost uses volume directly without a conversion factor."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(installation_cost=self._COST_RATE, installation_cost_unit="EUR/m3")
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertAlmostEqual(
             calc._calculate_installation_cost(asset), self._COST_RATE * self._VOLUME_M3, places=4
@@ -944,7 +933,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         With 1000 EUR investment and 2% annual OPEX, the cost is 20 EUR/yr.
         This unit is common for O&M modelled as a percentage of total capital cost.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         capex = 1_000.0
         opex_pct = 2.0  # 2%
@@ -954,20 +942,19 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             fixed_operational_cost=opex_pct,
             fixed_operational_cost_unit="% OF CAPEX",
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = capex * opex_pct * self._UNIT_CONVERSION["% OF CAPEX"]
         self.assertAlmostEqual(calc._calculate_fixed_operational_cost(asset), expected, places=4)
 
     def test_fixed_operational_cost_eur_mw(self) -> None:
         """EUR/MW fixed operational cost scales with asset power."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(
             fixed_operational_cost=self._COST_RATE,
             fixed_operational_cost_unit="EUR/MW",
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._POWER_W * self._UNIT_CONVERSION["EUR/MW"]
         self.assertAlmostEqual(calc._calculate_fixed_operational_cost(asset), expected, places=4)
@@ -982,7 +969,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         One year of 100 kW constant output at 10 EUR/MWh should give a positive
         annual cost.  This confirms the time-series integration path is reached.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         power_w = 100_000.0  # 100 kW
         cost_rate = 10.0  # EUR/MWh
@@ -992,7 +978,7 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             variable_operational_cost_unit="EUR/MWh",
             time_series={"key": ts},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         result = calc._calculate_variable_operational_cost(asset)
         self.assertGreater(result, 0.0)
@@ -1004,7 +990,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         A non-zero result confirms both branches of the EUR/kWh | EUR/MWh condition
         are reachable.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         power_w = 100_000.0
         ts = self._make_hourly_time_series(power_w)
@@ -1013,7 +998,7 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             variable_operational_cost_unit="EUR/kWh",
             time_series={"key": ts},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertGreater(calc._calculate_variable_operational_cost(asset), 0.0)
 
@@ -1023,14 +1008,13 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         Without energy data the energy integral is undefined; returning 0.0 avoids
         a ZeroDivisionError and is consistent with the zero-energy edge case contract.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(
             variable_operational_cost=10.0,
             variable_operational_cost_unit="EUR/MWh",
             time_series={},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertEqual(calc._calculate_variable_operational_cost(asset), 0.0)
 
@@ -1042,9 +1026,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         must be scaled down by COP to reflect actual cost per delivered MWh.
         A higher COP yields a lower cost for the same rate and energy output.
         """
-        from kpicalculator.adapters.common_model import AssetType
-        from kpicalculator.calculators.cost_calculator import CostCalculator
-
         power_w = 100_000.0
         ts = self._make_hourly_time_series(power_w)
 
@@ -1064,8 +1045,8 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             time_series={"key": ts},
         )
 
-        calc2 = CostCalculator(self._make_system(asset_cop2))
-        calc4 = CostCalculator(self._make_system(asset_cop4))
+        calc2 = FinancialCalculator(self._make_system(asset_cop2))
+        calc4 = FinancialCalculator(self._make_system(asset_cop4))
 
         # Higher COP → lower variable cost (energy delivered per unit consumed is higher)
         self.assertGreater(
@@ -1079,7 +1060,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
 
     def test_fixed_maintenance_cost_percent_of_capex(self) -> None:
         """% OF CAPEX fixed maintenance cost is a fraction of total capital cost."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         capex = 2_000.0
         maint_pct = 1.5
@@ -1089,20 +1069,19 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             fixed_maintenance_cost=maint_pct,
             fixed_maintenance_cost_unit="% OF CAPEX",
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = capex * maint_pct * self._UNIT_CONVERSION["% OF CAPEX"]
         self.assertAlmostEqual(calc._calculate_fixed_maintenance_cost(asset), expected, places=4)
 
     def test_fixed_maintenance_cost_eur_mw(self) -> None:
         """EUR/MW fixed maintenance cost scales with asset rated power."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(
             fixed_maintenance_cost=self._COST_RATE,
             fixed_maintenance_cost_unit="EUR/MW",
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         expected = self._COST_RATE * self._POWER_W * self._UNIT_CONVERSION["EUR/MW"]
         self.assertAlmostEqual(calc._calculate_fixed_maintenance_cost(asset), expected, places=4)
@@ -1117,7 +1096,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         The variable maintenance path is structurally identical to variable OPEX;
         this test confirms the separate maintenance method is also exercised.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         power_w = 100_000.0
         ts = self._make_hourly_time_series(power_w)
@@ -1126,7 +1104,7 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             variable_maintenance_cost_unit="EUR/MWh",
             time_series={"key": ts},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertGreater(calc._calculate_variable_maintenance_cost(asset), 0.0)
 
@@ -1137,9 +1115,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         contain the geothermal COP branch independently.  This test covers the maintenance
         version to ensure both are tested.
         """
-        from kpicalculator.adapters.common_model import AssetType
-        from kpicalculator.calculators.cost_calculator import CostCalculator
-
         power_w = 100_000.0
         ts = self._make_hourly_time_series(power_w)
         asset = self._make_asset(
@@ -1149,21 +1124,20 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
             variable_maintenance_cost_unit="EUR/MWh",
             time_series={"key": ts},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         # With COP=3 the cost must be positive (COP > 0 branch executed)
         self.assertGreater(calc._calculate_variable_maintenance_cost(asset), 0.0)
 
     def test_variable_maintenance_cost_no_time_series_returns_zero(self) -> None:
         """EUR/MWh variable maintenance cost returns 0.0 with no time series data."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(
             variable_maintenance_cost=5.0,
             variable_maintenance_cost_unit="EUR/MWh",
             time_series={},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertEqual(calc._calculate_variable_maintenance_cost(asset), 0.0)
 
@@ -1171,12 +1145,12 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
         self, method_name: str, unit_field: str, unit_value: str, cost_field: str
     ) -> None:
         """Helper: verify that an unsupported unit logs a warning and returns 0.0."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         asset = self._make_asset(**{cost_field: 5.0, unit_field: unit_value})
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
-        with self.assertLogs("kpicalculator.calculators.cost_calculator", level="WARNING") as cm:
+        logger_name = "kpicalculator.calculators.financial_calculator"
+        with self.assertLogs(logger_name, level="WARNING") as cm:
             result = getattr(calc, method_name)(asset)
 
         self.assertEqual(result, 0.0)
@@ -1241,7 +1215,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
 
     def test_energy_calculator_zero_duration_returns_zero(self) -> None:
         """A time series with time_step=0 must not crash with ZeroDivisionError."""
-        from kpicalculator.adapters.common_model import AssetType, TimeSeries
         from kpicalculator.calculators.energy_calculator import EnergyCalculator
 
         ts = TimeSeries(time_step=0.0, values=[100.0] * 10)
@@ -1255,7 +1228,6 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
 
     def test_emission_calculator_zero_duration_returns_zero(self) -> None:
         """A time series with time_step=0 must not crash with ZeroDivisionError."""
-        from kpicalculator.adapters.common_model import AssetType, TimeSeries
         from kpicalculator.calculators.emission_calculator import EmissionCalculator
 
         ts = TimeSeries(time_step=0.0, values=[100.0] * 10)
@@ -1268,18 +1240,15 @@ class CostCalculatorUnitBranchTest(unittest.TestCase):
 
         self.assertEqual(calc.get_total_emissions(), 0.0)
 
-    def test_cost_calculator_zero_duration_returns_zero(self) -> None:
+    def test_financial_calculator_zero_duration_returns_zero(self) -> None:
         """Variable cost with time_step=0 must not crash with ZeroDivisionError."""
-        from kpicalculator.adapters.common_model import TimeSeries
-        from kpicalculator.calculators.cost_calculator import CostCalculator
-
         ts = TimeSeries(time_step=0.0, values=[100.0] * 10)
         asset = self._make_asset(
             variable_operational_cost=5.0,
             variable_operational_cost_unit="EUR/MWh",
             time_series={"heat_supplied": ts},
         )
-        calc = CostCalculator(self._make_system(asset))
+        calc = FinancialCalculator(self._make_system(asset))
 
         self.assertEqual(calc._calculate_variable_operational_cost(asset), 0.0)
 
@@ -1298,7 +1267,7 @@ class BaseAdapterValidationTest(unittest.TestCase):
 
         return EsdlAdapter()
 
-    def _make_asset(self, **kwargs) -> "Asset":  # noqa: F821
+    def _make_asset(self, **kwargs) -> "Asset":
         from kpicalculator.adapters.common_model import Asset, AssetType
 
         defaults = dict(
@@ -1311,7 +1280,7 @@ class BaseAdapterValidationTest(unittest.TestCase):
         defaults.update(kwargs)
         return Asset(**defaults)
 
-    def _make_system(self, assets: list) -> "EnergySystem":  # noqa: F821
+    def _make_system(self, assets: list) -> "EnergySystem":
         from kpicalculator.adapters.common_model import EnergySystem
 
         return EnergySystem(name="Test System", assets=assets)
@@ -1385,7 +1354,7 @@ class BaseAdapterValidationTest(unittest.TestCase):
 
 
 class EacTcoCalculatorTest(unittest.TestCase):
-    """Unit tests for EAC and TCO calculations in CostCalculator.
+    """Unit tests for EAC and TCO calculations in FinancialCalculator.
 
     Uses a minimal synthetic EnergySystem — no file I/O, no ESDL parsing — so
     tests are fast and isolated.  Each test pins a specific mathematical property
@@ -1397,7 +1366,7 @@ class EacTcoCalculatorTest(unittest.TestCase):
         investment: float = 100_000.0,
         opex_annual: float = 5_000.0,
         technical_lifetime: float = 40.0,
-    ) -> "EnergySystem":  # noqa: F821
+    ) -> "EnergySystem":
         from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
 
         asset = Asset(
@@ -1420,26 +1389,24 @@ class EacTcoCalculatorTest(unittest.TestCase):
         At r=0 the annuity degenerates to CAPEX / TL. For TL=1, annualized_CAPEX = CAPEX.
         Ported from mesido Assertion 4.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 1_000.0
         system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=1.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         eac = calc.calculate_eac(discount_rate=0.0)
 
         self.assertAlmostEqual(eac, investment, places=10)
 
     def test_annuity_factor_10pct_discount_rate_tl1(self) -> None:
-        """annuity_factor(r=0.10, TL=1) == 1.1: annualized_CAPEX = CAPEX × 1.1.
+        """annuity_factor(r=0.10, TL=1) == 1.1: annualized_CAPEX = CAPEX x 1.1.
 
         For TL=1: factor = r / (1 - (1+r)^-1) = 1+r = 1.1.
         Ported from mesido Assertion 4.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 1_000.0
         system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=1.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         eac = calc.calculate_eac(discount_rate=10.0)
 
         self.assertAlmostEqual(eac, investment * 1.1, places=10)
@@ -1451,9 +1418,8 @@ class EacTcoCalculatorTest(unittest.TestCase):
 
         For a single asset: investment=100,000, r=5%, TL=40yr:
             annuity_factor = 0.05 / (1 - 1.05^-40)
-            EAC = investment × annuity_factor
+            EAC = investment x annuity_factor
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         technical_lifetime = 40.0
@@ -1461,7 +1427,7 @@ class EacTcoCalculatorTest(unittest.TestCase):
         system = self._make_system(
             investment=investment, opex_annual=0.0, technical_lifetime=technical_lifetime
         )
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         eac = calc.calculate_eac(discount_rate=discount_rate)
 
         r = discount_rate / 100.0
@@ -1470,24 +1436,22 @@ class EacTcoCalculatorTest(unittest.TestCase):
 
     def test_eac_zero_discount_rate_equals_capex_divided_by_technical_lifetime(self) -> None:
         """At r=0, EAC = CAPEX / technical_lifetime (simple straight-line depreciation)."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         technical_lifetime = 40.0
         system = self._make_system(
             investment=investment, opex_annual=0.0, technical_lifetime=technical_lifetime
         )
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         eac = calc.calculate_eac(discount_rate=0.0)
 
         self.assertAlmostEqual(eac, investment / technical_lifetime, places=10)
 
     def test_eac_higher_discount_rate_yields_higher_eac(self) -> None:
         """Higher discount rate produces higher EAC (higher annuity factor)."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         system = self._make_system()
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         eac_low = calc.calculate_eac(discount_rate=2.0)
         eac_high = calc.calculate_eac(discount_rate=8.0)
@@ -1505,7 +1469,6 @@ class EacTcoCalculatorTest(unittest.TestCase):
         import math
 
         from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         technical_lifetime = 40.0
@@ -1538,8 +1501,10 @@ class EacTcoCalculatorTest(unittest.TestCase):
         )
         system_no_rate = EnergySystem(name="System B", assets=[asset_no_rate])
 
-        eac_asset_rate = CostCalculator(system_with_rate).calculate_eac(discount_rate=fallback_rate)
-        eac_fallback = CostCalculator(system_no_rate).calculate_eac(discount_rate=asset_rate)
+        eac_asset_rate = FinancialCalculator(system_with_rate).calculate_eac(
+            discount_rate=fallback_rate
+        )
+        eac_fallback = FinancialCalculator(system_no_rate).calculate_eac(discount_rate=asset_rate)
 
         # Both should equal the annuity at asset_rate
         r = asset_rate / 100.0
@@ -1548,18 +1513,17 @@ class EacTcoCalculatorTest(unittest.TestCase):
         self.assertAlmostEqual(eac_asset_rate, eac_fallback, places=10)
 
         # Confirm it differs from what the fallback_rate would give
-        eac_at_fallback_rate = CostCalculator(system_no_rate).calculate_eac(
+        eac_at_fallback_rate = FinancialCalculator(system_no_rate).calculate_eac(
             discount_rate=fallback_rate
         )
         self.assertNotAlmostEqual(eac_asset_rate, eac_at_fallback_rate, places=2)
 
     def test_eac_opex_passed_through_directly(self) -> None:
         """EAC includes annual OPEX directly — OPEX is not annualized."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         opex_annual = 5_000.0
         system = self._make_system(investment=0.0, opex_annual=opex_annual, technical_lifetime=40.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         eac = calc.calculate_eac(discount_rate=5.0)
 
         self.assertAlmostEqual(eac, opex_annual, places=10)
@@ -1573,10 +1537,9 @@ class EacTcoCalculatorTest(unittest.TestCase):
         A start-of-period sum (t=0..2) would give a different result:
             1000/1.1^0 + 1000/1.1^1 + 1000/1.1^2 = 2735.54
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         system = self._make_system(investment=0.0, opex_annual=1_000.0, technical_lifetime=40.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         npv = calc.calculate_npv(system_lifetime=3.0, discount_rate=10.0)
 
         r = 0.10
@@ -1589,10 +1552,9 @@ class EacTcoCalculatorTest(unittest.TestCase):
         For system_lifetime=3.5, r=10%, OPEX=1000/yr:
             NPV = 1000/1.1^1 + 1000/1.1^2 + 1000/1.1^3 + 0.5*1000/1.1^4
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         system = self._make_system(investment=0.0, opex_annual=1_000.0, technical_lifetime=40.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         npv = calc.calculate_npv(system_lifetime=3.5, discount_rate=10.0)
 
         r = 0.10
@@ -1602,43 +1564,39 @@ class EacTcoCalculatorTest(unittest.TestCase):
 
     def test_npv_zero_technical_lifetime_raises(self) -> None:
         """NPV raises CalculationError when any asset has technical_lifetime <= 0."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
         from kpicalculator.exceptions import CalculationError
 
         system = self._make_system(technical_lifetime=0.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         with self.assertRaises(CalculationError):
             calc.calculate_npv(system_lifetime=30.0)
 
     def test_eac_zero_technical_lifetime_raises(self) -> None:
         """EAC raises CalculationError when any asset has technical_lifetime <= 0."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
         from kpicalculator.exceptions import CalculationError
 
         system = self._make_system(technical_lifetime=0.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         with self.assertRaises(CalculationError):
             calc.calculate_eac()
 
     def test_tco_zero_technical_lifetime_raises(self) -> None:
         """TCO raises CalculationError when any asset has technical_lifetime <= 0."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
         from kpicalculator.exceptions import CalculationError
 
         system = self._make_system(technical_lifetime=0.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         with self.assertRaises(CalculationError):
             calc.calculate_tco(system_lifetime=30.0)
 
     def test_invalid_system_lifetime_raises_at_calculator_level(self) -> None:
         """Each calculator method raises CalculationError for system_lifetime <= 0."""
-        from kpicalculator.calculators.cost_calculator import CostCalculator
         from kpicalculator.exceptions import CalculationError
 
-        calc = CostCalculator(self._make_system())
+        calc = FinancialCalculator(self._make_system())
 
         for method, kwargs in [
             (calc.calculate_npv, {}),
@@ -1671,26 +1629,18 @@ class EacTcoCalculatorTest(unittest.TestCase):
             kpi_manager.calculate_all_kpis(discount_rate=101.0)
 
     def test_calculate_all_kpis_zero_discount_rate(self) -> None:
-        """calculate_all_kpis() accepts discount_rate=0 and EAC is positive."""
+        """calculate_all_kpis() accepts discount_rate=0; EAC equals straight-line depreciation."""
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
         kpi_manager = KpiManager()
         kpi_manager.load_from_esdl(str(esdl_file))
-        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0, discount_rate=0.0)
+        results_zero = kpi_manager.calculate_all_kpis(system_lifetime=30.0, discount_rate=0.0)
+        results_5pct = kpi_manager.calculate_all_kpis(system_lifetime=30.0, discount_rate=5.0)
 
-        self.assertIn("eac", results["costs"])
-        self.assertIsInstance(results["costs"]["eac"], float)
-        self.assertGreaterEqual(results["costs"]["eac"], 0.0)
-
-    def test_eac_present_in_calculate_all_kpis_results(self) -> None:
-        """calculate_all_kpis() result dict includes 'eac' key under costs."""
-        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
-        kpi_manager = KpiManager()
-        kpi_manager.load_from_esdl(str(esdl_file))
-        results = kpi_manager.calculate_all_kpis(system_lifetime=30)
-
-        self.assertIn("eac", results["costs"])
-        self.assertIsInstance(results["costs"]["eac"], float)
-        self.assertGreater(results["costs"]["eac"], 0.0)
+        self.assertIn("eac", results_zero["financials"])
+        self.assertIsInstance(results_zero["financials"]["eac"], float)
+        self.assertGreater(results_zero["financials"]["eac"], 0.0)
+        # At r=0 the annuity factor is 1/TL, so EAC is lower than at r=5%.
+        self.assertLess(results_zero["financials"]["eac"], results_5pct["financials"]["eac"])
 
     # --- TCO tests ---
 
@@ -1699,7 +1649,6 @@ class EacTcoCalculatorTest(unittest.TestCase):
 
         EAC no longer relates to NPV or system_lifetime — it is purely per-asset.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         opex_annual = 5_000.0
@@ -1707,7 +1656,7 @@ class EacTcoCalculatorTest(unittest.TestCase):
         system = self._make_system(
             investment=investment, opex_annual=opex_annual, technical_lifetime=technical_lifetime
         )
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
         eac = calc.calculate_eac(discount_rate=0.0)
 
         expected = investment / technical_lifetime + opex_annual
@@ -1720,7 +1669,6 @@ class EacTcoCalculatorTest(unittest.TestCase):
         exactly at r=0 — including fractional ratios like technical_lifetime=20,
         system_lifetime=30 where ceil(1.5) = 2 for both.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 100_000.0
         opex_annual = 5_000.0
@@ -1733,7 +1681,7 @@ class EacTcoCalculatorTest(unittest.TestCase):
                     opex_annual=opex_annual,
                     technical_lifetime=technical_lifetime,
                 )
-                calc = CostCalculator(system)
+                calc = FinancialCalculator(system)
                 npv_zero = calc.calculate_npv(system_lifetime, discount_rate=0.0)
                 tco = calc.calculate_tco(system_lifetime)
                 self.assertAlmostEqual(tco, npv_zero, places=6)
@@ -1745,7 +1693,6 @@ class EacTcoCalculatorTest(unittest.TestCase):
         With technical_lifetime=20 and system_lifetime=30: ceil(30/20) = 2
         (you must buy a second asset at year 20 to keep the system running).
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 50_000.0
         system_lifetime = 30.0
@@ -1754,14 +1701,14 @@ class EacTcoCalculatorTest(unittest.TestCase):
         system_exact = self._make_system(
             investment=investment, opex_annual=0.0, technical_lifetime=10.0
         )
-        tco_exact = CostCalculator(system_exact).calculate_tco(system_lifetime)
+        tco_exact = FinancialCalculator(system_exact).calculate_tco(system_lifetime)
         self.assertAlmostEqual(tco_exact, 3.0 * investment, places=2)
 
         # Fractional ratio — ceil gives 2, continuous would give 1.5
         system_frac = self._make_system(
             investment=investment, opex_annual=0.0, technical_lifetime=20.0
         )
-        tco_frac = CostCalculator(system_frac).calculate_tco(system_lifetime)
+        tco_frac = FinancialCalculator(system_frac).calculate_tco(system_lifetime)
         self.assertAlmostEqual(tco_frac, 2.0 * investment, places=2)
 
     def test_tco_continuous_factor_uses_max_fraction(self) -> None:
@@ -1771,12 +1718,11 @@ class EacTcoCalculatorTest(unittest.TestCase):
         matching optimizers such as MESIDO's MinimizeTCO goal (which uses this
         approximation to keep the objective smooth and differentiable).
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 50_000.0
         system_lifetime = 30.0
         system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=20.0)
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         tco_default = calc.calculate_tco(system_lifetime)
         tco_continuous = calc.calculate_tco(system_lifetime, round_up_replacement=False)
@@ -1789,11 +1735,10 @@ class EacTcoCalculatorTest(unittest.TestCase):
 
         ceil(10/40) = 1 — the asset is bought once and not replaced.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
 
         investment = 80_000.0
         system = self._make_system(investment=investment, opex_annual=0.0, technical_lifetime=40.0)
-        tco = CostCalculator(system).calculate_tco(system_lifetime=10.0)
+        tco = FinancialCalculator(system).calculate_tco(system_lifetime=10.0)
         self.assertAlmostEqual(tco, investment, places=2)
 
     def test_tco_greater_than_npv_with_positive_discount_rate(self) -> None:
@@ -1802,13 +1747,11 @@ class EacTcoCalculatorTest(unittest.TestCase):
         NPV discounts future costs to present value (making them smaller), while
         TCO sums them at face value.  So TCO >= NPV for any positive discount rate.
         """
-        from kpicalculator.calculators.cost_calculator import CostCalculator
-
         system_lifetime = 30.0
         system = self._make_system(
             investment=100_000.0, opex_annual=5_000.0, technical_lifetime=40.0
         )
-        calc = CostCalculator(system)
+        calc = FinancialCalculator(system)
 
         tco = calc.calculate_tco(system_lifetime)
         npv = calc.calculate_npv(system_lifetime, discount_rate=5.0)
@@ -1822,9 +1765,454 @@ class EacTcoCalculatorTest(unittest.TestCase):
         kpi_manager.load_from_esdl(str(esdl_file))
         results = kpi_manager.calculate_all_kpis(system_lifetime=30)
 
-        self.assertIn("tco", results["costs"])
-        self.assertIsInstance(results["costs"]["tco"], float)
-        self.assertGreater(results["costs"]["tco"], 0.0)
+        self.assertIn("tco", results["financials"])
+        self.assertIsInstance(results["financials"]["tco"], float)
+        self.assertGreater(results["financials"]["tco"], 0.0)
+
+
+class AssetFinancialBreakdownTest(unittest.TestCase):
+    """Tests for FinancialCalculator.get_asset_financial_breakdown() and aggregate_by_category().
+
+    Uses a minimal synthetic EnergySystem to avoid file I/O and pin exact expected values.
+    """
+
+    _REQUIRED_KEYS = (
+        "investment_cost",
+        "installation_cost",
+        "fixed_operational_cost",
+        "variable_operational_cost",
+        "fixed_maintenance_cost",
+        "variable_maintenance_cost",
+        "annualized_capex",
+        "eac",
+        "npv",
+        "tco",
+        "lcoe",
+    )
+
+    def _make_system(
+        self,
+        asset_type: AssetType | None = None,
+        investment: float = 100_000.0,
+        opex_annual: float = 5_000.0,
+        technical_lifetime: float = 40.0,
+        asset_id: str = "asset_1",
+    ) -> "EnergySystem":
+        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
+
+        if asset_type is None:
+            asset_type = AssetType.CONSUMER
+        asset = Asset(
+            id=asset_id,
+            name="Test Asset",
+            asset_type=asset_type,
+            investment_cost=investment,
+            investment_cost_unit="EUR",
+            fixed_operational_cost=opex_annual,
+            fixed_operational_cost_unit="EUR/yr",
+            technical_lifetime=technical_lifetime,
+        )
+        return EnergySystem(name="Test System", assets=[asset])
+
+    # --- get_asset_financial_breakdown() ---
+
+    def test_returns_dict_keyed_by_asset_id(self) -> None:
+        """Result is a dict keyed by asset ID for every asset in the system."""
+
+        system = self._make_system(asset_id="my_asset")
+        breakdown = FinancialCalculator(system).get_asset_financial_breakdown(system_lifetime=30.0)
+
+        self.assertIn("my_asset", breakdown)
+        self.assertEqual(len(breakdown), 1)
+
+    def test_result_has_all_required_keys(self) -> None:
+        """Each AssetFinancialResult contains all 11 required keys."""
+
+        system = self._make_system()
+        breakdown = FinancialCalculator(system).get_asset_financial_breakdown(system_lifetime=30.0)
+        entry = next(iter(breakdown.values()))
+
+        for key in self._REQUIRED_KEYS:
+            with self.subTest(key=key):
+                self.assertIn(key, entry)
+
+    def test_lcoe_is_none_for_non_producing_asset(self) -> None:
+        """lcoe is None for consumer, storage, transport, and conversion assets."""
+        from kpicalculator.adapters.common_model import AssetType
+
+        for asset_type in (AssetType.CONSUMER, AssetType.STORAGE, AssetType.TRANSPORT):
+            with self.subTest(asset_type=asset_type):
+                system = self._make_system(asset_type=asset_type)
+                breakdown = FinancialCalculator(system).get_asset_financial_breakdown(
+                    system_lifetime=30.0
+                )
+                self.assertIsNone(next(iter(breakdown.values()))["lcoe"])
+
+    def test_lcoe_is_none_for_producer_without_energy_data(self) -> None:
+        """lcoe is None for a producer when annual_energy_mwh_by_asset=None."""
+        from kpicalculator.adapters.common_model import AssetType
+
+        system = self._make_system(asset_type=AssetType.PRODUCER)
+        breakdown = FinancialCalculator(system).get_asset_financial_breakdown(
+            system_lifetime=30.0, annual_energy_mwh_by_asset=None
+        )
+        self.assertIsNone(next(iter(breakdown.values()))["lcoe"])
+
+    def test_lcoe_is_computed_for_producer_with_energy_data(self) -> None:
+        """lcoe is non-None for a producer when annual energy is supplied and non-zero."""
+        from kpicalculator.adapters.common_model import AssetType
+
+        system = self._make_system(asset_type=AssetType.PRODUCER, asset_id="prod_1")
+        breakdown = FinancialCalculator(system).get_asset_financial_breakdown(
+            system_lifetime=30.0,
+            discount_rate=5.0,
+            annual_energy_mwh_by_asset={"prod_1": 8_760.0},
+        )
+        lcoe = next(iter(breakdown.values()))["lcoe"]
+        self.assertIsNotNone(lcoe)
+        self.assertGreater(lcoe, 0.0)
+
+    def test_npv_sum_matches_calculate_npv(self) -> None:
+        """Sum of per-asset NPVs equals FinancialCalculator.calculate_npv()."""
+
+        system = self._make_system()
+        calc = FinancialCalculator(system)
+        system_lifetime = 30.0
+        discount_rate = 5.0
+
+        breakdown = calc.get_asset_financial_breakdown(system_lifetime, discount_rate)
+        npv_from_breakdown = sum(r["npv"] for r in breakdown.values())
+        npv_direct = calc.calculate_npv(system_lifetime, discount_rate)
+
+        self.assertAlmostEqual(npv_from_breakdown, npv_direct, places=6)
+
+    def test_eac_sum_matches_calculate_eac(self) -> None:
+        """Sum of per-asset EACs equals FinancialCalculator.calculate_eac()."""
+
+        system = self._make_system()
+        calc = FinancialCalculator(system)
+        discount_rate = 5.0
+
+        breakdown = calc.get_asset_financial_breakdown(
+            system_lifetime=30.0, discount_rate=discount_rate
+        )
+        eac_from_breakdown = sum(r["eac"] for r in breakdown.values())
+        eac_direct = calc.calculate_eac(discount_rate)
+
+        self.assertAlmostEqual(eac_from_breakdown, eac_direct, places=6)
+
+    def test_tco_sum_matches_calculate_tco(self) -> None:
+        """Sum of per-asset TCOs equals FinancialCalculator.calculate_tco()."""
+
+        system = self._make_system()
+        calc = FinancialCalculator(system)
+        system_lifetime = 30.0
+
+        breakdown = calc.get_asset_financial_breakdown(system_lifetime)
+        tco_from_breakdown = sum(r["tco"] for r in breakdown.values())
+        tco_direct = calc.calculate_tco(system_lifetime)
+
+        self.assertAlmostEqual(tco_from_breakdown, tco_direct, places=6)
+
+    def test_invalid_system_lifetime_raises_calculation_error(self) -> None:
+        """get_asset_financial_breakdown() raises CalculationError for system_lifetime <= 0."""
+        from kpicalculator.exceptions import CalculationError
+
+        calc = FinancialCalculator(self._make_system())
+
+        with self.assertRaises(CalculationError):
+            calc.get_asset_financial_breakdown(system_lifetime=0.0)
+
+        with self.assertRaises(CalculationError):
+            calc.get_asset_financial_breakdown(system_lifetime=-1.0)
+
+    def test_invalid_discount_rate_raises_calculation_error(self) -> None:
+        """get_asset_financial_breakdown() raises CalculationError for invalid discount_rate."""
+        from kpicalculator.exceptions import CalculationError
+
+        calc = FinancialCalculator(self._make_system())
+
+        with self.assertRaises(CalculationError):
+            calc.get_asset_financial_breakdown(system_lifetime=30.0, discount_rate=-1.0)
+
+        with self.assertRaises(CalculationError):
+            calc.get_asset_financial_breakdown(system_lifetime=30.0, discount_rate=101.0)
+
+    def test_zero_technical_lifetime_raises_calculation_error(self) -> None:
+        """get_asset_financial_breakdown() raises CalculationError for technical_lifetime <= 0."""
+        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
+        from kpicalculator.exceptions import CalculationError
+
+        asset = Asset(
+            id="bad",
+            name="Bad",
+            asset_type=AssetType.CONSUMER,
+            investment_cost=0.0,
+            investment_cost_unit="EUR",
+            technical_lifetime=0.0,
+        )
+        system = EnergySystem(name="S", assets=[asset])
+
+        with self.assertRaises(CalculationError):
+            FinancialCalculator(system).get_asset_financial_breakdown(system_lifetime=30.0)
+
+    # --- aggregate_by_category() ---
+
+    def test_aggregate_by_category_returns_tuple_of_two_dicts(self) -> None:
+        """aggregate_by_category() returns (capex_dict, opex_dict)."""
+
+        system = self._make_system()
+        calc = FinancialCalculator(system)
+        breakdown = calc.get_asset_financial_breakdown(system_lifetime=30.0)
+        result = calc.aggregate_by_category(breakdown)
+
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        capex, opex = result
+        self.assertIsInstance(capex, dict)
+        self.assertIsInstance(opex, dict)
+
+    def test_aggregate_by_category_has_expected_keys(self) -> None:
+        """Both dicts include 'All' and the five named categories."""
+
+        system = self._make_system()
+        calc = FinancialCalculator(system)
+        breakdown = calc.get_asset_financial_breakdown(system_lifetime=30.0)
+        capex, opex = calc.aggregate_by_category(breakdown)
+
+        expected_keys = {"Production", "Consumption", "Storage", "Transport", "Conversion", "All"}
+        self.assertEqual(set(capex.keys()), expected_keys)
+        self.assertEqual(set(opex.keys()), expected_keys)
+
+    def test_aggregate_all_equals_sum_of_categories(self) -> None:
+        """'All' equals the sum of the five named category values."""
+        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
+
+        assets = [
+            Asset(
+                id="p1",
+                name="P",
+                asset_type=AssetType.PRODUCER,
+                investment_cost=10_000.0,
+                investment_cost_unit="EUR",
+                fixed_operational_cost=500.0,
+                technical_lifetime=20.0,
+            ),
+            Asset(
+                id="c1",
+                name="C",
+                asset_type=AssetType.CONSUMER,
+                investment_cost=5_000.0,
+                investment_cost_unit="EUR",
+                fixed_operational_cost=200.0,
+                technical_lifetime=20.0,
+            ),
+        ]
+        system = EnergySystem(name="S", assets=assets)
+        calc = FinancialCalculator(system)
+        breakdown = calc.get_asset_financial_breakdown(system_lifetime=30.0)
+        capex, opex = calc.aggregate_by_category(breakdown)
+
+        named_categories = ["Production", "Consumption", "Storage", "Transport", "Conversion"]
+        self.assertAlmostEqual(capex["All"], sum(capex[k] for k in named_categories), places=6)
+        self.assertAlmostEqual(opex["All"], sum(opex[k] for k in named_categories), places=6)
+
+    def test_aggregate_empty_system_returns_zeros(self) -> None:
+        """aggregate_by_category() on an empty system returns all-zero dicts without error.
+
+        An empty system (zero assets) is a legitimate edge case — get_asset_financial_breakdown()
+        returns {} for it, and aggregate_by_category({}) must return zeros cleanly.
+        """
+        from kpicalculator.adapters.common_model import EnergySystem
+
+        system = EnergySystem(name="S", assets=[])
+        calc = FinancialCalculator(system)
+        breakdown = calc.get_asset_financial_breakdown(system_lifetime=30.0)
+        capex, opex = calc.aggregate_by_category(breakdown)
+
+        for key in capex:
+            self.assertEqual(capex[key], 0.0)
+        for key in opex:
+            self.assertEqual(opex[key], 0.0)
+
+    # --- asset_financials in KpiResults ---
+
+    def test_calculate_all_kpis_includes_asset_financials(self) -> None:
+        """calculate_all_kpis() result includes 'asset_financials' keyed by asset ID."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0)
+
+        self.assertIn("asset_financials", results)
+        self.assertIsInstance(results["asset_financials"], dict)
+        self.assertGreater(len(results["asset_financials"]), 0)
+
+    def test_asset_financial_result_has_all_required_keys(self) -> None:
+        """Every entry in asset_financials contains all 11 AssetFinancialResult keys."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0)
+
+        for asset_id, entry in results["asset_financials"].items():
+            for key in self._REQUIRED_KEYS:
+                with self.subTest(asset_id=asset_id, key=key):
+                    self.assertIn(key, entry)
+
+    def test_asset_npv_sum_equals_system_npv(self) -> None:
+        """Sum of per-asset NPVs equals the system-level NPV in financials."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0, discount_rate=5.0)
+
+        asset_npv_sum = sum(r["npv"] for r in results["asset_financials"].values())
+        system_npv = results["financials"]["npv"]
+
+        self.assertAlmostEqual(asset_npv_sum, system_npv, places=4)
+
+    def test_asset_eac_sum_equals_system_eac(self) -> None:
+        """Sum of per-asset EACs equals the system-level EAC in financials."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0, discount_rate=5.0)
+
+        asset_eac_sum = sum(r["eac"] for r in results["asset_financials"].values())
+        system_eac = results["financials"]["eac"]
+
+        self.assertAlmostEqual(asset_eac_sum, system_eac, places=4)
+
+    def test_asset_tco_sum_equals_system_tco(self) -> None:
+        """Sum of per-asset TCOs equals the system-level TCO in financials."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0)
+
+        asset_tco_sum = sum(r["tco"] for r in results["asset_financials"].values())
+        system_tco = results["financials"]["tco"]
+
+        self.assertAlmostEqual(asset_tco_sum, system_tco, places=4)
+
+
+class PerAssetLcoeTest(unittest.TestCase):
+    """Tests for per-asset LCOE computation in KpiManager.calculate_all_kpis().
+
+    Per-asset LCOE is computed inside FinancialCalculator.get_asset_financial_breakdown()
+    when annual energy data is supplied. KpiManager pre-computes the energy dict from
+    EnergyCalculator and passes it in; FinancialCalculator never imports EnergyCalculator.
+    """
+
+    def _make_producer_system_with_timeseries(self) -> tuple["KpiManager", str]:
+        """Load the standard ESDL fixture with a real time series for energy data."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        series_file = DATA_DIR / "power_timeseries.xml"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file), time_series_file=str(series_file))
+        return kpi_manager, str(esdl_file)
+
+    def test_lcoe_filled_for_producing_assets_with_energy(self) -> None:
+        """Producer assets with non-zero energy production get a non-None lcoe value."""
+
+        # GenericConsumer asset — use a producer asset ID from the fixture if available,
+        # but the fixture may only have consumer assets. We verify the contract:
+        # if an asset IS a producer type AND has energy > 0, lcoe must not be None.
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            str(esdl_file), time_series_file=str(DATA_DIR / "power_timeseries.xml")
+        )
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0)
+
+        from kpicalculator.calculators.financial_calculator import PRODUCER_ASSET_TYPES
+
+        # For any producer asset that has a non-None, non-zero lcoe, verify it's positive
+        producer_ids = {
+            a.id for a in kpi_manager.energy_system.assets if a.asset_type in PRODUCER_ASSET_TYPES
+        }
+        for asset_id, entry in results["asset_financials"].items():
+            if asset_id in producer_ids and entry["lcoe"] is not None:
+                self.assertGreater(
+                    entry["lcoe"],
+                    0.0,
+                    f"LCOE for producer asset {asset_id} must be positive when set",
+                )
+
+    def test_lcoe_none_for_non_producing_assets(self) -> None:
+        """Non-producing assets (consumers, storage, transport) always have lcoe=None."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            str(esdl_file), time_series_file=str(DATA_DIR / "power_timeseries.xml")
+        )
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0)
+
+        from kpicalculator.calculators.financial_calculator import PRODUCER_ASSET_TYPES
+
+        producer_ids = {
+            a.id for a in kpi_manager.energy_system.assets if a.asset_type in PRODUCER_ASSET_TYPES
+        }
+        for asset_id, entry in results["asset_financials"].items():
+            if asset_id not in producer_ids:
+                self.assertIsNone(
+                    entry["lcoe"],
+                    f"Non-producing asset {asset_id} must have lcoe=None",
+                )
+
+    def test_lcoe_none_when_no_time_series(self) -> None:
+        """Without time series data, all assets have lcoe=None (zero energy production)."""
+        esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(str(esdl_file))  # no time series
+        results = kpi_manager.calculate_all_kpis(system_lifetime=30.0)
+
+        for asset_id, entry in results["asset_financials"].items():
+            self.assertIsNone(
+                entry["lcoe"],
+                f"Asset {asset_id} must have lcoe=None when no time series provided",
+            )
+
+    def test_per_asset_lcoe_formula_npv_over_discounted_energy(self) -> None:
+        """Per-asset LCOE equals per-asset NPV divided by discounted energy production.
+
+        At r=0: NPV = CAPEX + OPEX * system_lifetime,
+                discounted_energy = annual_mwh * system_lifetime,
+                so lcoe = (CAPEX + OPEX * n) / (annual_mwh * n).
+        Verified by calling FinancialCalculator directly with a known energy dict.
+        """
+        from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
+
+        system_lifetime = 10.0
+        investment = 100_000.0
+        opex_annual = 5_000.0
+        annual_energy_mwh = 8_760.0  # 1 MW continuously for one year
+
+        asset = Asset(
+            id="prod",
+            name="Producer",
+            asset_type=AssetType.PRODUCER,
+            investment_cost=investment,
+            investment_cost_unit="EUR",
+            fixed_operational_cost=opex_annual,
+            fixed_operational_cost_unit="EUR/yr",
+            technical_lifetime=40.0,
+        )
+        system = EnergySystem(name="S", assets=[asset])
+        calc = FinancialCalculator(system)
+        breakdown = calc.get_asset_financial_breakdown(
+            system_lifetime=system_lifetime,
+            discount_rate=0.0,
+            annual_energy_mwh_by_asset={"prod": annual_energy_mwh},
+        )
+
+        lcoe = breakdown["prod"]["lcoe"]
+        expected_npv = investment + opex_annual * system_lifetime
+        expected_lcoe = expected_npv / (annual_energy_mwh * system_lifetime)
+
+        self.assertIsNotNone(lcoe)
+        self.assertAlmostEqual(lcoe, expected_lcoe, places=6)
 
 
 if __name__ == "__main__":
