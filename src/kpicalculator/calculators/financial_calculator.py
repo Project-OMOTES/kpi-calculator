@@ -27,24 +27,56 @@ _CATEGORY_MAPPING: dict[str, list[AssetType]] = {
 
 
 class AssetFinancialResult(TypedDict):
-    """Per-asset financial KPIs. System totals are derived by summing these across assets.
+    """Per-asset financial KPIs returned in ``KpiResults["asset_financials"]``.
 
-    ``lcoe`` is ``None`` for non-producing assets (consumers, transport, storage) because
-    LCOE is a ratio of cost to energy output and is only meaningful for assets that
-    produce energy.
+    System totals in ``KpiResults["financials"]`` are derived by summing the
+    corresponding field across all assets (except ``lcoe`` — see below).
+
+    **Per-asset discount rate:** all discounted KPIs (``annualized_capex``,
+    ``eac``, ``npv``, and ``lcoe``) use the discount rate from
+    ``costInformation.discountRate`` in the ESDL when present; otherwise the
+    system-level ``discount_rate`` parameter is used as a fallback.
+
+    **Geothermal COP adjustment:** variable operational and maintenance costs
+    in EUR/kWh or EUR/MWh are applied to ``energy / COP`` for geothermal
+    assets with COP > 0, reflecting that they deliver more heat than they
+    consume as input.
     """
 
     investment_cost: float
+    """Upfront capital cost in EUR."""
     installation_cost: float
+    """Installation cost in EUR."""
     fixed_operational_cost: float
+    """Annual fixed operational cost in EUR/year."""
     variable_operational_cost: float
+    """Annual variable operational cost in EUR/year (scales with energy use)."""
     fixed_maintenance_cost: float
+    """Annual fixed maintenance cost in EUR/year."""
     variable_maintenance_cost: float
+    """Annual variable maintenance cost in EUR/year (scales with energy use)."""
     annualized_capex: float
+    """CAPEX spread over the asset's technical lifetime via the annuity formula, in EUR/year.
+    At discount_rate = 0% this reduces to (investment + installation) / technical_lifetime."""
     eac: float
+    """Equivalent Annual Cost: annualized_capex + total annual OPEX, in EUR/year."""
     npv: float
+    """Discounted lifecycle cost of this asset in EUR."""
     tco: float
+    """Undiscounted total spend on this asset over the system lifetime, in EUR."""
     lcoe: float | None
+    """Levelized Cost of Energy in EUR/MWh for this asset, or ``None``.
+
+    ``None`` when:
+
+    - the asset is not a generating type (consumers, transport, storage, conversion), or
+    - the asset is a generating type but its annual energy production is zero or unknown
+      (no time series data supplied).
+
+    ``None`` means *not applicable or not computable* — exporters should omit the field
+    or write a format-appropriate null. The system LCOE is computed separately as
+    ``total_npv / total_discounted_energy`` and is not the average of per-asset LCOEs.
+    """
 
 
 class FinancialCalculator:
@@ -57,6 +89,17 @@ class FinancialCalculator:
             energy_system: Energy system to calculate KPIs for
         """
         self.energy_system = energy_system
+
+    @staticmethod
+    def _split_lifetime(system_lifetime: float) -> tuple[int, float]:
+        """Split system lifetime into whole years and fractional remainder.
+
+        Returns:
+            ``(full_years, fraction)`` where ``full_years = int(system_lifetime)``
+            and ``fraction = system_lifetime - full_years``.
+        """
+        full_years = int(system_lifetime)
+        return full_years, system_lifetime - full_years
 
     def calculate_npv(
         self,
@@ -80,9 +123,22 @@ class FinancialCalculator:
             CalculationError: If ``system_lifetime <= 0``, ``discount_rate`` is outside
                 [0, 100], or any asset has a non-positive ``technical_lifetime``.
 
+        .. note::
+            This method applies a single uniform ``discount_rate`` to all assets
+            and does not respect per-asset discount rates from ESDL
+            ``costInformation.discountRate``. It is not used in the main
+            calculation path — ``KpiManager.calculate_all_kpis()`` derives
+            system NPV by summing per-asset NPVs from
+            ``get_asset_financial_breakdown()``, and ``calculate_lcoe()``
+            does the same when no ``system_npv`` is supplied. Use this method
+            only when a quick uniform-rate NPV estimate is needed without the
+            full per-asset breakdown.
+
         Args:
             system_lifetime: System lifetime in years. May be fractional.
             discount_rate: Discount rate in percentage (e.g. 5 for 5%).
+                Applied uniformly to all assets — per-asset overrides are
+                not supported here.
             round_up_replacement: If True (default), use ``ceil`` for the replacement
                 count with per-replacement discounting. If False, use the continuous
                 factor ``max(1, n / technical_lifetime)`` for optimizer compatibility.
@@ -124,8 +180,7 @@ class FinancialCalculator:
                 + self._calculate_variable_maintenance_cost(asset)
             )
 
-            full_years = int(system_lifetime)
-            fraction = system_lifetime - full_years
+            full_years, fraction = self._split_lifetime(system_lifetime)
             opex_npv = self._compute_discounted_sum(
                 opex_annual, discount_rate_ratio, full_years, fraction
             )
@@ -274,10 +329,12 @@ class FinancialCalculator:
         present-value basis. Energy discounting uses the same end-of-period convention
         and fractional-year proration as NPV OPEX. See ``kpi_guide.rst`` for the formula.
 
-        The ``round_up_replacement`` flag is passed through to ``calculate_npv``; see
-        that method for its effect on CAPEX replacement counting.
-
         Returns 0.0 if annual energy consumption is zero or negative.
+
+        When ``system_npv`` is not provided, it is derived by summing per-asset
+        NPVs from ``get_asset_financial_breakdown()``, which respects per-asset
+        discount rates from ESDL ``costInformation.discountRate``. This differs
+        from ``calculate_npv()``, which applies a uniform rate to all assets.
 
         Raises:
             CalculationError: If ``system_lifetime <= 0``, ``discount_rate`` is outside
@@ -285,13 +342,13 @@ class FinancialCalculator:
 
         Args:
             system_lifetime: System lifetime in years. May be fractional.
-            discount_rate: Discount rate in percentage (e.g. 5 for 5%).
-            round_up_replacement: Passed through to ``calculate_npv``. If True (default),
-                use ``ceil`` for the replacement count. If False, use the continuous
-                factor for optimizer compatibility.
-            system_npv: Pre-computed system NPV in EUR. When provided, skips the internal
-                ``calculate_npv()`` call. Pass this from ``KpiManager.calculate_all_kpis()``
-                to avoid a redundant full asset iteration.
+            discount_rate: System-wide fallback discount rate in percentage (e.g. 5
+                for 5%). Per-asset overrides from ESDL are applied automatically.
+            round_up_replacement: If True (default), use ``ceil`` for the replacement
+                count. If False, use the continuous factor for optimizer compatibility.
+            system_npv: Pre-computed system NPV in EUR. When provided, skips the
+                internal asset iteration. Pass this from
+                ``KpiManager.calculate_all_kpis()`` to avoid a redundant computation.
 
         Returns:
             Levelized Cost of Energy in EUR/MWh.
@@ -310,13 +367,13 @@ class FinancialCalculator:
             return 0.0
 
         if system_npv is None:
-            system_npv = self.calculate_npv(
+            asset_financials = self.get_asset_financial_breakdown(
                 system_lifetime, discount_rate, round_up_replacement=round_up_replacement
             )
+            system_npv = sum(r["npv"] for r in asset_financials.values())
 
         discount_rate_ratio = discount_rate * PERCENTAGE_TO_DECIMAL
-        full_years = int(system_lifetime)
-        fraction = system_lifetime - full_years
+        full_years, fraction = self._split_lifetime(system_lifetime)
         discounted_energy = self._compute_discounted_sum(
             annual_energy, discount_rate_ratio, full_years, fraction
         )
@@ -354,15 +411,21 @@ class FinancialCalculator:
 
         Args:
             system_lifetime: System lifetime in years.
-            discount_rate: Fallback discount rate in percentage (e.g. 5 for 5%).
-            round_up_replacement: If True (default), use ``ceil`` for replacement count.
-                If False, use the continuous factor for optimizer compatibility.
-            annual_energy_mwh_by_asset: Optional mapping of asset ID to annual energy
-                production in MWh. When provided, ``lcoe`` is computed for generating
-                assets (those in ``PRODUCER_ASSET_TYPES``) with non-zero energy.
-                When ``None`` (default), ``lcoe`` is ``None`` for all assets.
-                Callers that hold an energy calculator should pre-compute this dict
-                and pass it here rather than relying on a post-hoc fill step.
+            discount_rate: System-wide fallback discount rate in percentage
+                (e.g. 5 for 5%). Individual assets override this when
+                ``asset.discount_rate`` is set (from ESDL
+                ``costInformation.discountRate``).
+            round_up_replacement: If True (default), use ``ceil`` for the
+                replacement count — the financially exact calculation. If
+                False, uses the continuous factor
+                ``max(1, system_lifetime / technical_lifetime)`` for
+                MESIDO optimizer compatibility.
+            annual_energy_mwh_by_asset: Optional mapping of asset ID to annual
+                energy production in MWh. When provided, ``lcoe`` is computed
+                for generating assets (those in ``PRODUCER_ASSET_TYPES``) with
+                non-zero energy. When ``None`` (default), ``lcoe`` is ``None``
+                for all assets. Callers that hold an energy calculator should
+                pre-compute this dict and pass it here.
 
         Returns:
             Dict mapping asset ID to its ``AssetFinancialResult``.
@@ -375,9 +438,7 @@ class FinancialCalculator:
             )
 
         result: dict[str, AssetFinancialResult] = {}
-        discount_rate_ratio = discount_rate * PERCENTAGE_TO_DECIMAL
-        full_years = int(system_lifetime)
-        fraction = system_lifetime - full_years
+        full_years, fraction = self._split_lifetime(system_lifetime)
 
         for asset in self.energy_system.assets:
             if asset.technical_lifetime <= 0:
@@ -389,7 +450,6 @@ class FinancialCalculator:
                 asset,
                 system_lifetime,
                 discount_rate,
-                discount_rate_ratio,
                 full_years,
                 fraction,
                 round_up_replacement,
@@ -403,13 +463,17 @@ class FinancialCalculator:
         asset: Asset,
         system_lifetime: float,
         discount_rate: float,
-        discount_rate_ratio: float,
         full_years: int,
         fraction: float,
         round_up_replacement: bool,
         annual_energy_mwh_by_asset: dict[str, float] | None,
     ) -> AssetFinancialResult:
-        """Compute all financial KPIs for a single asset."""
+        """Compute all financial KPIs for a single asset.
+
+        The effective per-asset discount rate (``asset_discount_rate_ratio``)
+        is resolved via ``_get_effective_discount_rate`` and used for all
+        discounted KPIs.
+        """
         investment_cost = self._calculate_investment_cost(asset)
         installation_cost = self._calculate_installation_cost(asset)
         fixed_operational_cost = self._calculate_fixed_operational_cost(asset)
@@ -425,8 +489,12 @@ class FinancialCalculator:
             + variable_maintenance_cost
         )
 
-        r = self._get_effective_discount_rate(asset, discount_rate) * PERCENTAGE_TO_DECIMAL
-        annualized_capex = self._annualize_capex(capex, r, asset.technical_lifetime)
+        asset_discount_rate_ratio = (
+            self._get_effective_discount_rate(asset, discount_rate) * PERCENTAGE_TO_DECIMAL
+        )
+        annualized_capex = self._annualize_capex(
+            capex, asset_discount_rate_ratio, asset.technical_lifetime
+        )
         eac = annualized_capex + opex_annual
 
         npv, tco = self._compute_asset_npv_tco(
@@ -434,7 +502,7 @@ class FinancialCalculator:
             opex_annual,
             asset.technical_lifetime,
             system_lifetime,
-            discount_rate_ratio,
+            asset_discount_rate_ratio,
             full_years,
             fraction,
             round_up_replacement,
@@ -443,7 +511,7 @@ class FinancialCalculator:
             npv,
             asset,
             annual_energy_mwh_by_asset,
-            discount_rate_ratio,
+            asset_discount_rate_ratio,
             full_years,
             fraction,
         )

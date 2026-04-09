@@ -20,38 +20,85 @@ from .common.constants import (
     DEFAULT_SYSTEM_LIFETIME_YEARS,
 )
 
+# Public API of this module — controls re-exports recognised by mypy and static analysers.
+__all__ = [
+    "AssetFinancialResult",
+    "EmissionResults",
+    "EnergyResults",
+    "FinancialResults",
+    "KpiManager",
+    "KpiResults",
+]
+
 _logger = logging.getLogger(__name__)
 
 
 class FinancialResults(TypedDict):
-    """System-level financial KPI results. All values are sums over assets."""
+    """System-level financial KPI results.
+
+    All monetary values are in EUR or EUR/year. Each field is the sum of the
+    corresponding per-asset value across all assets in the system (except
+    ``lcoe``, which is computed as ``sum(per-asset NPVs) / total_discounted_energy``
+    and is therefore *not* the average of per-asset LCOEs).
+
+    ``capex`` and ``opex`` are broken down by asset category:
+    ``"Production"``, ``"Consumption"``, ``"Storage"``, ``"Transport"``,
+    ``"Conversion"``, and ``"All"`` (the system-wide sum).
+    """
 
     capex: dict[str, float]
+    """CAPEX by asset category in EUR (investment + installation costs)."""
     opex: dict[str, float]
+    """Annual OPEX by asset category in EUR/year (fixed + variable costs)."""
     npv: float
+    """Net Present Value — discounted lifecycle cost in EUR."""
     lcoe: float
+    """Levelized Cost of Energy in EUR/MWh (``system_npv / discounted_energy``).
+
+    ``system_npv`` is the sum of per-asset NPVs, each discounted at the
+    asset's own rate (from ESDL ``costInformation.discountRate``, falling back
+    to the system default). It is not the average of per-asset LCOEs.
+    """
     eac: float
+    """Equivalent Annual Cost — sum of per-asset annualized costs in EUR/year."""
     tco: float
+    """Total Cost of Ownership — undiscounted lifecycle cost in EUR."""
 
 
 class EnergyResults(TypedDict):
-    """Results structure for energy calculations."""
+    """System-level energy KPI results. All values in Joules."""
 
     consumption: float
+    """Total thermal energy consumed by all consumer assets in J."""
     demand: float
+    """Total thermal energy demand from all consumer assets in J."""
     production: float
+    """Total thermal energy produced by all producer assets in J."""
     efficiency: float
+    """Distribution efficiency: consumption / production (0-1). Zero when production is zero."""
 
 
 class EmissionResults(TypedDict):
-    """Results structure for emission calculations."""
+    """System-level emission KPI results."""
 
     total: float
+    """Total greenhouse gas emissions in tonnes CO2e/year."""
     per_mwh: float
+    """Emission intensity in kg CO2e/MWh of energy consumed."""
 
 
 class KpiResults(TypedDict):
-    """Complete KPI results structure."""
+    """Complete KPI results returned by ``KpiManager.calculate_all_kpis()`` and the
+    top-level ``kpicalculator.calculate_kpis()`` function.
+
+    Four top-level keys:
+
+    - ``financials``: system-level monetary KPIs (CAPEX, OPEX, NPV, LCOE, EAC, TCO)
+    - ``energy``: system-level energy totals in Joules
+    - ``emissions``: system-level CO2e emissions
+    - ``asset_financials``: per-asset financial breakdown keyed by asset ID;
+      system totals in ``financials`` are derived by summing these values
+    """
 
     financials: FinancialResults
     energy: EnergyResults
@@ -171,14 +218,25 @@ class KpiManager:
 
         Args:
             system_lifetime: System lifetime in years. Must be positive.
-            discount_rate: Discount rate in percentage (e.g. 5 for 5%). Must be in [0, 100].
-            round_up_replacement: If True (default), NPV, LCOE, and TCO use ``ceil``
-                for the asset replacement count (financially exact). If False, uses the
-                continuous factor ``max(1, n / technical_lifetime)`` for optimizer
-                compatibility.
+                Default: 30 years.
+            discount_rate: System-wide fallback discount rate in percentage
+                (e.g. 5 for 5%). Must be in [0, 100]. Individual assets may
+                override this via ``costInformation.discountRate`` in the ESDL
+                — this method respects those overrides because it uses
+                ``get_asset_financial_breakdown()`` internally. Note that
+                calling ``FinancialCalculator.calculate_npv()`` directly does
+                not respect per-asset overrides.
+                Default: 5%.
+            round_up_replacement: If True (default), NPV, LCOE, and TCO use
+                ``ceil`` for the asset replacement count — the financially exact
+                calculation. If False, uses the continuous factor
+                ``max(1, system_lifetime / technical_lifetime)`` for
+                compatibility with MESIDO optimizer output. Only set this to
+                False when comparing results against MESIDO.
 
         Returns:
-            Dictionary with all KPI results.
+            ``KpiResults`` dict with ``financials``, ``energy``, ``emissions``,
+            and ``asset_financials`` keys.
         """
         if not self.energy_system:
             raise ValueError("No energy system loaded. Call one of the load methods first.")
@@ -255,6 +313,17 @@ class KpiManager:
 
         return results
 
+    def _warn_if_level_not_system(self, level: str) -> None:
+        """Emit a warning when a non-system export level is requested.
+
+        Area-level and asset-level KPI placement are not yet implemented;
+        all levels currently fall back to system-wide export.
+        """
+        if level != "system":
+            _logger.warning(
+                "KPI export level '%s' is not yet implemented; falling back to 'system'.", level
+            )
+
     def export_to_esdl(
         self, results: KpiResults, output_file: str | None = None, level: str = "system"
     ) -> bool | esdl.EnergySystem:
@@ -263,7 +332,9 @@ class KpiManager:
         Args:
             results: KPI calculation results from calculate_all_kpis()
             output_file: Output ESDL file path. If None, returns data structure.
-            level: KPI level ('system', 'area', 'asset')
+            level: KPI granularity — ``'system'``, ``'area'``, or ``'asset'``.
+                Currently all levels write system-wide KPIs to the main area;
+                area-level and asset-level placement are not yet implemented.
 
         Returns:
             bool: True if file export succeeded (when output_file provided)
@@ -274,6 +345,8 @@ class KpiManager:
         """
         if not self.energy_system:
             raise ValueError("No energy system loaded. Call one of the load methods first.")
+
+        self._warn_if_level_not_system(level)
 
         from .reporting.esdl_kpi_exporter import EsdlKpiExporter
 
@@ -291,7 +364,9 @@ class KpiManager:
 
         Args:
             results: KPI calculation results from calculate_all_kpis()
-            level: KPI level ('system', 'area', 'asset')
+            level: KPI granularity — ``'system'``, ``'area'``, or ``'asset'``.
+                Currently all levels write system-wide KPIs to the main area;
+                area-level and asset-level placement are not yet implemented.
 
         Returns:
             esdl.EnergySystem: ESDL data structure with KPIs
@@ -316,7 +391,9 @@ class KpiManager:
         Args:
             esdl_string: Input ESDL XML string to embed KPIs into.
             results: KPI calculation results from calculate_all_kpis()
-            level: KPI level ('system', 'area', 'asset')
+            level: KPI granularity — ``'system'``, ``'area'``, or ``'asset'``.
+                Currently all levels write system-wide KPIs to the main area;
+                area-level and asset-level placement are not yet implemented.
 
         Returns:
             ESDL XML string with KPIs embedded.
@@ -329,6 +406,8 @@ class KpiManager:
             raise ValueError("No energy system loaded. Call one of the load methods first.")
         if not esdl_string.strip():
             raise ValueError("esdl_string must not be empty.")
+
+        self._warn_if_level_not_system(level)
 
         from esdl.esdl_handler import EnergySystemHandler
 

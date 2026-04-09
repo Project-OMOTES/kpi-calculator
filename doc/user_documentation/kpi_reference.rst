@@ -130,4 +130,6 @@ The calculator accepts cost values in the units specified in the ESDL ``costInfo
    * - ``EUR/MWh``
      - value x annual energy (J) x 2.78e-10
 
+**Geothermal COP adjustment:** For geothermal assets with a COP (Coefficient of Performance) greater than zero, variable operational and maintenance costs in ``EUR/kWh`` or ``EUR/MWh`` are applied to ``energy / COP`` rather than ``energy`` directly. This reflects that geothermal plants deliver more heat than they consume as input energy.
+
 If a cost field uses a unit not listed above, the cost is ignored and a WARNING is logged with the asset name and the unsupported unit string. Check the log output when cost KPIs seem unexpectedly low.
