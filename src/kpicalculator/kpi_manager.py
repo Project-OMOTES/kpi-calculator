@@ -204,7 +204,7 @@ class KpiManager:
         # TODO: Implement mesido adapter
         raise NotImplementedError("Mesido adapter not implemented yet")
 
-    def calculate_all_kpis(
+    def calculate_all_kpis(  # pylint: disable=too-many-locals
         self,
         system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
         discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT,
@@ -218,7 +218,7 @@ class KpiManager:
 
         Args:
             system_lifetime: System lifetime in years. Must be positive.
-                Default: 30 years.
+                Default: ``DEFAULT_SYSTEM_LIFETIME_YEARS``.
             discount_rate: System-wide fallback discount rate in percentage
                 (e.g. 5 for 5%). Must be in [0, 100]. Individual assets may
                 override this via ``costInformation.discountRate`` in the ESDL
@@ -226,7 +226,7 @@ class KpiManager:
                 ``get_asset_financial_breakdown()`` internally. Note that
                 calling ``FinancialCalculator.calculate_npv()`` directly does
                 not respect per-asset overrides.
-                Default: 5%.
+                Default: ``DEFAULT_DISCOUNT_RATE_PERCENT``.
             round_up_replacement: If True (default), NPV, LCOE, and TCO use
                 ``ceil`` for the asset replacement count — the financially exact
                 calculation. If False, uses the continuous factor
@@ -345,18 +345,23 @@ class KpiManager:
         """
         if not self.energy_system:
             raise ValueError("No energy system loaded. Call one of the load methods first.")
+        if self.energy_system.esdl_energy_system is None:
+            raise ValueError(
+                "No ESDL object available; the loaded adapter did not store one "
+                "(e.g. load_from_simulator). Use load_from_esdl() or "
+                "load_from_esdl_string(), or use build_esdl_string_with_kpis() "
+                "to embed KPIs into an ESDL string without a loaded manager."
+            )
 
         self._warn_if_level_not_system(level)
 
         from .reporting.esdl_kpi_exporter import EsdlKpiExporter
 
-        exporter = EsdlKpiExporter()
-        return exporter.export(
+        return EsdlKpiExporter().export(
             results,
-            self.energy_system,
+            self.energy_system.esdl_energy_system,
             output_file,
             level=level,
-            source_esdl_file=self.source_esdl_file,
         )
 
     def build_esdl_with_kpis(self, results: KpiResults, level: str = "system") -> esdl.EnergySystem:
@@ -385,8 +390,9 @@ class KpiManager:
         """Embed KPI results into an ESDL XML string and return the updated string.
 
         This is the preferred integration method for systems that work with ESDL
-        strings (e.g. simulator-worker). It avoids the need to manipulate internal
-        adapter state and produces a self-contained output string.
+        strings (e.g. simulator-worker). It operates entirely on a local
+        ``EnergySystemHandler`` parsed from ``esdl_string`` and does not modify
+        any manager state, making it safe to call repeatedly on the same instance.
 
         Args:
             esdl_string: Input ESDL XML string to embed KPIs into.
@@ -399,11 +405,8 @@ class KpiManager:
             ESDL XML string with KPIs embedded.
 
         Raises:
-            ValueError: If no energy system is loaded, esdl_string is empty,
-                or invalid parameters are provided.
+            ValueError: If esdl_string is empty or invalid parameters are provided.
         """
-        if not self.energy_system:
-            raise ValueError("No energy system loaded. Call one of the load methods first.")
         if not esdl_string.strip():
             raise ValueError("esdl_string must not be empty.")
 
@@ -415,18 +418,7 @@ class KpiManager:
 
         esh = EnergySystemHandler()
         esh.load_from_string(esdl_string)
-
-        # Redirect the exporter to the target ESDL object tree so KPIs are written
-        # into the correct output. Safe because the exporter reads this attribute
-        # once into a local variable; try/finally restores the original reference.
-        original_esdl_energy_system = self.energy_system.esdl_energy_system
-        self.energy_system.esdl_energy_system = esh.energy_system
-        try:
-            exporter = EsdlKpiExporter()
-            exporter.export(results, self.energy_system, destination=None, level=level)
-        finally:
-            self.energy_system.esdl_energy_system = original_esdl_energy_system
-
+        EsdlKpiExporter().export(results, esh.energy_system, destination=None, level=level)
         return cast(str, esh.to_string())
 
 
