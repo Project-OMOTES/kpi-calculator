@@ -13,7 +13,18 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""KPI Calculator package for energy systems."""
+"""KPI Calculator package for energy systems.
+
+The main entry points are :func:`calculate_kpis` and :class:`KpiManager`.
+Both return a :class:`KpiResults` dict. The following types are exported for
+use in type annotations:
+
+- :class:`KpiResults` — top-level results dict
+- :class:`FinancialResults` — ``results["financials"]``
+- :class:`EnergyResults` — ``results["energy"]``
+- :class:`EmissionResults` — ``results["emissions"]``
+- :class:`AssetFinancialResult` — ``results["asset_financials"]["<asset_id>"]``
+"""
 
 import argparse
 import json
@@ -32,20 +43,32 @@ from .exceptions import (
     SecurityError,
     ValidationError,
 )
-from .kpi_manager import KpiManager
+from .kpi_manager import (
+    AssetFinancialResult,
+    EmissionResults,
+    EnergyResults,
+    FinancialResults,
+    KpiManager,
+    KpiResults,
+)
 from .security import ConfigFileCredentialManager, SecureCredentialManager
 
 __all__ = [
     "Asset",
+    "AssetFinancialResult",
     "AssetType",
     "CalculationError",
     "ConfigFileCredentialManager",
     "CredentialError",
     "DataSourceError",
     "DatabaseError",
+    "EmissionResults",
+    "EnergyResults",
     "EnergySystem",
+    "FinancialResults",
     "KpiCalculatorError",
     "KpiManager",
+    "KpiResults",
     "SecureCredentialManager",
     "SecurityError",
     "TimeSeries",

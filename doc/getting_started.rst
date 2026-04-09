@@ -32,17 +32,26 @@ The simplest way to calculate KPIs is from an ESDL file:
 .. note::
    Validated by `test_quick_start <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
 
-By default, the analysis uses a 30-year system lifetime with a 5% discount rate. You can override the system lifetime:
+By default, the analysis uses a 30-year system lifetime with a 5% discount rate. Assets default to a 40-year technical lifetime when not specified in the ESDL. Both lifetime and discount rate can be overridden via ``KpiManager.calculate_all_kpis()``:
 
 .. code-block:: python
 
-   results = calculate_kpis(
-       esdl_file="model.esdl",
-       system_lifetime=25  # Default: 30 years
+   from kpicalculator import KpiManager
+
+   manager = KpiManager()
+   manager.load_from_esdl("model.esdl")
+   results = manager.calculate_all_kpis(
+       system_lifetime=25,   # Default: 30 years
+       discount_rate=3,      # Default: 5 (percent)
    )
+
+``calculate_kpis()`` exposes ``system_lifetime`` but not ``discount_rate``; use ``KpiManager`` directly when you need to override the discount rate.
 
 .. note::
    Validated by `test_basic_usage_with_parameters <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
+
+.. note::
+   When comparing output against the MESIDO optimizer, pass ``round_up_replacement=False`` to ``calculate_all_kpis()``. Use the default (``True``) for all other purposes. See the ``calculate_all_kpis`` docstring for details.
 
 Providing Time Series
 ---------------------
@@ -155,6 +164,8 @@ internal adapter state:
 .. note::
    Both export patterns are validated by `test_string_loaded_esdl_export <https://github.com/Project-OMOTES/kpi-calculator/blob/v0.3.0/unit_test/test_examples.py>`_ in |test_examples|.
 
+All three export methods accept an optional ``level`` parameter (``'system'``, ``'area'``, or ``'asset'``). Currently all levels write system-wide KPIs to the main area — area-level and asset-level placement are not yet implemented.
+
 Export works with both file-loaded and string-loaded ESDL — no temporary files needed for in-memory workflows.
 
 From OMOTES Simulator Results
@@ -208,19 +219,7 @@ Results Structure
            "per_mwh": 178,        # kg CO2e/MWh
        },
        "asset_financials": {
-           "<asset_id>": {
-               "investment_cost": 500000,
-               "installation_cost": 50000,
-               "fixed_operational_cost": 10000,
-               "variable_operational_cost": 5000,
-               "fixed_maintenance_cost": 2000,
-               "variable_maintenance_cost": 1000,
-               "annualized_capex": 18000,
-               "eac": 36000,
-               "npv": 420000,
-               "tco": 700000,
-               "lcoe": 42.0,       # EUR/MWh — None for non-producing assets
-           },
+           "<asset_id>": { ... },  # per-asset breakdown — see KPI Guide
            ...
        },
    }
@@ -228,7 +227,7 @@ Results Structure
 - **Financials**: Top-level category for all monetary KPIs. This includes cost breakdowns such as CAPEX and OPEX by asset category (Production, Transport, Storage, Conversion, Consumption, and All), as well as derived financial indicators (NPV, LCOE, EAC, TCO). All values are sums over assets.
 - **Energy**: System-wide totals in Joules. Efficiency is the ratio of consumption to production (0 to 1).
 - **Emissions**: Total CO2-equivalent emissions in tonnes and emissions intensity in kg CO2e per MWh of energy consumed.
-- **Asset financials**: Per-asset breakdown of all financial KPIs, keyed by asset ID. System totals in ``"financials"`` are derived by summing these values. ``lcoe`` is ``None`` for non-producing assets (consumers, transport, storage, conversion).
+- **Asset financials**: Per-asset breakdown of all financial KPIs, keyed by asset ID. For field definitions and interpretation, see :ref:`per-asset-financial-kpis` in the KPI Guide.
 
 For a detailed explanation of what each KPI means and how to interpret it, see :doc:`user_documentation/kpi_guide`.
 
