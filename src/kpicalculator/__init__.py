@@ -15,9 +15,10 @@
 
 """KPI Calculator package for energy systems.
 
-The main entry points are :func:`calculate_kpis` and :class:`KpiManager`.
-Both return a :class:`KpiResults` dict. The following types are exported for
-use in type annotations:
+The main entry points are :func:`calculate_kpis`, :func:`calculate_kpis_from_simulator`,
+and :class:`KpiManager`. To embed results back into an ESDL string, use
+:func:`build_esdl_string_with_kpis`. All ``calculate_kpis_from_*`` functions return a
+:class:`KpiResults` dict. The following types are exported for use in type annotations:
 
 - :class:`KpiResults` — top-level results dict
 - :class:`FinancialResults` — ``results["financials"]``
@@ -38,7 +39,7 @@ import sys
 from pathlib import Path
 
 from .adapters.common_model import Asset, AssetType, EnergySystem, TimeSeries
-from .api import calculate_kpis
+from .api import build_esdl_string_with_kpis, calculate_kpis, calculate_kpis_from_simulator
 from .common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_SYSTEM_LIFETIME_YEARS
 from .exceptions import (
     CalculationError,
@@ -81,7 +82,9 @@ __all__ = [
     "SecurityError",
     "TimeSeries",
     "ValidationError",
+    "build_esdl_string_with_kpis",
     "calculate_kpis",
+    "calculate_kpis_from_simulator",
 ]
 
 # Version information

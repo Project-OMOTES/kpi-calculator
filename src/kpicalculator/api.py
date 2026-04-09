@@ -13,16 +13,29 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Public API for KPI Calculator library."""
+"""Public API for KPI Calculator library.
+
+Entry points by data source:
+
+- :func:`calculate_kpis` — ESDL file + optional time series file or DataFrames
+- :func:`calculate_kpis_from_simulator` — OMOTES simulator DataFrame + ESDL string
+
+Embedding:
+
+- :func:`build_esdl_string_with_kpis` — write any :class:`KpiResults` into an ESDL string;
+  data-source-agnostic, usable after any ``calculate_kpis_from_*`` call.
+"""
 
 import logging
 from pathlib import Path
 
 import pandas as pd
 
-from .common.constants import DEFAULT_SYSTEM_LIFETIME_YEARS
+from .common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_SYSTEM_LIFETIME_YEARS
 from .exceptions import KpiCalculatorError
 from .kpi_manager import KpiManager, KpiResults
+
+_logger = logging.getLogger(__name__)
 
 
 def calculate_kpis(
@@ -30,45 +43,42 @@ def calculate_kpis(
     time_series: str | Path | None = None,
     timeseries_dataframes: dict[str, pd.DataFrame] | None = None,
     system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
+    discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT,
     round_up_replacement: bool = True,
 ) -> KpiResults:
-    """Calculate KPIs from ESDL files with supporting data.
+    """Calculate KPIs from an ESDL file with optional time series data.
 
-    This is the main library function that can be called programmatically.
-    Supports both traditional file-based time series and pandas DataFrames
-    for simulator-worker integration.
-
-    Cost data is extracted from ESDL costInformation elements. Cost unit
+    Cost data is extracted from ESDL ``costInformation`` elements. Cost unit
     conversion factors (EUR/kW, EUR/MW, etc.) are built-in; see
     ``kpicalculator.common.constants.COST_UNIT_FACTORS`` for the full list.
 
     Args:
-        esdl_file: Path to ESDL file
-        time_series: Optional path to time series XML (when timeseries_dataframes not provided)
-        timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
-            with time-indexed energy/power data. When provided, takes precedence
-            over database loading and time_series file parameter.
-        system_lifetime: System lifetime in years
-        round_up_replacement: If True (default), NPV, LCOE, and TCO use ``ceil``
-            for the asset replacement count (financially exact). If False, uses the
-            continuous factor ``max(1, n / technical_lifetime)`` for optimizer
-            compatibility.
+        esdl_file: Path to ESDL file.
+        time_series: Optional path to time series XML (when
+            ``timeseries_dataframes`` not provided).
+        timeseries_dataframes: Optional dict mapping asset IDs to pandas
+            DataFrames with time-indexed energy/power data. Takes precedence
+            over ``time_series`` when provided.
+        system_lifetime: System lifetime in years.
+            Default: ``DEFAULT_SYSTEM_LIFETIME_YEARS``.
+        discount_rate: System-wide fallback discount rate in percent.
+            Default: ``DEFAULT_DISCOUNT_RATE_PERCENT``.
+        round_up_replacement: If True (default), NPV, LCOE, and TCO use
+            ``ceil`` for the asset replacement count (financially exact).
+            If False, uses the continuous factor
+            ``max(1, n / technical_lifetime)`` for optimizer compatibility.
 
     Returns:
-        KpiResults containing calculated KPIs
+        :class:`KpiResults` containing calculated KPIs.
 
     Raises:
-        KpiCalculatorError: For any calculation or validation errors
+        KpiCalculatorError: For any calculation or validation errors.
     """
-    logger = logging.getLogger(__name__)
-
-    # Validate inputs
     esdl_path = Path(esdl_file)
     if not esdl_path.exists():
         raise KpiCalculatorError(f"ESDL file not found: {esdl_path}")
 
-    logger.info(f"Loading ESDL file: {esdl_path}")
-    logger.info("Extracting costs from ESDL costInformation elements")
+    _logger.info(f"Loading ESDL file: {esdl_path}")
 
     try:
         kpi_manager = KpiManager()
@@ -77,19 +87,94 @@ def calculate_kpis(
             time_series_file=str(time_series) if time_series else None,
             timeseries_dataframes=timeseries_dataframes,
         )
-
-        logger.info("Calculating KPIs...")
-        results = kpi_manager.calculate_all_kpis(
+        return kpi_manager.calculate_all_kpis(
             system_lifetime=system_lifetime,
+            discount_rate=discount_rate,
             round_up_replacement=round_up_replacement,
         )
-        logger.info("KPI calculation completed successfully")
-
-        return results
-
+    except KpiCalculatorError:
+        raise
     except Exception as e:
-        logger.error(f"KPI calculation failed: {e}")
-        # Re-raise as KpiCalculatorError if it isn't already one
-        if isinstance(e, KpiCalculatorError):
-            raise
         raise KpiCalculatorError(f"Calculation failed: {e}") from e
+
+
+def calculate_kpis_from_simulator(
+    simulator_result: pd.DataFrame,
+    esdl_string: str,
+    system_lifetime: float = DEFAULT_SYSTEM_LIFETIME_YEARS,
+    discount_rate: float = DEFAULT_DISCOUNT_RATE_PERCENT,
+    round_up_replacement: bool = True,
+) -> KpiResults:
+    """Calculate KPIs from OMOTES simulator results.
+
+    Args:
+        simulator_result: DataFrame produced by the simulator, with a
+            ``DatetimeIndex`` and ``(port_id, property_name)`` tuple columns.
+        esdl_string: The input ESDL as an XML string, used to resolve port IDs
+            to their owning assets and to extract cost data.
+        system_lifetime: System lifetime in years.
+            Default: ``DEFAULT_SYSTEM_LIFETIME_YEARS``.
+        discount_rate: System-wide fallback discount rate in percent.
+            Default: ``DEFAULT_DISCOUNT_RATE_PERCENT``.
+        round_up_replacement: If True (default), NPV, LCOE, and TCO use
+            ``ceil`` for the asset replacement count (financially exact).
+            If False, uses the continuous factor
+            ``max(1, n / technical_lifetime)`` for optimizer compatibility.
+
+    Returns:
+        :class:`KpiResults` containing calculated KPIs.
+
+    Raises:
+        KpiCalculatorError: For any calculation or validation errors.
+    """
+    try:
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_simulator(simulator_result, esdl_string)
+        return kpi_manager.calculate_all_kpis(
+            system_lifetime=system_lifetime,
+            discount_rate=discount_rate,
+            round_up_replacement=round_up_replacement,
+        )
+    except KpiCalculatorError:
+        raise
+    except Exception as e:
+        raise KpiCalculatorError(f"Calculation failed: {e}") from e
+
+
+def build_esdl_string_with_kpis(esdl_string: str, kpi_results: KpiResults) -> str:
+    """Embed KPI results into an ESDL XML string and return the updated string.
+
+    Data-source-agnostic: works with results from any ``calculate_kpis_from_*``
+    function. The KPI values are written as ``DistributionKPI`` elements on the
+    main area of the energy system, ready for MapEditor visualisation.
+
+    This is the standalone equivalent of :meth:`KpiManager.build_esdl_string_with_kpis`
+    — use this when you do not hold a ``KpiManager`` instance.
+
+    Args:
+        esdl_string: ESDL XML string to embed KPIs into.
+        kpi_results: KPI results from any ``calculate_kpis_from_*`` call.
+
+    Returns:
+        Updated ESDL XML string with KPIs embedded.
+
+    Raises:
+        KpiCalculatorError: If embedding fails.
+    """
+    from typing import cast
+
+    from esdl.esdl_handler import EnergySystemHandler
+
+    from .reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+    if not esdl_string or not esdl_string.strip():
+        raise KpiCalculatorError("esdl_string must not be empty.")
+    try:
+        esh = EnergySystemHandler()
+        esh.load_from_string(esdl_string)
+        EsdlKpiExporter().export(kpi_results, esh.energy_system, destination=None, level="system")
+        return cast(str, esh.to_string())
+    except KpiCalculatorError:
+        raise
+    except Exception as e:
+        raise KpiCalculatorError(f"Failed to build ESDL string with KPIs: {e}") from e

@@ -7,7 +7,6 @@ from pathlib import Path
 from esdl import esdl
 from esdl.esdl_handler import EnergySystemHandler
 
-from ..adapters.common_model import EnergySystem
 from ..common.constants import TONS_TO_GRAMS
 from ..kpi_manager import EmissionResults, EnergyResults, FinancialResults, KpiResults
 from .base_exporter import BaseExporter
@@ -27,6 +26,11 @@ class EsdlKpiExporter(BaseExporter):
 
     Note: This exporter does NOT perform any calculations. All KPI values must be
     pre-calculated by the appropriate calculator classes.
+
+    .. note::
+        This is an internal class, not part of the public API. Use
+        :meth:`KpiManager.export_to_esdl`, :meth:`KpiManager.build_esdl_string_with_kpis`,
+        or the top-level :func:`kpicalculator.build_esdl_string_with_kpis` instead.
     """
 
     def __init__(self) -> None:
@@ -36,10 +40,9 @@ class EsdlKpiExporter(BaseExporter):
     def export(
         self,
         results: KpiResults,
-        energy_system: EnergySystem,
+        esdl_energy_system: esdl.EnergySystem,
         destination: str | Path | None = None,
         level: str = "system",
-        source_esdl_file: str | Path | None = None,
     ) -> bool | esdl.EnergySystem:
         """Export pre-calculated KPI results to ESDL format.
 
@@ -49,68 +52,42 @@ class EsdlKpiExporter(BaseExporter):
 
         Args:
             results: Pre-calculated KPI results from cost/energy/emission calculators.
-                Must contain 'costs', 'energy', and 'emissions' dictionaries with
-                calculated values (no calculations performed by this method).
-            energy_system: Energy system with source metadata for ESDL file location.
+            esdl_energy_system: Parsed PyESDL energy system object to write KPIs into.
             destination: Output ESDL file path. If None, returns data structure instead.
             level: KPI integration level - 'system' (main area), 'area' (per area),
                 or 'asset' (per asset). Currently 'area' and 'asset' delegate to 'system'.
-            source_esdl_file: Explicit path to source ESDL file. Used only when
-                energy_system.esdl_energy_system is None. Resolution order:
-                (1) energy_system.esdl_energy_system (preferred, avoids disk I/O),
-                (2) this parameter, (3) energy_system.source_metadata['esdl_file'].
 
         Returns:
             When destination provided: Always True on success; raises on failure.
-            When destination is None: esdl.EnergySystem object with integrated KPIs
+            When destination is None: esdl.EnergySystem object with integrated KPIs.
 
         Raises:
-            ValueError: If level is invalid, results structure is malformed,
-                or source ESDL file cannot be determined or loaded.
+            ValueError: If esdl_energy_system is None, level is invalid, or
+                results structure is malformed.
             OSError: If file operations fail during save.
         """
-        # Validate level parameter
+        if esdl_energy_system is None:
+            raise ValueError(
+                "esdl_energy_system must not be None. "
+                "Use KpiManager.export_to_esdl() or build_esdl_string_with_kpis() instead."
+            )
         valid_levels = ["system", "area", "asset"]
         if level not in valid_levels:
             raise ValueError(f"Invalid KPI level '{level}'. Must be one of: {valid_levels}")
 
-        # KPI results structure is validated by TypedDict at runtime
-
-        esdl_system = energy_system.esdl_energy_system
-
-        if esdl_system is None:
-            esdl_file = source_esdl_file
-            if not esdl_file and energy_system.source_metadata:
-                esdl_file = energy_system.source_metadata.get("esdl_file")
-
-            if not esdl_file:
-                raise ValueError(
-                    "Cannot export KPIs: No stored ESDL object and no source ESDL "
-                    "file provided. Either load via EsdlAdapter (which stores the "
-                    "ESDL object) or provide source_esdl_file parameter."
-                )
-
-            esdl_system = self.handler.load_file(esdl_file)
-
-        # Add KPIs to the appropriate level
         if level == "system":
-            self._add_kpis_to_system(esdl_system, results)
+            self._add_kpis_to_system(esdl_energy_system, results)
         elif level == "area":
-            self._add_kpis_to_areas(esdl_system, results)
+            self._add_kpis_to_areas(esdl_energy_system, results)
         elif level == "asset":
-            self._add_kpis_to_assets(esdl_system, results)
+            self._add_kpis_to_assets(esdl_energy_system, results)
 
-        # Export or return based on destination
         if destination is not None:
-            # File mode - save to disk and return True on success.
-            # Exceptions (OSError, etc.) propagate to the caller so they
-            # can inspect the actual failure instead of just receiving False.
-            self.handler.energy_system = esdl_system
+            self.handler.energy_system = esdl_energy_system
             self.handler.save(destination)
             return True
 
-        # Data structure mode - return ESDL object
-        return esdl_system
+        return esdl_energy_system
 
     def _add_kpis_to_system(self, esdl_system: esdl.EnergySystem, results: KpiResults) -> None:
         """Add system-level KPIs to the main area of the ESDL energy system.
