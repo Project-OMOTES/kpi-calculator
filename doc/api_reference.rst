@@ -16,6 +16,24 @@ Public API
 .. autoclass:: kpicalculator.KpiManager
    :members:
 
+Result Types
+~~~~~~~~~~~~
+
+.. autoclass:: kpicalculator.KpiResults
+   :members:
+
+.. autoclass:: kpicalculator.FinancialResults
+   :members:
+
+.. autoclass:: kpicalculator.EnergyResults
+   :members:
+
+.. autoclass:: kpicalculator.EmissionResults
+   :members:
+
+.. autoclass:: kpicalculator.AssetFinancialResult
+   :members:
+
 Calculators
 -----------
 

@@ -67,6 +67,8 @@ KPI Summary
 
 Cost breakdowns use the categories **Production**, **Consumption**, **Storage**, **Transport**, **Conversion**, and **All**. For the full return structure and example values, see the :ref:`results-structure` section in the Getting Started guide.
 
+Per-asset financial KPIs are available under the ``asset_financials`` key in the results dict. See `Per-asset Financial KPIs`_ below.
+
 Cost KPIs
 ---------
 
@@ -207,7 +209,10 @@ Undiscounted sum of all costs over the system lifetime, in EUR. Unlike NPV, futu
 
 The replacement factor counts the number of full asset purchases needed to keep the system operational over its lifetime (e.g. 2 for a 30-year system with a 15-year asset). This is the financially exact count and is consistent with the CAPEX replacement logic in NPV.
 
-Pass ``round_up_replacement=False`` to ``FinancialCalculator.calculate_tco()`` to use the continuous factor ``max(1, system_lifetime / technical_lifetime)`` instead. MESIDO's ``MinimizeTCO`` goal uses this approximation to keep the optimizer objective smooth and differentiable. Use this only when comparing output against MESIDO results.
+Pass ``round_up_replacement=False`` to ``calculate_all_kpis()`` to use the continuous factor ``max(1, system_lifetime / technical_lifetime)`` instead. MESIDO's ``MinimizeTCO`` goal uses this approximation to keep the optimizer objective smooth and differentiable. Use this only when comparing output against MESIDO results.
+
+.. note::
+   MESIDO's ``MinimizeTCO`` covers variable and fixed operational costs only — it excludes maintenance costs. TCO values from this calculator will therefore be higher than MESIDO's when maintenance costs are non-zero.
 
 TCO is always greater than or equal to NPV at any positive discount rate — discounting makes future costs smaller, so the undiscounted sum is always higher. Use TCO when you want to verify optimizer results from MESIDO, or when comparing total expenditure without assuming a particular cost of capital.
 
@@ -281,6 +286,60 @@ Common values:
 
 The EU 2030 target for heating is below 100 kg CO2e/MWh. Use this metric to compare the environmental performance of different designs.
 
+.. _per-asset-financial-kpis:
+
+Per-asset Financial KPIs
+------------------------
+
+The ``asset_financials`` key in the results dict contains a breakdown of all financial KPIs for every asset in the system, keyed by asset ID. The system-level totals in ``results["financials"]`` are derived by summing across these per-asset values.
+
+Each entry contains:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 15 55
+
+   * - Field
+     - Unit
+     - Description
+   * - ``investment_cost``
+     - EUR
+     - Upfront capital cost of the asset
+   * - ``installation_cost``
+     - EUR
+     - Installation cost of the asset
+   * - ``fixed_operational_cost``
+     - EUR/yr
+     - Annual fixed operational cost
+   * - ``variable_operational_cost``
+     - EUR/yr
+     - Annual variable operational cost (scales with energy use)
+   * - ``fixed_maintenance_cost``
+     - EUR/yr
+     - Annual fixed maintenance cost
+   * - ``variable_maintenance_cost``
+     - EUR/yr
+     - Annual variable maintenance cost (scales with energy use)
+   * - ``annualized_capex``
+     - EUR/yr
+     - CAPEX spread over the asset's technical lifetime using the annuity formula
+   * - ``eac``
+     - EUR/yr
+     - Equivalent Annual Cost: ``annualized_capex`` + total annual OPEX for this asset
+   * - ``npv``
+     - EUR
+     - Lifecycle cost of this asset in today's money (discounted CAPEX + OPEX)
+   * - ``tco``
+     - EUR
+     - Undiscounted total spend on this asset over the system lifetime
+   * - ``lcoe``
+     - EUR/MWh
+     - Cost per MWh produced by this asset; ``None`` for non-producing assets
+
+For full field semantics — including per-asset discount rate override, LCOE ``None``
+conditions, geothermal COP adjustment, and how system totals relate to per-asset values
+— see the ``AssetFinancialResult`` docstring in the API reference.
+
 Comparing Designs
 -----------------
 
@@ -348,4 +407,6 @@ Limitations
 
 **Static emission factors:** Emission factors are constant over the analysis period — they don't account for grid decarbonization over time. They also exclude embodied carbon in equipment manufacturing and installation.
 
-**System-level results only:** All KPIs are system-wide aggregates. Asset-level and area-level breakdowns are not currently implemented.
+**Asset-level LCOE requires time series:** Per-asset LCOE is ``None`` for assets that do not produce energy (consumers, transport, storage, conversion) and for producing assets that have no time series data (energy would be zero, making LCOE undefined).
+
+**Area-level breakdowns not implemented:** KPIs are available at the system level and per individual asset only.
