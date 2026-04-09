@@ -147,8 +147,8 @@ class TestReadmeExamples:
         exporter = EsdlKpiExporter()
         esdl_with_kpis = exporter.export(
             results=results,
-            energy_system=manager.energy_system,
-            destination=None,  # Return ESDL object, don't save to file
+            esdl_energy_system=manager.energy_system.esdl_energy_system,
+            destination=None,
             level="system",
         )
 
@@ -197,9 +197,7 @@ class TestReadmeExamples:
     def test_build_esdl_string_with_kpis(self) -> None:
         """Test that build_esdl_string_with_kpis embeds KPIs into an ESDL XML string.
 
-        Verifies that:
-        - The returned value is a non-empty string containing KPI XML elements.
-        - manager.energy_system.esdl_energy_system is unchanged after the call.
+        The method operates on a local EnergySystemHandler and does not modify manager state.
         """
         from pathlib import Path
 
@@ -213,17 +211,14 @@ class TestReadmeExamples:
         results = manager.calculate_all_kpis()
 
         original_esdl_object = manager.energy_system.esdl_energy_system
-
         output_string = manager.build_esdl_string_with_kpis(esdl_string, results)
 
-        # State is restored after the call
-        assert manager.energy_system.esdl_energy_system is original_esdl_object
-
-        # Output is a non-empty string
+        assert manager.energy_system.esdl_energy_system is original_esdl_object, (
+            "build_esdl_string_with_kpis must not modify manager.energy_system"
+        )
         assert isinstance(output_string, str)
         assert len(output_string) > 0
 
-        # KPI elements are present in the output XML
         parsed = xmltodict.parse(output_string)
         area = parsed["esdl:EnergySystem"]["instance"]["area"]
         assert "KPIs" in area, "KPIs element missing from output ESDL"
