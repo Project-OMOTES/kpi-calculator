@@ -13,7 +13,13 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""KPI Calculator package for energy systems."""
+"""KPI Calculator package for energy systems.
+
+Default parameter values for callers that need to resolve absent config:
+
+- :data:`DEFAULT_SYSTEM_LIFETIME_YEARS` — 30.0
+- :data:`DEFAULT_DISCOUNT_RATE_PERCENT` — 5.0
+"""
 
 import argparse
 import json
@@ -23,6 +29,7 @@ from pathlib import Path
 
 from .adapters.common_model import Asset, AssetType, EnergySystem, TimeSeries
 from .api import calculate_kpis
+from .common.constants import DEFAULT_DISCOUNT_RATE_PERCENT, DEFAULT_SYSTEM_LIFETIME_YEARS
 from .exceptions import (
     CalculationError,
     CredentialError,
@@ -36,6 +43,8 @@ from .kpi_manager import KpiManager
 from .security import ConfigFileCredentialManager, SecureCredentialManager
 
 __all__ = [
+    "DEFAULT_DISCOUNT_RATE_PERCENT",
+    "DEFAULT_SYSTEM_LIFETIME_YEARS",
     "Asset",
     "AssetType",
     "CalculationError",
