@@ -291,6 +291,80 @@ class DataFrameTimeSeriesTest(unittest.TestCase):
         self.assertIn(expected_error, validation.errors)
 
 
+class SimulatorFieldMappingTest(unittest.TestCase):
+    """Test that simulator-core field names map to the correct KPI calculator categories.
+
+    Each test loads a DataFrame with a single simulator-core field name and asserts that
+    the corresponding KPI category (consumption, production, or conversion) is non-zero.
+
+    Asset IDs from Unit_test_ESDL.esdl:
+      CONSUMER    a5243809-0077-46e5-a0ea-09aa486f5e96  GenericConsumer_a524
+      PRODUCER    b98655e1-9e81-4878-875f-c1f946cc5d6c  GenericProducer_b986
+      CONVERSION  743b1ff1-0ee4-4c6c-ba5f-e7ebf169348c  GasHeater_743b
+    """
+
+    TIMESTEPS = 24
+    POWER_W = 100_000.0
+    CONSUMER_ID = "a5243809-0077-46e5-a0ea-09aa486f5e96"
+    PRODUCER_ID = "b98655e1-9e81-4878-875f-c1f946cc5d6c"
+    CONVERSION_ID = "743b1ff1-0ee4-4c6c-ba5f-e7ebf169348c"
+
+    def setUp(self) -> None:
+        self.esdl_file = str(DATA_DIR / "Unit_test_ESDL.esdl")
+
+    def _make_dataframe(self, columns: dict) -> pd.DataFrame:
+        index = pd.date_range("2024-01-01T00:00:00", periods=self.TIMESTEPS, freq="h")
+        return pd.DataFrame(columns, index=index)
+
+    def _load_and_calculate(self, asset_id: str, column_name: str) -> dict:
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            self.esdl_file,
+            timeseries_dataframes={
+                asset_id: self._make_dataframe({column_name: [self.POWER_W] * self.TIMESTEPS})
+            },
+        )
+        return kpi_manager.calculate_all_kpis()
+
+    def test__heat_power_primary__maps_to_consumption(self) -> None:
+        # heat_power_primary is in CONSUMPTION_FIELDS; load it on a CONSUMER asset
+        results = self._load_and_calculate(self.CONSUMER_ID, "heat_power_primary")
+        self.assertGreater(
+            results["energy"]["consumption"],
+            0.0,
+            "heat_power_primary must contribute to energy consumption",
+        )
+
+    def test__heat_power_secondary__maps_to_production(self) -> None:
+        # heat_power_secondary is in PRODUCTION_FIELDS; load it on a PRODUCER asset
+        results = self._load_and_calculate(self.PRODUCER_ID, "heat_power_secondary")
+        self.assertGreater(
+            results["energy"]["production"],
+            0.0,
+            "heat_power_secondary must contribute to energy production",
+        )
+
+    def test__electricity_consumption__stored_as_named_time_series(self) -> None:
+        # electricity_consumption is in CONVERSION_FIELDS; load it on a CONVERSION asset
+        # and verify it is stored (recognised) in the time series for that asset.
+        kpi_manager = KpiManager()
+        kpi_manager.load_from_esdl(
+            self.esdl_file,
+            timeseries_dataframes={
+                self.CONVERSION_ID: self._make_dataframe(
+                    {"electricity_consumption": [self.POWER_W] * self.TIMESTEPS}
+                )
+            },
+        )
+        kpi_manager.calculate_all_kpis()
+        asset = next(a for a in kpi_manager.energy_system.assets if a.id == self.CONVERSION_ID)
+        self.assertIn(
+            "electricity_consumption",
+            asset.time_series,
+            "electricity_consumption must be stored as a named time series on a CONVERSION asset",
+        )
+
+
 class TestTimeSeriesManagerValidation(unittest.TestCase):
     """Tests for uncovered validation branches in TimeSeriesManager."""
 
