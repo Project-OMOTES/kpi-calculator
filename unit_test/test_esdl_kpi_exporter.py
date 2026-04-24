@@ -153,13 +153,11 @@ class TestEsdlKpiExporter(unittest.TestCase):
         )
         self.assertEqual(emission_kpi.quantityAndUnit.unit, esdl.UnitEnum.GRAM)
 
-    @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
-    def test_export_file_mode(self, mock_handler):
+    def test_export_file_mode(self):
         """Test export method in file mode saves to disk and returns True."""
         from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
 
         mock_esdl_system = self.create_mock_esdl_system()
-        mock_handler_instance = mock_handler.return_value
         output_file = f"{self.test_temp_dir}/test_output.esdl"
 
         exporter = EsdlKpiExporter()
@@ -168,7 +166,8 @@ class TestEsdlKpiExporter(unittest.TestCase):
         )
 
         self.assertTrue(result)
-        mock_handler_instance.save.assert_called_once_with(output_file)
+        # Check that the file was actually created
+        self.assertTrue(Path(output_file).exists(), f"Output file {output_file} was not created.")
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
     def test_export_data_structure_mode(self, mock_handler):
@@ -244,6 +243,92 @@ class TestEsdlKpiExporter(unittest.TestCase):
         kpi_count_2 = len(mock_esdl_system.instance[0].area.KPIs.kpi)
 
         self.assertEqual(kpi_count_1, kpi_count_2, "Repeated export should not accumulate KPIs")
+
+
+class TestEsdlKpiExporterSkipZero(unittest.TestCase):
+    """Test that KPI elements with zero (missing-data) values are omitted from ESDL output."""
+
+    def _make_system(self) -> esdl.EnergySystem:
+        energy_system = esdl.EnergySystem()
+        energy_system.id = "s"
+        instance = esdl.Instance()
+        instance.id = "i"
+        area = esdl.Area()
+        area.id = "a"
+        instance.area = area
+        energy_system.instance.append(instance)
+        return energy_system
+
+    def _export(self, results: dict) -> dict:
+        from kpicalculator.reporting.esdl_kpi_exporter import EsdlKpiExporter
+
+        es = self._make_system()
+        exported = EsdlKpiExporter().export(results, es, destination=None, level="system")
+        assert isinstance(exported, esdl.EnergySystem)
+        return {kpi.name: kpi for kpi in exported.instance[0].area.KPIs.kpi}
+
+    def test__zero_npv__omits_npv_kpi(self) -> None:
+        results = {"financials": {"capex": {"All": 0.0}, "opex": {"All": 0.0}, "npv": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("Net Present Value [EUR]", kpi_by_name)
+
+    def test__nonzero_npv__includes_npv_kpi(self) -> None:
+        results = {"financials": {"capex": {"All": 0.0}, "opex": {"All": 0.0}, "npv": 5000.0}}
+        kpi_by_name = self._export(results)
+        self.assertIn("Net Present Value [EUR]", kpi_by_name)
+
+    def test__zero_lcoe__omits_lcoe_kpi(self) -> None:
+        results = {"financials": {"capex": {"All": 0.0}, "opex": {"All": 0.0}, "lcoe": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("Levelized Cost of Energy [EUR/MWh]", kpi_by_name)
+
+    def test__nonzero_lcoe__includes_lcoe_kpi(self) -> None:
+        results = {"financials": {"capex": {"All": 0.0}, "opex": {"All": 0.0}, "lcoe": 0.05}}
+        kpi_by_name = self._export(results)
+        self.assertIn("Levelized Cost of Energy [EUR/MWh]", kpi_by_name)
+
+    def test__zero_eac__omits_eac_kpi(self) -> None:
+        results = {"financials": {"capex": {"All": 0.0}, "opex": {"All": 0.0}, "eac": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("Equivalent Annual Cost [EUR/yr]", kpi_by_name)
+
+    def test__zero_tco__omits_tco_kpi(self) -> None:
+        results = {"financials": {"capex": {"All": 0.0}, "opex": {"All": 0.0}, "tco": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("Total Cost of Ownership [EUR]", kpi_by_name)
+
+    def test__zero_energy_values__omits_energy_breakdown_kpi(self) -> None:
+        results = {"energy": {"consumption": 0.0, "production": 0.0, "demand": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("Energy breakdown [Wh]", kpi_by_name)
+
+    def test__nonzero_production_only__includes_energy_breakdown(self) -> None:
+        results = {"energy": {"consumption": 0.0, "production": 1e9, "demand": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertIn("Energy breakdown [Wh]", kpi_by_name)
+        items = {
+            item.label: item.value
+            for item in kpi_by_name["Energy breakdown [Wh]"].distribution.stringItem
+        }
+        self.assertNotIn("Consumption", items)
+        self.assertIn("Production", items)
+
+    def test__zero_efficiency__omits_efficiency_kpi(self) -> None:
+        results = {"energy": {"efficiency": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("Energy efficiency [-]", kpi_by_name)
+
+    def test__zero_emissions__omits_co2_kpis(self) -> None:
+        results = {"emissions": {"total": 0.0, "per_mwh": 0.0}}
+        kpi_by_name = self._export(results)
+        self.assertNotIn("CO2 emissions [g]", kpi_by_name)
+        self.assertNotIn("CO2 emissions per MWh [g/MWh]", kpi_by_name)
+
+    def test__nonzero_emissions__includes_co2_kpis(self) -> None:
+        results = {"emissions": {"total": 500.0, "per_mwh": 1.2}}
+        kpi_by_name = self._export(results)
+        self.assertIn("CO2 emissions [g]", kpi_by_name)
+        self.assertIn("CO2 emissions per MWh [g/MWh]", kpi_by_name)
 
 
 if __name__ == "__main__":

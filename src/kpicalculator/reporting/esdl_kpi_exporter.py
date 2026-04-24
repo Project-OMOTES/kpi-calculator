@@ -173,30 +173,30 @@ class EsdlKpiExporter(BaseExporter):
             )
             kpis.kpi.append(kpi)
 
-        # NPV KPI
-        if "npv" in cost_data:
+        # NPV KPI — omit when zero (means no cost data was available in the ESDL)
+        if "npv" in cost_data and cost_data["npv"] != 0.0:
             items = [("NPV", cost_data["npv"])]
             kpi = self._create_distribution_kpi("Net Present Value [EUR]", "COST", "EURO", items)
             kpis.kpi.append(kpi)
 
-        # LCOE KPI
-        if "lcoe" in cost_data:
+        # LCOE KPI — omit when zero (means energy consumption data was unavailable)
+        if "lcoe" in cost_data and cost_data["lcoe"] != 0.0:
             items = [("LCOE", cost_data["lcoe"])]
             kpi = self._create_distribution_kpi(
                 "Levelized Cost of Energy [EUR/MWh]", "COST", "EURO", items, per_unit="WATTHOUR"
             )
             kpis.kpi.append(kpi)
 
-        # EAC KPI
-        if "eac" in cost_data:
+        # EAC KPI — omit when zero (means no cost data was available in the ESDL)
+        if "eac" in cost_data and cost_data["eac"] != 0.0:
             items = [("EAC", cost_data["eac"])]
             kpi = self._create_distribution_kpi(
                 "Equivalent Annual Cost [EUR/yr]", "COST", "EURO", items, per_unit="YEAR"
             )
             kpis.kpi.append(kpi)
 
-        # TCO KPI
-        if "tco" in cost_data:
+        # TCO KPI — omit when zero (means no cost data was available in the ESDL)
+        if "tco" in cost_data and cost_data["tco"] != 0.0:
             items = [("TCO", cost_data["tco"])]
             kpi = self._create_distribution_kpi(
                 "Total Cost of Ownership [EUR]", "COST", "EURO", items
@@ -214,13 +214,13 @@ class EsdlKpiExporter(BaseExporter):
             energy_data: Pre-calculated energy results with consumption, production, demand,
                 efficiency
         """
-        # Energy breakdown
+        # Energy breakdown — only include non-zero values (zero means no time series matched)
         energy_items = []
-        if "consumption" in energy_data:
+        if "consumption" in energy_data and energy_data["consumption"] != 0.0:
             energy_items.append(("Consumption", energy_data["consumption"]))
-        if "production" in energy_data:
+        if "production" in energy_data and energy_data["production"] != 0.0:
             energy_items.append(("Production", energy_data["production"]))
-        if "demand" in energy_data:
+        if "demand" in energy_data and energy_data["demand"] != 0.0:
             energy_items.append(("Demand", energy_data["demand"]))
 
         if energy_items:
@@ -229,8 +229,8 @@ class EsdlKpiExporter(BaseExporter):
             )
             kpis.kpi.append(kpi)
 
-        # Energy efficiency
-        if "efficiency" in energy_data:
+        # Energy efficiency — omit when zero (means production data was unavailable)
+        if "efficiency" in energy_data and energy_data["efficiency"] != 0.0:
             items = [("System Efficiency", energy_data["efficiency"])]
             kpi = self._create_distribution_kpi("Energy efficiency [-]", "ENERGY", "NONE", items)
             kpis.kpi.append(kpi)
@@ -245,16 +245,16 @@ class EsdlKpiExporter(BaseExporter):
             kpis: ESDL KPIs container to add emission KPIs to
             emission_data: Pre-calculated emission results with total and per_mwh values
         """
-        # Total emissions
-        if "total" in emission_data:
+        # Total emissions — omit when zero (means no emission factors in ESDL carriers)
+        if "total" in emission_data and emission_data["total"] != 0.0:
             # Convert to grams for ESDL
             total_grams = emission_data["total"] * TONS_TO_GRAMS
             items = [("Total CO2 Emissions", total_grams)]
             kpi = self._create_distribution_kpi("CO2 emissions [g]", "EMISSION", "GRAM", items)
             kpis.kpi.append(kpi)
 
-        # Emissions per MWh
-        if "per_mwh" in emission_data:
+        # Emissions per MWh — omit when zero (means no emission factors or no energy data)
+        if "per_mwh" in emission_data and emission_data["per_mwh"] != 0.0:
             # Convert to g/MWh
             per_mwh_grams = emission_data["per_mwh"] * TONS_TO_GRAMS
             items = [("CO2 per MWh", per_mwh_grams)]

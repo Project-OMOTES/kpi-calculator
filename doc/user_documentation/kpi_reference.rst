@@ -19,10 +19,12 @@ The calculators search for time series data on each asset using specific key nam
      - Keys searched (in order)
    * - Consumption
      - Consumer
-     - ``ThermalConsumption``, ``Consumption``, ``Energy``
+     - ``ThermalConsumption``, ``Consumption``, ``Energy``,
+       ``heat_power_primary`` *(simulator-core: primary side of heat pump / heat exchanger)*
    * - Production
      - Producer, Geothermal
-     - ``ThermalProduction``, ``Production``, ``heat_supplied``, ``Energy``
+     - ``ThermalProduction``, ``Production``, ``heat_supplied``, ``Energy``,
+       ``heat_power_secondary`` *(simulator-core: secondary side of heat pump / heat exchanger)*
    * - Demand
      - Consumer
      - ``ThermalDemand``, ``Demand``, ``heat_demand`` (falls back to consumption keys)
@@ -37,16 +39,24 @@ The calculators search for time series data on each asset using specific key nam
      - Keys searched (in order)
      - Notes
    * - Producer, Geothermal
-     - ``ThermalProduction``, ``Production``, ``heat_supplied``, ``Energy``
-     - Same as energy production
+     - ``ThermalProduction``, ``Production``, ``heat_supplied``, ``Energy``,
+       ``heat_power_secondary``
+     - Same keys as energy production
    * - Consumer
-     - ``ThermalConsumption``, ``Consumption``, ``Energy``
-     - Same as energy consumption
+     - ``ThermalConsumption``, ``Consumption``, ``Energy``,
+       ``heat_power_primary``
+     - Same keys as energy consumption
    * - Conversion
-     - ``ElectricalConsumption``, ``ThermalProduction``
-     - Only used for emission calculation
+     - ``ElectricalConsumption``, ``electricity_consumption``, ``ThermalProduction``
+     - Only used for emission calculation. ``electricity_consumption`` is the
+       field name used by simulator-core for heat pump assets.
 
 Time series values are in Watts (power). The calculator integrates over the time step to get energy in Joules and annualizes based on the series duration. If no matching key is found, the asset contributes zero to that metric (logged at DEBUG level). If the time series has a non-positive duration (``time_step × number_of_values ≤ 0``), the asset is skipped with a WARNING log.
+
+KPI elements whose computed value is zero — because no matching time series or cost attributes
+were found — are **omitted entirely** from the ESDL output rather than written as zero-value
+elements. This is consistent with mesido's behavior and avoids pyESDL's serialization quirk
+where ``float(0.0)`` is emitted as a ``<stringItem>`` with no ``value`` attribute.
 
 **Cost calculator:** Variable operational and maintenance costs in ``EUR/kWh`` or ``EUR/MWh`` use the **first** time series available on the asset (regardless of key name). For geothermal assets with COP > 0, the energy is divided by COP before applying the cost rate.
 
