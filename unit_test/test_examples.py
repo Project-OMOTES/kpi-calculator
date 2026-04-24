@@ -160,11 +160,13 @@ class TestReadmeExamples:
         assert main_area.KPIs is not None
         kpi_by_name = {kpi.name: kpi for kpi in main_area.KPIs.kpi}
 
-        # All three KPI categories must be present
+        # Financial KPIs come from ESDL costInformation and must always be present
         assert "High level cost breakdown [EUR]" in kpi_by_name
         assert "Net Present Value [EUR]" in kpi_by_name
-        assert "Energy breakdown [Wh]" in kpi_by_name
-        assert "CO2 emissions [g]" in kpi_by_name
+        # Energy and emission KPIs are omitted when no time series data is loaded
+        # (exporter skips zero-fallback values — see DESIGN.md §12.2)
+        assert "Energy breakdown [Wh]" not in kpi_by_name
+        assert "CO2 emissions [g]" not in kpi_by_name
 
         # Cost values come from ESDL costInformation, not time series — must be non-zero
         expected_capex = results["financials"]["capex"]["All"]
@@ -224,8 +226,9 @@ class TestReadmeExamples:
         assert "KPIs" in area, "KPIs element missing from output ESDL"
         kpi_by_name = {kpi["@name"]: kpi for kpi in area["KPIs"]["kpi"]}
         assert "High level cost breakdown [EUR]" in kpi_by_name
-        assert "Energy breakdown [Wh]" in kpi_by_name
-        assert "CO2 emissions [g]" in kpi_by_name
+        # No time series loaded — energy and emission KPIs are omitted (skip-zero policy)
+        assert "Energy breakdown [Wh]" not in kpi_by_name
+        assert "CO2 emissions [g]" not in kpi_by_name
 
         # KPI values round-trip the calculated results exactly
         expected_capex = results["financials"]["capex"]["All"]

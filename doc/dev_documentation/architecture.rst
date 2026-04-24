@@ -204,10 +204,20 @@ derived from the field name tuples imported by the calculators:
 
 .. code-block:: text
 
-   CONSUMPTION_FIELDS        ThermalConsumption, Consumption, Energy
+   CONSUMPTION_FIELDS        ThermalConsumption, Consumption, Energy,
+                             heat_power_primary
    DEMAND_FIELDS             ThermalDemand, Demand
-   PRODUCTION_FIELDS         ThermalProduction, Production, Energy
+   PRODUCTION_FIELDS         ThermalProduction, Production, heat_supplied, Energy,
+                             heat_power_secondary
    ELECTRICAL_CONSUMPTION    ElectricalConsumption
+   CONVERSION_FIELDS         ElectricalConsumption, electricity_consumption,
+                             ThermalProduction
+
+``heat_power_primary`` and ``heat_power_secondary`` are the field names emitted by
+``omotes_simulator_core`` for heat pump and heat exchanger assets (primary side = consumer of
+heat, secondary side = producer of heat). ``electricity_consumption`` is the lowercase field
+name used by simulator-core for ``HeatPump`` and ``AirToWaterHeatPump`` assets; it maps to
+``CONVERSION_FIELDS`` alongside the ESDL-native ``ElectricalConsumption``.
 
 Columns with unrecognised names are stored in the time series dict but will not be picked up by
 any calculator — a warning is logged at load time so callers can catch the mismatch early.
@@ -310,7 +320,11 @@ Emission Calculator
 - **Total emissions**: Sum of (emission_factor × energy) per asset, converted to tonnes
 - **Emissions per MWh**: total_emissions / consumption_in_MWh
 
-Emission factors come from ESDL carrier definitions (kg CO2/GJ). The same logging conventions apply: missing data at DEBUG, zero duration at WARNING.
+Emission factors come from ESDL carrier definitions (kg CO2/GJ). Only ``EnergyCarrier``
+assets carry an ``.emission`` attribute; ``HeatCommodity`` and other carrier types do not.
+When a non-``EnergyCarrier`` carrier is encountered, the factor is set to ``0.0`` and a
+DEBUG message is logged — emissions for that asset are not included in the total.
+The same logging conventions apply: missing data at DEBUG, zero duration at WARNING.
 
 ESDL Export
 -----------

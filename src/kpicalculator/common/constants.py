@@ -74,16 +74,35 @@ COMPOSITE_KEY_SEPARATOR = "|"
 # Each tuple defines the priority order in which field names are tried for
 # a given energy category. The calculators import these directly so there
 # is a single source of truth.
-CONSUMPTION_FIELDS: tuple[str, ...] = ("ThermalConsumption", "Consumption", "Energy")
+CONSUMPTION_FIELDS: tuple[str, ...] = (
+    "ThermalConsumption",
+    "Consumption",
+    "Energy",
+    "heat_power_primary",  # HeatPump/HeatExchanger primary side (consumer of heat)
+)
 DEMAND_FIELDS: tuple[str, ...] = ("ThermalDemand", "Demand", "heat_demand")
-PRODUCTION_FIELDS: tuple[str, ...] = ("ThermalProduction", "Production", "heat_supplied", "Energy")
+PRODUCTION_FIELDS: tuple[str, ...] = (
+    "ThermalProduction",
+    "Production",
+    "heat_supplied",
+    "Energy",
+    "heat_power_secondary",  # HeatPump/HeatExchanger secondary side (producer of heat)
+)
 ELECTRICAL_CONSUMPTION_FIELDS: tuple[str, ...] = ("ElectricalConsumption",)
-CONVERSION_FIELDS: tuple[str, ...] = ("ElectricalConsumption", "ThermalProduction")
+CONVERSION_FIELDS: tuple[str, ...] = (
+    "ElectricalConsumption",
+    "electricity_consumption",  # simulator-core field name (lowercase)
+    "ThermalProduction",
+)
 
 # Union of all recognised field names — used to warn when a DataFrame column
 # will not contribute to any KPI calculation.
 KNOWN_TIME_SERIES_FIELDS: frozenset[str] = frozenset(
-    CONSUMPTION_FIELDS + DEMAND_FIELDS + PRODUCTION_FIELDS + ELECTRICAL_CONSUMPTION_FIELDS
+    CONSUMPTION_FIELDS
+    + DEMAND_FIELDS
+    + PRODUCTION_FIELDS
+    + ELECTRICAL_CONSUMPTION_FIELDS
+    + CONVERSION_FIELDS
 )
 # Security-related ports to validate against
 DANGEROUS_PORTS = {22, 23, 80, 3389, 5985, 5986}  # SSH, Telnet, HTTP, RDP, WinRM

@@ -242,7 +242,9 @@ Ratio of energy consumed to energy produced (0 to 1):
 
 Typical values range from 0.80-0.95 for district heating — higher for compact urban networks, lower for long-distance systems. An efficiency above 0.98 is suspiciously high and usually means distribution losses are not being captured.
 
-Without time series data, both consumption and production are zero, making efficiency undefined (returned as 0.0). Time series data is required for meaningful efficiency values.
+Without time series data, both consumption and production are zero, making efficiency
+undefined. In this case the **Energy efficiency** KPI element is omitted from the ESDL
+output entirely. Time series data is required for meaningful efficiency values.
 
 Emission KPIs
 -------------
@@ -261,7 +263,12 @@ Total greenhouse gas emissions from system operation, in tonnes CO2e per year.
 
    Total_Emissions [t CO2e/yr] = Sum of asset emissions [kg] / 1000 [kg/t]
 
-Emission factors are read from the ESDL carrier definitions in **kg CO2e/GJ** (the standard ESDL unit) and converted to kg CO2e/J during loading. The calculator multiplies directly by energy in Joules and emissions from kg to tonnes internally. Emission factors cover upstream emissions (fuel extraction and processing). Benchmarks for 100 households:
+Emission factors are read from the ESDL carrier definitions in **kg CO2e/GJ** (the standard
+ESDL unit) and converted to kg CO2e/J during loading. Only ``EnergyCarrier`` objects carry an
+emission attribute; heat network assets that use ``HeatCommodity`` carriers have no emission
+factor and contribute ``0.0`` to the total (a DEBUG message is logged for each such asset).
+The calculator multiplies directly by energy in Joules and converts kg to tonnes internally.
+Emission factors cover upstream emissions (fuel extraction and processing). Benchmarks for 100 households:
 
 - Gas heating: 80-120 t CO2e/year
 - Heat pump on grid electricity: 20-40 t CO2e/year
