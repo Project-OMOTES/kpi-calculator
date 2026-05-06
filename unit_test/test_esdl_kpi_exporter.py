@@ -199,7 +199,9 @@ class TestEsdlKpiExporter(unittest.TestCase):
 
             # Assert
             self.assertTrue(result)
-            self.assertTrue(Path(output_file).exists(), f"Output file {output_file} was not created.")
+            self.assertTrue(
+                Path(output_file).exists(), f"Output file {output_file} was not created."
+            )
 
     @patch("kpicalculator.reporting.esdl_kpi_exporter.EnergySystemHandler")
     def test_export_data_structure_mode(self, mock_handler):
