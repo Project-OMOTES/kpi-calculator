@@ -25,7 +25,7 @@ dependencies = [
     "coloredlogs~=15.0.1",
     "numpy>=2.1.0,<3.0", # Compatible with simulator-worker
     "pandas>=2.2.2,<3.0", # Requires pandas >=2.2.2 for numpy 2.x compatibility
-    "pandas-stubs", # Type stubs for pandas
+    "pandas-stubs~= 2.1.1", # Type stubs for pandas
     "pyesdl~=26.2", # Compatible with simulator-worker
     "xmltodict==0.14.2",
     "types-xmltodict", # Type stubs for xmltodict
