@@ -563,7 +563,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.1.0,<3.0" },
     { name = "pandas", specifier = ">=2.2.2,<3.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0" },
-    { name = "pyesdl", specifier = "~=25.7" },
+    { name = "pyesdl", specifier = "~=26.2" },
     { name = "urllib3", specifier = ">=2.6.3" },
     { name = "xmltodict", specifier = "==0.14.2" },
 ]
@@ -591,7 +591,7 @@ dev = [
     { name = "furo", specifier = ">=2023.1.0" },
     { name = "hypothesis", specifier = ">=6.0.0" },
     { name = "mypy", specifier = "~=1.5.1" },
-    { name = "pandas-stubs" },
+    { name = "pandas-stubs", specifier = "~=2.1.1" },
     { name = "pip", specifier = ">=25.3" },
     { name = "pip-audit", specifier = ">=2.0.0" },
     { name = "pipdeptree", specifier = ">=2.0.0" },
@@ -618,7 +618,7 @@ docs = [
 ]
 lint = [
     { name = "mypy", specifier = "~=1.5.1" },
-    { name = "pandas-stubs" },
+    { name = "pandas-stubs", specifier = "~=2.1.1" },
     { name = "pre-commit", specifier = "~=3.6.0" },
     { name = "ruff", specifier = ">=0.6.0" },
     { name = "types-xmltodict" },
@@ -1025,15 +1025,15 @@ wheels = [
 
 [[package]]
 name = "pandas-stubs"
-version = "2.3.2.250827"
+version = "2.1.4.231227"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy" },
+    { name = "numpy", marker = "python_full_version < '3.13'" },
     { name = "types-pytz" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/7b/8d2076a76ddf35806319798037056e4bbdcacdc832fb7c95b517f4c03fb2/pandas_stubs-2.3.2.250827.tar.gz", hash = "sha256:bcc2d49a2766325e4a1a492c3eeda879e9521bb5e26e69e2bbf13e80e7ef569a", size = 100032, upload-time = "2025-08-27T23:18:12.802Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/17/48ed5f94e5732b277ece277e432a4e589622ae12aa7e5f3259327c2f1c20/pandas_stubs-2.1.4.231227.tar.gz", hash = "sha256:3ea29ef001e9e44985f5ebde02d4413f94891ef6ec7e5056fb07d125be796c23", size = 101267, upload-time = "2023-12-27T20:39:32.351Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a1/b8/dc820157be5aa9527f1f7ffe81737ee4d1cf0924081e1bfbd680530dde41/pandas_stubs-2.3.2.250827-py3-none-any.whl", hash = "sha256:3d613013b4189147a9a6bb18d8bec1e5b137de091496e9b9ff9f137ec3e223a9", size = 157775, upload-time = "2025-08-27T23:18:11.083Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/6d/c5c23926fcc7526a5df32a8f3b3540948be8dd4c25f4a097f9091d40535c/pandas_stubs-2.1.4.231227-py3-none-any.whl", hash = "sha256:211fc23e6ae87073bdf41dbf362c4a4d85e1e3477cb078dbac3da6c7fdaefba8", size = 153633, upload-time = "2023-12-27T20:39:28.978Z" },
 ]
 
 [[package]]
@@ -1246,14 +1246,14 @@ wheels = [
 
 [[package]]
 name = "pyesdl"
-version = "25.12.1"
+version = "26.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyecore" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b9/45/4377eb85eac355a247824f7a4cb94804bbe03a7a27fd26a83d33ebdb9e23/pyesdl-25.12.1.tar.gz", hash = "sha256:54bc48203e7f740688c7adea5525740ea70a0ce24ea974ea010c19034ee81c0c", size = 95270, upload-time = "2025-12-19T09:44:27.118Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/3d/f35fdaa72b18d224f3782d68234ad0096d6a9e77891f71fa80c76770d9e2/pyesdl-26.4.1.tar.gz", hash = "sha256:6fb37b15b189bf709cf68d2bd883ee0c62772dcce4bc50a278ef99dc5a7e33bc", size = 105816, upload-time = "2026-04-28T14:17:08.091Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/59/dd22d157a3c782d25a253d8809b686564fa5385aa2aa3efe07224847d1cf/pyesdl-25.12.1-py3-none-any.whl", hash = "sha256:1448c82e7c8df500b69aa86154aa9d166a7f16c526ca52d8196524bca41c40ad", size = 85642, upload-time = "2025-12-19T09:44:25.806Z" },
+    { url = "https://files.pythonhosted.org/packages/94/8e/2437470ad20c971ddc30f46b8e327d4760705831e919e189e97ab52ea233/pyesdl-26.4.1-py3-none-any.whl", hash = "sha256:1a7f82c216a2b76dfa60067432d6b0712cc8d14998bab7d5876413359b8f00bc", size = 98548, upload-time = "2026-04-28T14:17:06.459Z" },
 ]
 
 [[package]]

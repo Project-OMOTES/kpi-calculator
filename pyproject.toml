@@ -43,7 +43,7 @@ lint = [
     "ruff>=0.6.0",
     "mypy ~= 1.5.1",
     "pre-commit ~= 3.6.0",
-    "pandas-stubs", # Type stubs for pandas
+    "pandas-stubs~=2.1.1", # Type stubs for pandas
     "types-xmltodict", # Type stubs for xmltodict
 ]
 analysis = [
