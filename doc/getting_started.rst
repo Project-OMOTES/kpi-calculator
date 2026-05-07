@@ -41,8 +41,8 @@ By default, the analysis uses a 30-year system lifetime with a 5% discount rate.
    manager = KpiManager()
    manager.load_from_esdl("model.esdl")
    results = manager.calculate_all_kpis(
-       system_lifetime=25,   # Default: 30 years
-       discount_rate=3,      # Default: 5 (percent)
+       system_lifetime=25,   # Overrides the default (30 years)
+       discount_rate=3,      # Overrides the default (5 percent)
    )
 
 ``calculate_kpis()`` exposes ``system_lifetime`` but not ``discount_rate``; use ``KpiManager`` directly when you need to override the discount rate.

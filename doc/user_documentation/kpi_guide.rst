@@ -399,9 +399,9 @@ Key Assumptions
 
 These defaults affect all calculations. Understanding them helps interpret results and compare scenarios.
 
-**System lifetime:** 30 years. Standard for energy infrastructure. Override with ``system_lifetime=25`` in ``calculate_all_kpis()``.
+**System lifetime:** 30 years. Standard for energy infrastructure. Override with ``system_lifetime`` in ``calculate_all_kpis()``.
 
-**Discount rate:** 5%. Represents the cost of capital for energy infrastructure. Override with ``discount_rate=3`` in ``calculate_all_kpis()``.
+**Discount rate:** 5%. Represents the cost of capital for energy infrastructure. Override with ``discount_rate`` in ``calculate_all_kpis()``.
 
 **Technical lifetime per asset:** 40 years if not specified in ESDL. Real values vary widely — pipes last 40-50 years, heat pumps 15-20.
 
