@@ -2,12 +2,13 @@
 """Database time series loader following MESIDO InfluxDB pattern."""
 
 import time
+from collections import defaultdict
 from datetime import datetime
 from typing import Protocol
 
 import pandas as pd
 from esdl import esdl
-from esdl.profiles.influxdbprofilemanager import InfluxDBProfileManager
+from esdl.profiles.influxdbprofilemanager import ConnectionSettings, InfluxDBProfileManager
 from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
 
 from ..common.constants import (
@@ -166,12 +167,18 @@ class DatabaseTimeSeriesLoader:
             successful_loads = 0
             failed_loads = 0
 
-            for profile in influx_profiles:
-                success = self._process_single_profile(profile, time_series_data, errors)
-                if success:
-                    successful_loads += 1
-                else:
-                    failed_loads += 1
+            batches = self._group_profiles_for_batch(influx_profiles)
+            self.db_logger.info(
+                "Grouped profiles into batches",
+                {"profile_count": profile_count, "batch_count": len(batches)},
+            )
+
+            for batch_profiles in batches.values():
+                batch_results = self._process_profile_batch(
+                    batch_profiles, time_series_data, errors
+                )
+                successful_loads += batch_results[0]
+                failed_loads += batch_results[1]
 
             # Log summary
             total_time = time.time() - start_time
@@ -194,6 +201,191 @@ class DatabaseTimeSeriesLoader:
         )
 
         return time_series_data, validation_result
+
+    def _group_profiles_for_batch(
+        self, profiles: list[esdl.InfluxDBProfile]
+    ) -> dict[tuple, list[esdl.InfluxDBProfile]]:
+        """Group profiles that can share a single InfluxDB query.
+
+        Profiles are batchable when they share the same host, port, database,
+        measurement, date range, and filters — meaning one SELECT with multiple
+        fields can replace N individual queries.
+        """
+        groups: dict[tuple, list[esdl.InfluxDBProfile]] = defaultdict(list)
+        seen_fields: dict[tuple, set[str]] = defaultdict(set)
+        for profile in profiles:
+            filters_val = getattr(profile, "filters", None) or ""
+            key = (
+                profile.host,
+                profile.port,
+                profile.database,
+                profile.measurement,
+                profile.startDate,
+                profile.endDate,
+                filters_val,
+            )
+            field = profile.field
+            if field in seen_fields[key]:
+                # Duplicate field in this batch group — isolate into its own group so
+                # profile_header.index(field) cannot pick the wrong occurrence.
+                unique_key = (*key, id(profile))
+                groups[unique_key].append(profile)
+            else:
+                seen_fields[key].add(field)
+                groups[key].append(profile)
+        return dict(groups)
+
+    def _process_profile_batch(
+        self,
+        profiles: list[esdl.InfluxDBProfile],
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+    ) -> tuple[int, int]:
+        """Process a batch of profiles sharing the same measurement/connection.
+
+        Issues one InfluxDB query for all fields in the batch, then splits the
+        result per profile and applies per-profile unit conversion and multiplier.
+        Falls back to per-profile processing if the batch query fails.
+
+        Returns:
+            (successful_loads, failed_loads)
+        """
+        if len(profiles) == 1:
+            success = self._process_single_profile(profiles[0], time_series_data, errors)
+            return (1, 0) if success else (0, 1)
+
+        representative = profiles[0]
+        measurement = representative.measurement
+
+        try:
+            # Security validation per profile; credentials from representative (same host/port/db)
+            for profile in profiles:
+                self._get_credentials_for_profile(profile)
+            credentials = self._get_credentials_for_profile(representative)
+
+            manager = InfluxDBProfileManager(
+                ConnectionSettings(
+                    host=credentials.host,
+                    port=credentials.port,
+                    database=representative.database,
+                    username=credentials.username,
+                    password=credentials.password,
+                    ssl=credentials.ssl,
+                    verify_ssl=credentials.verify_ssl,
+                )
+            )
+
+            fields = [p.field for p in profiles]
+            filters = InfluxDBProfileManager._parse_esdl_profile_filters(
+                getattr(representative, "filters", None) or ""
+            )
+            t0 = time.time()
+            manager.load_influxdb(
+                measurement=measurement,
+                fields=fields,
+                from_datetime=representative.startDate,
+                to_datetime=representative.endDate,
+                filters=filters,
+            )
+            self.db_logger.info(
+                "Batch query completed",
+                {
+                    "measurement": measurement,
+                    "field_count": len(fields),
+                    "batch_time_ms": round((time.time() - t0) * 1000, 2),
+                },
+            )
+
+            if not manager.profile_data_list:
+                self.db_logger.warning(
+                    f"Batch query for measurement '{measurement}' returned no data, "
+                    f"falling back to per-profile loading"
+                )
+                raise ValueError(f"No data returned for measurement '{measurement}'")
+
+        except Exception as e:
+            self.db_logger.warning(
+                f"Batch query failed for measurement '{measurement}', "
+                f"falling back to per-profile loading: {e}"
+            )
+            successful = 0
+            failed = 0
+            for profile in profiles:
+                if self._process_single_profile(profile, time_series_data, errors):
+                    successful += 1
+                else:
+                    failed += 1
+            return successful, failed
+
+        successful = 0
+        failed = 0
+        for profile in profiles:
+            if self._extract_profile_from_batch(
+                profile, manager, measurement, time_series_data, errors
+            ):
+                successful += 1
+            else:
+                failed += 1
+        return successful, failed
+
+    def _extract_profile_from_batch(
+        self,
+        profile: esdl.InfluxDBProfile,
+        manager: InfluxDBProfileManager,
+        measurement: str,
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+    ) -> bool:
+        """Extract one profile's field from a batch query result and store it.
+
+        Returns True on success, False on failure.
+        """
+        try:
+            field = profile.field
+            asset_id = self._extract_asset_id(profile)
+            field_index = manager.profile_header.index(field)
+
+            self._validate_profile_data(profile, manager)
+
+            if any(row[field_index] is None for row in manager.profile_data_list):
+                raise ValueError(
+                    f"Batch result for field '{field}' contains NULL row(s) out of "
+                    f"{len(manager.profile_data_list)} — fields in this measurement "
+                    f"may have non-overlapping timestamps"
+                )
+
+            data_points = {
+                row[0].strftime("%Y-%m-%dT%H:%M:%SZ"): row[field_index]
+                for row in manager.profile_data_list
+            }
+            df = pd.DataFrame.from_dict(data_points, orient="index")
+            df.index = pd.to_datetime(df.index, utc=True)
+            df = self._convert_units(df, profile)
+            multiplier = getattr(profile, "multiplier", None)
+            if multiplier is None:
+                multiplier = 1.0
+            df = df * multiplier
+
+            values_list = df.values.flatten().tolist()
+            validated_values = InputValidator.validate_time_series_data(
+                values_list, f"InfluxDB profile {measurement}.{field}"
+            )
+
+            composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{field}"
+            time_series_data[composite_key] = TimeSeries(
+                time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values
+            )
+            self.db_logger.debug(f"Extracted {field} for asset {asset_id} from batch result")
+            return True
+
+        except Exception as e:
+            errors.append(self._categorize_profile_error(e, profile.field))
+            self.db_logger.error(
+                "Failed to extract profile from batch result",
+                {"field": profile.field, "measurement": measurement},
+                e,
+            )
+            return False
 
     def _process_single_profile(
         self,
@@ -315,8 +507,9 @@ class DatabaseTimeSeriesLoader:
             # Convert units to standard format
             df = self._convert_units(df, profile)
 
-            # Apply multiplier with safe default
-            multiplier = getattr(profile, "multiplier", 1.0) or 1.0
+            multiplier = getattr(profile, "multiplier", None)
+            if multiplier is None:
+                multiplier = 1.0
             df = df * multiplier
 
             # Validate time series data before creating TimeSeries

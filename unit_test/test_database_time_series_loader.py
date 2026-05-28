@@ -644,5 +644,430 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
                     mock_log.assert_called_once_with("test_measurement", "test_field", error)
 
 
+def _make_profile(
+    host="influx.example.com",
+    port=8086,
+    database="db",
+    measurement="heat",
+    field="field_a",
+    start=None,
+    end=None,
+    filters=None,
+    multiplier=1.0,
+    asset_id="asset_1",
+) -> Mock:
+    """Return a minimally-configured InfluxDBProfile mock."""
+    p = Mock(spec=esdl.InfluxDBProfile)
+    p.host = host
+    p.port = port
+    p.database = database
+    p.measurement = measurement
+    p.field = field
+    p.startDate = start or datetime(2024, 1, 1, 0)
+    p.endDate = end or datetime(2024, 1, 1, 1)
+    p.filters = filters
+    p.multiplier = multiplier
+    # Wire up eContainer so _extract_asset_id returns asset_id
+    container = Mock()
+    container.energyasset = Mock()
+    container.energyasset.id = asset_id
+    p.eContainer.return_value = container
+    return p
+
+
+class TestGroupProfilesForBatch(unittest.TestCase):
+    """Unit tests for _group_profiles_for_batch."""
+
+    def setUp(self) -> None:
+        self.loader = DatabaseTimeSeriesLoader(MockCredentialManager())
+
+    def test_same_measurement_grouped_together(self) -> None:
+        """Profiles sharing all batch-key fields land in one group."""
+        p1 = _make_profile(field="field_a")
+        p2 = _make_profile(field="field_b")
+
+        groups = self.loader._group_profiles_for_batch([p1, p2])
+
+        self.assertEqual(len(groups), 1)
+        group = next(iter(groups.values()))
+        self.assertIn(p1, group)
+        self.assertIn(p2, group)
+
+    def test_different_measurements_separate_groups(self) -> None:
+        """Profiles with different measurements must not be batched together."""
+        p1 = _make_profile(measurement="heat", field="field_a")
+        p2 = _make_profile(measurement="power", field="field_b")
+
+        groups = self.loader._group_profiles_for_batch([p1, p2])
+
+        self.assertEqual(len(groups), 2)
+
+    def test_different_start_dates_separate_groups(self) -> None:
+        """Profiles with different date ranges cannot share a query."""
+        p1 = _make_profile(field="field_a", start=datetime(2024, 1, 1))
+        p2 = _make_profile(field="field_b", start=datetime(2024, 6, 1))
+
+        groups = self.loader._group_profiles_for_batch([p1, p2])
+
+        self.assertEqual(len(groups), 2)
+
+    def test_none_filters_and_empty_string_normalize_to_same_key(self) -> None:
+        """filters=None and filters='' must land in the same batch group."""
+        p1 = _make_profile(field="field_a", filters=None)
+        p2 = _make_profile(field="field_b", filters="")
+
+        groups = self.loader._group_profiles_for_batch([p1, p2])
+
+        self.assertEqual(len(groups), 1)
+
+    def test_different_filters_separate_groups(self) -> None:
+        """Profiles with different tag filters cannot share a query."""
+        p1 = _make_profile(field="field_a", filters="region='north'")
+        p2 = _make_profile(field="field_b", filters="region='south'")
+
+        groups = self.loader._group_profiles_for_batch([p1, p2])
+
+        self.assertEqual(len(groups), 2)
+
+    def test_missing_filters_attribute_does_not_raise(self) -> None:
+        """A profile with no filters attribute at all is handled safely."""
+        p1 = _make_profile(field="field_a")
+        del p1.filters  # simulate attribute absence
+
+        groups = self.loader._group_profiles_for_batch([p1])
+
+        self.assertEqual(len(groups), 1)
+
+    def test_duplicate_field_in_same_measurement_isolated(self) -> None:
+        """Two profiles with the same field on the same measurement must not share a batch."""
+        p1 = _make_profile(field="heat_power", asset_id="asset_1")
+        p2 = _make_profile(field="heat_power", asset_id="asset_2")  # duplicate field name
+
+        groups = self.loader._group_profiles_for_batch([p1, p2])
+
+        self.assertEqual(len(groups), 2, "Duplicate fields must be isolated into separate groups")
+
+
+class TestProcessProfileBatch(unittest.TestCase):
+    """Unit tests for _process_profile_batch."""
+
+    _INFLUXDB_PATH = "kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager"
+
+    def setUp(self) -> None:
+        self.credentials = DatabaseCredentials(
+            host="influx.example.com",
+            port=8086,
+            username="user",
+            password="password1",
+            database="db",
+            ssl=False,
+            verify_ssl=False,
+        )
+        self.loader = DatabaseTimeSeriesLoader(
+            MockCredentialManager({"influx.example.com: 8086": self.credentials})
+        )
+
+    def _make_mock_manager(
+        self,
+        fields: list[str],
+        values_by_field: dict,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> Mock:
+        """Build a mock InfluxDBProfileManager with hourly rows from start to end (inclusive)."""
+        from datetime import timedelta
+
+        start = start or datetime(2024, 1, 1, 0)
+        end = end or datetime(2024, 1, 1, 1)
+        manager = Mock()
+        manager.profile_header = ["datetime", *fields]
+        timestamps = []
+        ts = start
+        while ts <= end:
+            timestamps.append(ts)
+            ts += timedelta(hours=1)
+        rows = []
+        for i, t in enumerate(timestamps):
+            row = [t] + [values_by_field[f][i] for f in fields]
+            rows.append(row)
+        manager.profile_data_list = rows
+        manager.start_datetime = start
+        manager.end_datetime = end
+        return manager
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_load_influxdb_call_for_multiple_profiles(self, mock_influx_cls) -> None:
+        """The batch path issues exactly one load_influxdb call regardless of profile count."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [10.0, 20.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                time_series_data: dict = {}
+                self.loader._process_profile_batch([p1, p2], time_series_data, [])
+
+        mock_manager.load_influxdb.assert_called_once()
+        call_kwargs = mock_manager.load_influxdb.call_args
+        self.assertCountEqual(call_kwargs.kwargs["fields"], ["field_a", "field_b"])
+
+    @patch(_INFLUXDB_PATH)
+    def test_correct_field_values_assigned_to_correct_asset(self, mock_influx_cls) -> None:
+        """Each profile gets its own field's column — not swapped or mixed."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [100.0, 200.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                time_series_data: dict = {}
+                self.loader._process_profile_batch([p1, p2], time_series_data, [])
+
+        key_a = f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"
+        key_b = f"asset_2{COMPOSITE_KEY_SEPARATOR}field_b"
+        self.assertIn(key_a, time_series_data)
+        self.assertIn(key_b, time_series_data)
+        self.assertEqual(time_series_data[key_a].values, [1.0, 2.0])
+        self.assertEqual(time_series_data[key_b].values, [100.0, 200.0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_per_profile_multiplier_applied_independently(self, mock_influx_cls) -> None:
+        """A multiplier on one profile does not affect the other profile's values."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1", multiplier=2.0)
+        p2 = _make_profile(field="field_b", asset_id="asset_2", multiplier=10.0)
+
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 1.0], "field_b": [1.0, 1.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                time_series_data: dict = {}
+                self.loader._process_profile_batch([p1, p2], time_series_data, [])
+
+        key_a = f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"
+        key_b = f"asset_2{COMPOSITE_KEY_SEPARATOR}field_b"
+        self.assertEqual(time_series_data[key_a].values, [2.0, 2.0])
+        self.assertEqual(time_series_data[key_b].values, [10.0, 10.0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_batch_failure_falls_back_to_per_profile(self, mock_influx_cls) -> None:
+        """When the batch query raises, every profile is retried individually."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+
+        mock_influx_cls.return_value.load_influxdb.side_effect = ConnectionError("DB down")
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(
+                self.loader, "_process_single_profile", return_value=True
+            ) as mock_single:
+                time_series_data: dict = {}
+                successful, failed = self.loader._process_profile_batch(
+                    [p1, p2], time_series_data, []
+                )
+
+        self.assertEqual(mock_single.call_count, 2)
+        self.assertEqual(successful, 2)
+        self.assertEqual(failed, 0)
+
+    @patch(_INFLUXDB_PATH)
+    def test_security_validation_runs_for_every_profile(self, mock_influx_cls) -> None:
+        """_get_credentials_for_profile is called for each profile, not just the representative."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        p3 = _make_profile(field="field_c", asset_id="asset_3")
+
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b", "field_c"],
+            {
+                "field_a": [1.0, 1.0],
+                "field_b": [2.0, 2.0],
+                "field_c": [3.0, 3.0],
+            },
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ) as mock_get_creds:
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                self.loader._process_profile_batch([p1, p2, p3], {}, [])
+
+        # Called once per profile in the validation loop (3) + once more for the representative
+        self.assertEqual(mock_get_creds.call_count, 4)
+        validated_profiles = [call.args[0] for call in mock_get_creds.call_args_list]
+        self.assertIn(p1, validated_profiles)
+        self.assertIn(p2, validated_profiles)
+        self.assertIn(p3, validated_profiles)
+
+    @patch(_INFLUXDB_PATH)
+    def test_one_profile_extraction_failure_does_not_cancel_others(self, mock_influx_cls) -> None:
+        """If one profile's field is missing from the batch result, the others still succeed."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_missing", asset_id="asset_2")  # not in header
+
+        mock_manager = self._make_mock_manager(
+            ["field_a"],
+            {"field_a": [5.0, 5.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        errors: list = []
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                time_series_data: dict = {}
+                successful, failed = self.loader._process_profile_batch(
+                    [p1, p2], time_series_data, errors
+                )
+
+        self.assertEqual(successful, 1)
+        self.assertEqual(failed, 1)
+        self.assertEqual(len(errors), 1)
+        key_a = f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"
+        self.assertIn(key_a, time_series_data)
+        self.assertEqual(time_series_data[key_a].values, [5.0, 5.0])
+
+    def test_single_profile_delegates_to_process_single_profile(self) -> None:
+        """A batch of size 1 delegates directly, avoiding an unnecessary InfluxDB constructor."""
+        p = _make_profile(field="field_a", asset_id="asset_1")
+
+        with patch.object(self.loader, "_process_single_profile", return_value=True) as mock_single:
+            successful, failed = self.loader._process_profile_batch([p], {}, [])
+
+        mock_single.assert_called_once_with(p, {}, [])
+        self.assertEqual(successful, 1)
+        self.assertEqual(failed, 0)
+
+    @patch(_INFLUXDB_PATH)
+    def test_empty_batch_result_falls_back_to_per_profile(self, mock_influx_cls) -> None:
+        """A batch query returning no rows falls back to per-profile loading."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+
+        mock_manager = Mock()
+        mock_manager.profile_header = None
+        mock_manager.profile_data_list = []
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(
+                self.loader, "_process_single_profile", return_value=True
+            ) as mock_single:
+                successful, failed = self.loader._process_profile_batch([p1, p2], {}, [])
+
+        self.assertEqual(mock_single.call_count, 2)
+        self.assertEqual(successful, 2)
+        self.assertEqual(failed, 0)
+
+
+class TestLoadTimeSeriesFromEsdlBatchIntegration(unittest.TestCase):
+    """Integration-level tests verifying batching through load_time_series_from_esdl."""
+
+    _INFLUXDB_PATH = "kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager"
+
+    def setUp(self) -> None:
+        self.credentials = DatabaseCredentials(
+            host="influx.example.com",
+            port=8086,
+            username="user",
+            password="password1",
+            database="db",
+            ssl=False,
+            verify_ssl=False,
+        )
+        self.loader = DatabaseTimeSeriesLoader(
+            MockCredentialManager({"influx.example.com: 8086": self.credentials})
+        )
+
+    @patch(_INFLUXDB_PATH)
+    def test_two_profiles_same_measurement_issue_one_query(self, mock_influx_cls) -> None:
+        """End-to-end: two profiles on the same measurement produce exactly one DB query."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+
+        start, end = datetime(2024, 1, 1, 0), datetime(2024, 1, 1, 1)
+        mock_manager = Mock()
+        mock_manager.profile_header = ["datetime", "field_a", "field_b"]
+        mock_manager.profile_data_list = [
+            [start, 10.0, 20.0],
+            [end, 11.0, 21.0],
+        ]
+        mock_manager.start_datetime = start
+        mock_manager.end_datetime = end
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        energy_system = Mock()
+        energy_system.eAllContents.return_value = [p1, p2]
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                result_data, validation = self.loader.load_time_series_from_esdl(energy_system)
+
+        mock_manager.load_influxdb.assert_called_once()
+        self.assertTrue(validation.is_valid)
+        key_a = f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"
+        key_b = f"asset_2{COMPOSITE_KEY_SEPARATOR}field_b"
+        self.assertIn(key_a, result_data)
+        self.assertIn(key_b, result_data)
+        self.assertEqual(result_data[key_a].values, [10.0, 11.0])
+        self.assertEqual(result_data[key_b].values, [20.0, 21.0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_profiles_on_different_measurements_issue_separate_queries(
+        self, _mock_influx_cls
+    ) -> None:
+        """Profiles on different measurements land in separate groups — two InfluxDB instances."""
+        p1 = _make_profile(measurement="heat", field="field_a", asset_id="asset_1")
+        p2 = _make_profile(measurement="power", field="field_b", asset_id="asset_2")
+
+        # Each group has size 1, so _process_profile_batch delegates to _process_single_profile.
+        # Verify grouping by asserting that _process_profile_batch is called twice — once per group.
+        energy_system = Mock()
+        energy_system.eAllContents.return_value = [p1, p2]
+
+        with patch.object(
+            self.loader, "_process_profile_batch", wraps=self.loader._process_profile_batch
+        ) as mock_batch:
+            with patch.object(self.loader, "_process_single_profile", return_value=True):
+                self.loader.load_time_series_from_esdl(energy_system)
+
+        self.assertEqual(mock_batch.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
