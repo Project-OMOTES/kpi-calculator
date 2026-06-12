@@ -262,13 +262,14 @@ class TimeSeriesManager:
         if len(cols) <= preview:
             return f"{len(cols)} column(s) {verb}: {head}"
         tail_count = len(cols) - preview
-        self.logger.debug(
-            f"Full list of columns that {verb}:\n" + "\n".join(f"  {c}" for c in cols)
-        )
-        return (
-            f"{len(cols)} column(s) {verb}: {head}"
-            f", … +{tail_count} more (set log level to DEBUG for full list)"
-        )
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"Full list of columns that {verb}:\n" + "\n".join(f"  {c}" for c in cols)
+            )
+            hint = ""
+        else:
+            hint = " (set log level to DEBUG for full list)"
+        return f"{len(cols)} column(s) {verb}: {head}, … +{tail_count} more{hint}"
 
     def _detect_time_step(self, df: pd.DataFrame) -> float:
         """Detect time step from DataFrame DatetimeIndex.

@@ -3,8 +3,9 @@
 
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, cast
 
 import pandas as pd
 from esdl import esdl
@@ -36,7 +37,7 @@ class TimeSeriesDataProtocol(Protocol):
 
     start_datetime: datetime
     end_datetime: datetime
-    profile_data_list: list[tuple[datetime, float]]
+    profile_data_list: Sequence[Sequence[datetime | float | None]]
 
 
 class InfluxDBProfileProtocol(Protocol):
@@ -47,6 +48,13 @@ class InfluxDBProfileProtocol(Protocol):
     database: str
     measurement: str
     field: str
+
+
+class _BatchHardError(Exception):
+    """Raised by _execute_batch_query for unrecoverable misconfigurations (no fallback)."""
+
+    def __init__(self, failed_count: int) -> None:
+        self.failed_count = failed_count
 
 
 class DatabaseTimeSeriesLoader:
@@ -174,11 +182,11 @@ class DatabaseTimeSeriesLoader:
             )
 
             for batch_profiles in batches.values():
-                batch_results = self._process_profile_batch(
+                batch_successful, batch_failed = self._process_profile_batch(
                     batch_profiles, time_series_data, errors
                 )
-                successful_loads += batch_results[0]
-                failed_loads += batch_results[1]
+                successful_loads += batch_successful
+                failed_loads += batch_failed
 
             # Log summary
             total_time = time.time() - start_time
@@ -228,6 +236,10 @@ class DatabaseTimeSeriesLoader:
             if field in seen_fields[key]:
                 # Duplicate field in this batch group — isolate into its own group so
                 # profile_header.index(field) cannot pick the wrong occurrence.
+                self.db_logger.warning(
+                    f"Two profiles share measurement '{profile.measurement}' and field "
+                    f"'{field}' — possible ESDL misconfiguration; processing separately"
+                )
                 unique_key = (*key, id(profile))
                 groups[unique_key].append(profile)
             else:
@@ -254,75 +266,165 @@ class DatabaseTimeSeriesLoader:
             success = self._process_single_profile(profiles[0], time_series_data, errors)
             return (1, 0) if success else (0, 1)
 
-        representative = profiles[0]
+        # Profiles with empty/None field cannot be batched; route them per-profile up front.
+        valid_profiles = [p for p in profiles if p.field]
+        invalid_field_profiles = [p for p in profiles if not p.field]
+        # Pick representative from valid profiles so credential validation always succeeds.
+        representative = valid_profiles[0] if valid_profiles else profiles[0]
         measurement = representative.measurement
+        warn_msg = f"Profile in '{measurement}' has empty field — processing per-profile"
+        successful, failed = self._fallback_to_per_profile(
+            invalid_field_profiles, time_series_data, errors, warn_msg=warn_msg
+        )
+
+        if not valid_profiles:
+            return successful, failed
+
+        if len(valid_profiles) == 1:
+            success = self._process_single_profile(valid_profiles[0], time_series_data, errors)
+            return successful + (1 if success else 0), failed + (0 if success else 1)
 
         try:
-            # Security validation per profile; credentials from representative (same host/port/db)
-            for profile in profiles:
-                self._get_credentials_for_profile(profile)
-            credentials = self._get_credentials_for_profile(representative)
-
-            manager = InfluxDBProfileManager(
-                ConnectionSettings(
-                    host=credentials.host,
-                    port=credentials.port,
-                    database=representative.database,
-                    username=credentials.username,
-                    password=credentials.password,
-                    ssl=credentials.ssl,
-                    verify_ssl=credentials.verify_ssl,
-                )
+            manager, field_index_map = self._execute_batch_query(
+                valid_profiles, representative, measurement, errors, failed
             )
-
-            fields = [p.field for p in profiles]
-            filters = InfluxDBProfileManager._parse_esdl_profile_filters(
-                getattr(representative, "filters", None) or ""
-            )
-            t0 = time.time()
-            manager.load_influxdb(
-                measurement=measurement,
-                fields=fields,
-                from_datetime=representative.startDate,
-                to_datetime=representative.endDate,
-                filters=filters,
-            )
-            self.db_logger.info(
-                "Batch query completed",
-                {
-                    "measurement": measurement,
-                    "field_count": len(fields),
-                    "batch_time_ms": round((time.time() - t0) * 1000, 2),
-                },
-            )
-
-            if not manager.profile_data_list:
-                self.db_logger.warning(
-                    f"Batch query for measurement '{measurement}' returned no data, "
-                    f"falling back to per-profile loading"
-                )
-                raise ValueError(f"No data returned for measurement '{measurement}'")
-
+        except _BatchHardError as e:
+            return successful, e.failed_count
         except Exception as e:
             self.db_logger.warning(
                 f"Batch query failed for measurement '{measurement}', "
                 f"falling back to per-profile loading: {e}"
             )
-            successful = 0
-            failed = 0
-            for profile in profiles:
+            s, f = self._fallback_to_per_profile(valid_profiles, time_series_data, errors)
+            return successful + s, failed + f
+
+        s, f = self._extract_all_profiles_from_batch(
+            valid_profiles, field_index_map, manager, measurement, time_series_data, errors
+        )
+        return successful + s, failed + f
+
+    def _execute_batch_query(
+        self,
+        valid_profiles: list[esdl.InfluxDBProfile],
+        representative: esdl.InfluxDBProfile,
+        measurement: str,
+        errors: list[str],
+        failed_so_far: int,
+    ) -> tuple[InfluxDBProfileManager, dict[str, int]]:
+        """Authenticate, issue the batch SELECT, and return the manager + field index map.
+
+        Raises _BatchHardError for unrecoverable misconfigurations (e.g. DB name mismatch).
+        Raises any other Exception for transient failures the caller should fall back from.
+        """
+        # Fetch representative's credentials first, then validate the rest.
+        # The loop calls are validation-only side-effects; return values are intentionally
+        # discarded — each profile's host/port must be authorised before batch query.
+        credentials = self._get_credentials_for_profile(representative)
+        for profile in valid_profiles:
+            if profile is not representative:
+                self._get_credentials_for_profile(profile)
+
+        if representative.database != credentials.database:
+            error_msg = (
+                f"Profile database '{representative.database}' does not match "
+                f"credentials database '{credentials.database}' for "
+                f"measurement '{measurement}' — skipping batch"
+            )
+            self.db_logger.error(error_msg)
+            errors.extend(
+                self._categorize_profile_error(ValueError(error_msg), p.field)
+                for p in valid_profiles
+            )
+            raise _BatchHardError(failed_so_far + len(valid_profiles))
+
+        manager = InfluxDBProfileManager(
+            ConnectionSettings(
+                host=credentials.host,
+                port=credentials.port,
+                database=credentials.database,
+                username=credentials.username,
+                password=credentials.password,
+                ssl=credentials.ssl,
+                verify_ssl=credentials.verify_ssl,
+            )
+        )
+
+        fields = [p.field for p in valid_profiles]
+        filters = InfluxDBProfileManager._parse_esdl_profile_filters(
+            getattr(representative, "filters", None) or ""
+        )
+        t0 = time.time()
+        manager.load_influxdb(
+            measurement=measurement,
+            fields=fields,
+            from_datetime=representative.startDate,
+            to_datetime=representative.endDate,
+            filters=filters,
+        )
+        self.db_logger.info(
+            "Batch query completed",
+            {
+                "measurement": measurement,
+                "field_count": len(fields),
+                "batch_time_ms": round((time.time() - t0) * 1000, 2),
+            },
+        )
+
+        if not manager.profile_data_list:
+            raise ValueError(f"No data returned for measurement '{measurement}'")
+        if not manager.profile_header:
+            raise ValueError(f"Batch result for measurement '{measurement}' has no header")
+
+        return manager, {name: i for i, name in enumerate(manager.profile_header)}
+
+    def _extract_all_profiles_from_batch(
+        self,
+        valid_profiles: list[esdl.InfluxDBProfile],
+        field_index_map: dict[str, int],
+        manager: InfluxDBProfileManager,
+        measurement: str,
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+    ) -> tuple[int, int]:
+        """Extract each profile's field from a batch result, retrying per-profile on failure."""
+        successful = 0
+        failed = 0
+        for profile in valid_profiles:
+            errors_before = len(errors)
+            if self._extract_profile_from_batch(
+                profile, field_index_map, manager, measurement, time_series_data, errors
+            ):
+                successful += 1
+            else:
+                # Extraction can fail due to batch artifacts (NULL/NaN from non-overlapping
+                # timestamps). Retry per-profile before counting as failed.
+                # Truncate any errors appended by the failed extraction so the retry
+                # can report its own error if it also fails.
+                del errors[errors_before:]
+                self.db_logger.warning(
+                    f"Retrying field '{profile.field}' from measurement '{measurement}' "
+                    f"per-profile after batch extraction failure"
+                )
                 if self._process_single_profile(profile, time_series_data, errors):
                     successful += 1
                 else:
                     failed += 1
-            return successful, failed
+        return successful, failed
 
+    def _fallback_to_per_profile(
+        self,
+        profiles: list[esdl.InfluxDBProfile],
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+        warn_msg: str | None = None,
+    ) -> tuple[int, int]:
+        """Process each profile individually, optionally logging a warning per profile."""
         successful = 0
         failed = 0
         for profile in profiles:
-            if self._extract_profile_from_batch(
-                profile, manager, measurement, time_series_data, errors
-            ):
+            if warn_msg:
+                self.db_logger.warning(warn_msg)
+            if self._process_single_profile(profile, time_series_data, errors):
                 successful += 1
             else:
                 failed += 1
@@ -331,6 +433,7 @@ class DatabaseTimeSeriesLoader:
     def _extract_profile_from_batch(
         self,
         profile: esdl.InfluxDBProfile,
+        field_index_map: dict[str, int],
         manager: InfluxDBProfileManager,
         measurement: str,
         time_series_data: dict[str, TimeSeries],
@@ -343,28 +446,22 @@ class DatabaseTimeSeriesLoader:
         try:
             field = profile.field
             asset_id = self._extract_asset_id(profile)
-            field_index = manager.profile_header.index(field)
+            field_index = field_index_map.get(field)
+            if field_index is None:
+                raise ValueError(f"Field '{field}' not found in batch result header")
 
             self._validate_profile_data(profile, manager)
 
-            if any(row[field_index] is None for row in manager.profile_data_list):
+            if any(pd.isna(row[field_index]) for row in manager.profile_data_list):
                 raise ValueError(
-                    f"Batch result for field '{field}' contains NULL row(s) out of "
+                    f"Batch result for field '{field}' contains NULL/NaN row(s) out of "
                     f"{len(manager.profile_data_list)} — fields in this measurement "
                     f"may have non-overlapping timestamps"
                 )
 
-            data_points = {
-                row[0].strftime("%Y-%m-%dT%H:%M:%SZ"): row[field_index]
-                for row in manager.profile_data_list
-            }
-            df = pd.DataFrame.from_dict(data_points, orient="index")
-            df.index = pd.to_datetime(df.index, utc=True)
+            df = self._rows_to_dataframe(manager.profile_data_list, field_index)
             df = self._convert_units(df, profile)
-            multiplier = getattr(profile, "multiplier", None)
-            if multiplier is None:
-                multiplier = 1.0
-            df = df * multiplier
+            df = self._apply_multiplier(df, profile)
 
             values_list = df.values.flatten().tolist()
             validated_values = InputValidator.validate_time_series_data(
@@ -441,6 +538,30 @@ class DatabaseTimeSeriesLoader:
             )
             return False
 
+    def _rows_to_dataframe(
+        self, rows: Sequence[Sequence[datetime | float | None]], col_index: int
+    ) -> pd.DataFrame:
+        """Build a timezone-aware DatetimeIndex DataFrame from raw InfluxDB rows."""
+        data_points = {
+            row[0].strftime("%Y-%m-%dT%H:%M:%SZ"): row[col_index]  # type: ignore[union-attr]
+            for row in rows
+        }
+        df = pd.DataFrame.from_dict(data_points, orient="index")
+        df.index = pd.to_datetime(df.index, utc=True)
+        return df
+
+    def _apply_multiplier(self, df: pd.DataFrame, profile: esdl.InfluxDBProfile) -> pd.DataFrame:
+        """Apply profile multiplier to a DataFrame, warning if the multiplier is zero."""
+        multiplier = getattr(profile, "multiplier", None)
+        if multiplier is None:
+            multiplier = 1.0
+        if multiplier == 0.0:
+            self.db_logger.warning(
+                f"Profile '{profile.measurement}.{profile.field}' has multiplier=0.0 — "
+                f"all output values will be zero"
+            )
+        return df * multiplier
+
     def _extract_asset_id(self, profile: esdl.InfluxDBProfile) -> str:
         """Extract asset ID from InfluxDB profile container."""
         try:
@@ -497,20 +618,11 @@ class DatabaseTimeSeriesLoader:
             self.db_logger.log_query_success(measurement, field, record_count, query_time)
 
             # Convert to pandas DataFrame
-            data_points = {
-                t[0].strftime("%Y-%m-%dT%H:%M:%SZ"): t[1]
-                for t in time_series_data.profile_data_list
-            }
-            df = pd.DataFrame.from_dict(data_points, orient="index")
-            df.index = pd.to_datetime(df.index, utc=True)
+            df = self._rows_to_dataframe(time_series_data.profile_data_list, 1)
 
             # Convert units to standard format
             df = self._convert_units(df, profile)
-
-            multiplier = getattr(profile, "multiplier", None)
-            if multiplier is None:
-                multiplier = 1.0
-            df = df * multiplier
+            df = self._apply_multiplier(df, profile)
 
             # Validate time series data before creating TimeSeries
             values_list = df.values.flatten().tolist()
@@ -654,9 +766,8 @@ class DatabaseTimeSeriesLoader:
 
         # Validate time resolution (expect hourly data)
         for i in range(len(time_series_data.profile_data_list) - 1):
-            time_resolution = (
-                time_series_data.profile_data_list[i + 1][0]
-                - time_series_data.profile_data_list[i][0]
+            time_resolution = cast(datetime, time_series_data.profile_data_list[i + 1][0]) - cast(
+                datetime, time_series_data.profile_data_list[i][0]
             )
             if int(time_resolution.total_seconds()) != SECONDS_PER_HOUR:
                 actual_seconds = int(time_resolution.total_seconds())
