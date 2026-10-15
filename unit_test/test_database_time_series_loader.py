@@ -2,18 +2,23 @@
 """Tests for database time series loader."""
 
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pandas as pd
 from esdl import esdl
+from esdl.profiles.credentials import Credential, Credentials
 
 from kpicalculator.adapters.common_model import TimeSeries
 from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
-from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
+from kpicalculator.common.constants import (
+    COMPOSITE_KEY_SEPARATOR,
+)
 from kpicalculator.common.types import DatabaseCredentials
 from kpicalculator.exceptions import CredentialError
 from kpicalculator.security.credential_manager import CredentialManager
+from kpicalculator.security.input_validator import InputValidator
 
 
 class MockCredentialManager(CredentialManager):
@@ -582,15 +587,15 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(mock_load.call_count, 2)
 
     def test_load_time_series_from_esdl_no_profiles(self) -> None:
-        """Test ESDL loading with no InfluxDB profiles."""
+        """Test ESDL loading with no database profiles."""
         energy_system = Mock()
-        energy_system.eAllContents.return_value = [Mock(), Mock()]  # No InfluxDB profiles
+        energy_system.eAllContents.return_value = [Mock(), Mock()]  # No database profiles
 
         result_data, validation_result = self.loader.load_time_series_from_esdl(energy_system)
 
         self.assertTrue(validation_result.is_valid)
         self.assertEqual(len(result_data), 0)
-        self.assertIn("No InfluxDB profiles found in ESDL file", validation_result.warnings)
+        self.assertIn("No database profiles found in ESDL file", validation_result.warnings)
 
     def test_load_time_series_from_esdl_with_errors(self) -> None:
         """Test ESDL loading with profile errors."""
@@ -1378,6 +1383,783 @@ class TestLoadTimeSeriesFromEsdlBatchIntegration(unittest.TestCase):
         batch_inputs = [call.args[0] for call in mock_batch.call_args_list]
         self.assertIn([p1], batch_inputs)
         self.assertIn([p2], batch_inputs)
+
+
+# --------------------------------------------------------------------------------------
+# DataTableProfile (PostgreSQL / database-configured) loading
+# --------------------------------------------------------------------------------------
+
+_LOADER_MODULE = "kpicalculator.adapters.database_time_series_loader"
+_READ_PATH = f"{_LOADER_MODULE}.load_profile_data_and_header"
+_CLOSE_PATH = f"{_LOADER_MODULE}.close_db_connections"
+_T0 = datetime(2024, 1, 1, tzinfo=UTC)
+_HOUR = timedelta(hours=1)
+_PG_HOST = "pg.example.com"
+_PG_PORT = 5432
+_PG_KEY = f"{_PG_HOST}:{_PG_PORT}"
+_HEADER = ["datetime", "HeatIn.Q"]
+
+
+def _table_rows(values: list) -> list:
+    """Hourly [datetime, value] rows starting at 2024-01-01 UTC."""
+    return [[_T0 + i * _HOUR, v] for i, v in enumerate(values)]
+
+
+def _table_profile(
+    column: str | None = "HeatIn.Q",
+    table: str = "tbl",
+    host: str | None = _PG_HOST,
+    port: int | None = _PG_PORT,
+    configuration: object = "default",
+    **kwargs: object,
+) -> esdl.DataTableProfile:
+    """Return a real DataTableProfile; configuration="default" attaches a Postgres config."""
+    profile = esdl.DataTableProfile(tableName=table, columnName=column, **kwargs)
+    if configuration == "default":
+        profile.configuration = esdl.DatabaseConfiguration(
+            id="cfg1", host=host, port=port, type=esdl.DatabaseTypeEnum.POSTGRESQL
+        )
+    else:
+        profile.configuration = configuration
+    return profile
+
+
+def _energy_system(profiles: list[tuple[str, object]]) -> esdl.EnergySystem:
+    """Real EnergySystem with one HeatingDemand (id) per (id, profile) pair."""
+    energy_system = esdl.EnergySystem(id="es1")
+    instance = esdl.Instance(id="inst1")
+    energy_system.instance.append(instance)
+    area = esdl.Area(id="area1")
+    instance.area = area
+    for asset_id, profile in profiles:
+        demand = esdl.HeatingDemand(id=asset_id)
+        port = esdl.InPort(id=f"{asset_id}_port")
+        demand.port.append(port)
+        port.profile.append(profile)
+        area.asset.append(demand)
+    return energy_system
+
+
+def _pg_credentials(**overrides: object) -> DatabaseCredentials:
+    values = {
+        "host": _PG_HOST,
+        "port": _PG_PORT,
+        "username": "pg_user",
+        "password": "pg_password",
+        "database": "energy_profiles",
+    }
+    values.update(overrides)
+    return DatabaseCredentials(**values)  # type: ignore[arg-type]
+
+
+class _DataTableTestBase(unittest.TestCase):
+    """Common fixtures: loader with Postgres credentials, patched read, isolated registry."""
+
+    def setUp(self) -> None:
+        self._saved_credentials = dict(Credentials.credentials_dict)
+        Credentials.credentials_dict.pop(_PG_KEY, None)
+        self.loader = DatabaseTimeSeriesLoader(
+            MockCredentialManager({f"{_PG_HOST}: {_PG_PORT}": _pg_credentials()})
+        )
+        read_patcher = patch(_READ_PATH)
+        close_patcher = patch(_CLOSE_PATH)
+        self.mock_read = read_patcher.start()
+        self.mock_close = close_patcher.start()
+        self.addCleanup(read_patcher.stop)
+        self.addCleanup(close_patcher.stop)
+        self.mock_read.return_value = (_table_rows([1.0, 2.0, 3.0]), _HEADER)
+        warning_patcher = patch.object(self.loader.db_logger, "warning")
+        self.mock_warning = warning_patcher.start()
+        self.addCleanup(warning_patcher.stop)
+
+    def tearDown(self) -> None:
+        Credentials.credentials_dict.clear()
+        Credentials.credentials_dict.update(self._saved_credentials)
+
+    def load(self, *profiles: object) -> tuple[dict, object]:
+        """Load profiles, each on its own asset (asset1, asset2, ...)."""
+        pairs = [(f"asset{i + 1}", p) for i, p in enumerate(profiles)]
+        return self.loader.load_time_series_from_esdl(_energy_system(pairs))
+
+    def warning_texts(self) -> list[str]:
+        return [str(c.args[0]) for c in self.mock_warning.call_args_list]
+
+
+class TestDataTableProfileLoading(_DataTableTestBase):
+    """Happy path and read parameters."""
+
+    KEY = f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"
+
+    def test_loads_series_under_composite_key(self) -> None:
+        data, result = self.load(_table_profile())
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual(list(data), [self.KEY])
+        self.assertEqual(data[self.KEY].values, [1.0, 2.0, 3.0])
+        self.assertEqual(data[self.KEY].time_step, 3600.0)
+
+    def test_read_called_without_cache_or_multiplier_and_connection_kept_open(self) -> None:
+        profile = _table_profile()
+        self.load(profile)
+
+        self.mock_read.assert_called_once_with(
+            profile,
+            enable_cache=False,
+            apply_multiplier=False,
+            close_connection_after_load=False,
+        )
+
+    def test_postgres_only_esdl_does_not_report_no_profiles(self) -> None:
+        data, result = self.load(_table_profile())
+
+        self.assertEqual(len(data), 1)
+        self.assertEqual(result.warnings, [])
+
+    def test_influxdb_typed_database_configuration_is_read(self) -> None:
+        profile = _table_profile()
+        profile.configuration.type = esdl.DatabaseTypeEnum.INFLUXDB
+        data, result = self.load(profile)
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual(list(data), [self.KEY])
+        self.assertEqual(data[self.KEY].values, [1.0, 2.0, 3.0])
+        self.mock_read.assert_called_once()
+
+    def test_two_columns_on_one_asset_both_load(self) -> None:
+        energy_system = _energy_system([("asset1", _table_profile(column="A"))])
+        port = next(p for p in energy_system.eAllContents() if isinstance(p, esdl.InPort))
+        port.profile.append(_table_profile(column="B"))
+        data, result = self.loader.load_time_series_from_esdl(energy_system)
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(
+            sorted(data),
+            [f"asset1{COMPOSITE_KEY_SEPARATOR}A", f"asset1{COMPOSITE_KEY_SEPARATOR}B"],
+        )
+
+    def test_decimal_values_coerced_to_float(self) -> None:
+        self.mock_read.return_value = (_table_rows([Decimal("1.5"), Decimal("2.5")]), _HEADER)
+        data, result = self.load(_table_profile())
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(data[self.KEY].values, [1.5, 2.5])
+        self.assertTrue(all(type(v) is float for v in data[self.KEY].values))
+
+    def test_unordered_rows_are_sorted(self) -> None:
+        rows = _table_rows([1.0, 2.0, 3.0])
+        self.mock_read.return_value = ([rows[2], rows[0], rows[1]], _HEADER)
+        data, _ = self.load(_table_profile())
+
+        self.assertEqual(data[self.KEY].values, [1.0, 2.0, 3.0])
+
+    def test_naive_and_aware_timestamps_give_same_series(self) -> None:
+        frames: list[pd.DataFrame] = []
+        original = self.loader._rows_to_dataframe
+
+        def capture(rows: object, col_index: int) -> pd.DataFrame:
+            df = original(rows, col_index)  # type: ignore[arg-type]
+            frames.append(df)
+            return df
+
+        naive_rows = [[datetime(2024, 1, 1, i), float(i)] for i in range(3)]
+        plus_two = timezone(timedelta(hours=2))
+        aware_rows = [[datetime(2024, 1, 1, i + 2, tzinfo=plus_two), float(i)] for i in range(3)]
+        with patch.object(self.loader, "_rows_to_dataframe", side_effect=capture):
+            self.mock_read.return_value = (naive_rows, _HEADER)
+            naive_data, naive_result = self.load(_table_profile())
+            self.mock_read.return_value = (aware_rows, _HEADER)
+            aware_data, aware_result = self.load(_table_profile())
+
+        self.assertTrue(naive_result.is_valid and aware_result.is_valid)
+        self.assertEqual(naive_data[self.KEY].values, aware_data[self.KEY].values)
+        self.assertEqual(len(frames), 2)
+        self.assertTrue(frames[0].index.equals(frames[1].index))
+        for frame in frames:
+            self.assertEqual(str(frame.index.tz), "UTC")
+            self.assertEqual(frame.index[0], pd.Timestamp("2024-01-01", tz="UTC"))
+
+    def test_asset_id_falls_back_to_table_name_for_orphan_profile(self) -> None:
+        profile = _table_profile(table="orphan_table")
+        self.assertEqual(self.loader._extract_asset_id(profile), "orphan_table")
+
+    def test_asset_id_fallback_for_influx_profile_unchanged(self) -> None:
+        profile = esdl.InfluxDBProfile(measurement="orphan_measurement", field="f")
+        self.assertEqual(self.loader._extract_asset_id(profile), "orphan_measurement")
+
+
+class TestDataTableProfileSkippedAndInvalid(_DataTableTestBase):
+    """Ineligible profiles and per-profile validation failures."""
+
+    def test_missing_configuration_reported(self) -> None:
+        data, result = self.load(_table_profile(configuration=None))
+
+        self.assertFalse(result.is_valid)
+        self.assertEqual(data, {})
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("Configuration error loading profile HeatIn.Q", result.errors[0])
+        self.assertIn("asset1", result.errors[0])
+        self.assertIn(
+            "no DatabaseConfiguration in EnergySystemInformation.dataconfigurations",
+            result.errors[0],
+        )
+        self.mock_read.assert_not_called()
+
+    def test_file_configuration_skipped_with_single_counted_warning(self) -> None:
+        file_profile = _table_profile(configuration=esdl.FileConfiguration(uri="x.csv"))
+        output_profile = _table_profile(profileType=esdl.ProfileTypeEnum.OUTPUT, column="out")
+        output_profile2 = _table_profile(profileType=esdl.ProfileTypeEnum.OUTPUT, column="out2")
+        data, result = self.load(file_profile, output_profile, output_profile2)
+
+        self.assertEqual(data, {})
+        self.assertEqual(result.warnings, ["No database profiles found in ESDL file"])
+        skipped = [w for w in self.warning_texts() if w.startswith("Skipped")]
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("Skipped 3 DataTableProfile(s)", skipped[0])
+        self.mock_read.assert_not_called()
+
+    def test_skipped_profiles_do_not_block_eligible_ones(self) -> None:
+        output_profile = _table_profile(profileType=esdl.ProfileTypeEnum.OUTPUT, column="out")
+        data, result = self.load(output_profile, _table_profile())
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual(list(data), [f"asset2{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"])
+        skipped = [w for w in self.warning_texts() if w.startswith("Skipped")]
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("Skipped 1 DataTableProfile(s)", skipped[0])
+        self.mock_read.assert_called_once()
+
+    def test_no_skip_warning_when_nothing_skipped(self) -> None:
+        self.load(_table_profile())
+        self.assertEqual([w for w in self.warning_texts() if w.startswith("Skipped")], [])
+
+    def test_missing_host_reported(self) -> None:
+        data, result = self.load(_table_profile(host=None))
+
+        self.assertEqual(data, {})
+        self.assertIn("must define both host and port", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_missing_port_reported(self) -> None:
+        data, result = self.load(_table_profile(port=None))
+
+        self.assertEqual(data, {})
+        self.assertIn("must define both host and port", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_unset_port_reported_not_defaulted(self) -> None:
+        data, result = self.load(_table_profile(port=0))
+
+        self.assertEqual(data, {})
+        self.assertIn("must define both host and port", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_invalid_host_reported_before_credential_lookup(self) -> None:
+        spy = Mock(wraps=self.loader.credential_manager)
+        self.loader.set_credential_manager(spy)
+        data, result = self.load(_table_profile(host="bad host!"))
+
+        self.assertEqual(data, {})
+        self.assertIn("Configuration error loading profile", result.errors[0])
+        self.assertIn("Invalid hostname or IP address format", result.errors[0])
+        self.assertNotIn("No credentials found", result.errors[0])
+        spy.get_database_credentials.assert_not_called()
+        self.mock_read.assert_not_called()
+
+    def test_localhost_rejected_outside_development_mode(self) -> None:
+        with patch.object(InputValidator, "_is_development_mode", return_value=False):
+            data, result = self.load(_table_profile(host="localhost"))
+
+        self.assertEqual(data, {})
+        self.assertIn("Localhost access is disallowed", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_missing_column_name_reported_with_placeholder(self) -> None:
+        data, result = self.load(_table_profile(column=None))
+
+        self.assertEqual(data, {})
+        self.assertIn("Configuration error loading profile ?", result.errors[0])
+        self.assertIn("no columnName", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_unparsable_filter_reported(self) -> None:
+        data, result = self.load(_table_profile(filter="no key value pairs here"))
+
+        self.assertEqual(data, {})
+        self.assertIn("cannot be parsed", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_parsable_filter_is_read(self) -> None:
+        filter_text = "\"assetId\"='abc'"
+        data, result = self.load(_table_profile(filter=filter_text))
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual(len(data), 1)
+        self.mock_read.assert_called_once()
+        self.assertEqual(self.mock_read.call_args.args[0].filter, filter_text)
+
+    def test_one_bad_profile_does_not_block_a_good_one(self) -> None:
+        data, result = self.load(_table_profile(configuration=None), _table_profile())
+
+        self.assertFalse(result.is_valid)
+        self.assertEqual(list(data), [f"asset2{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"])
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("no DatabaseConfiguration", result.errors[0])
+
+
+class TestDataTableProfileCredentials(_DataTableTestBase):
+    """Credential resolution, registration and restore."""
+
+    def test_missing_credential_reported(self) -> None:
+        self.loader.set_credential_manager(MockCredentialManager({}))
+        data, result = self.load(_table_profile())
+
+        self.assertEqual(data, {})
+        self.assertIn("Configuration error loading profile HeatIn.Q", result.errors[0])
+        self.assertIn("No credentials found", result.errors[0])
+        self.mock_read.assert_not_called()
+
+    def test_empty_or_missing_username_or_password_reported(self) -> None:
+        missing_user_msg = "Database username cannot be empty"
+        cases = {
+            "none username": (_pg_credentials(username=None), missing_user_msg),
+            "empty username": (
+                DatabaseCredentials.model_construct(
+                    **{**_pg_credentials().model_dump(), "username": ""}
+                ),
+                missing_user_msg,
+            ),
+            "none password": (_pg_credentials(password=None), "Database password cannot be empty"),
+            "empty password": (
+                DatabaseCredentials.model_construct(
+                    **{**_pg_credentials().model_dump(), "password": ""}
+                ),
+                "Database password cannot be empty",
+            ),
+            "7-char password": (
+                DatabaseCredentials.model_construct(
+                    **{**_pg_credentials().model_dump(), "password": "a" * 7}
+                ),
+                "Database password too short",
+            ),
+        }
+        for name, (credentials, message) in cases.items():
+            with self.subTest(case=name):
+                self.loader.set_credential_manager(
+                    MockCredentialManager({f"{_PG_HOST}: {_PG_PORT}": credentials})
+                )
+                data, result = self.load(_table_profile())
+
+                self.assertEqual(data, {})
+                self.assertIn("Configuration error", result.errors[0])
+                self.assertIn(message, result.errors[0])
+                self.mock_read.assert_not_called()
+
+    def test_registry_clean_across_ok_fail_ok_sequence(self) -> None:
+        previous = Credential("old_user", "old_password")
+        Credentials.credentials_dict[_PG_KEY] = previous
+        ok = (_table_rows([1.0, 2.0]), _HEADER)
+        self.mock_read.side_effect = [ok, ConnectionError("db down"), ok]
+        data, result = self.load(_table_profile(), _table_profile(), _table_profile())
+
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("Database connection failed for profile HeatIn.Q", result.errors[0])
+        self.assertIn("db down", result.errors[0])
+        self.assertEqual(
+            sorted(data),
+            [
+                f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q",
+                f"asset3{COMPOSITE_KEY_SEPARATOR}HeatIn.Q",
+            ],
+        )
+        self.assertIs(Credentials.credentials_dict[_PG_KEY], previous)
+
+    def test_each_target_reads_with_its_own_credential(self) -> None:
+        second_host = "pg2.example.com"
+        self.loader.set_credential_manager(
+            MockCredentialManager(
+                {
+                    f"{_PG_HOST}: {_PG_PORT}": _pg_credentials(username="u1"),
+                    f"{second_host}: {_PG_PORT}": _pg_credentials(
+                        host=second_host, username="u2", password="another_password"
+                    ),
+                }
+            )
+        )
+        seen: list = []
+
+        def fake_read(profile: object, *_args: object, **_kwargs: object) -> tuple:
+            registered = {
+                key: cred.username
+                for key, cred in Credentials.credentials_dict.items()
+                if key.startswith("pg")
+            }
+            seen.append((profile.configuration.host, registered))  # type: ignore[attr-defined]
+            return _table_rows([1.0, 2.0]), _HEADER
+
+        self.mock_read.side_effect = fake_read
+        _, result = self.load(_table_profile(), _table_profile(host=second_host))
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(
+            seen,
+            [
+                (_PG_HOST, {_PG_KEY: "u1"}),
+                (second_host, {f"{second_host}:{_PG_PORT}": "u2"}),
+            ],
+        )
+        self.assertEqual([key for key in Credentials.credentials_dict if key.startswith("pg")], [])
+
+    def test_credential_registered_under_host_port_at_read_time_and_removed_after(self) -> None:
+        seen: list = []
+
+        def fake_read(*_args: object, **_kwargs: object) -> tuple:
+            seen.append(Credentials.credentials_dict.get(_PG_KEY))
+            return _table_rows([1.0, 2.0]), _HEADER
+
+        self.mock_read.side_effect = fake_read
+        self.load(_table_profile())
+
+        self.assertEqual(seen, [Credential("pg_user", "pg_password")])
+        self.assertNotIn(_PG_KEY, Credentials.credentials_dict)
+
+    def test_credential_removed_after_failed_read(self) -> None:
+        self.mock_read.side_effect = ConnectionError("db down")
+        _, result = self.load(_table_profile())
+
+        self.assertFalse(result.is_valid)
+        self.assertNotIn(_PG_KEY, Credentials.credentials_dict)
+
+    def test_prior_credential_restored_after_success(self) -> None:
+        previous = Credential("old_user", "old_password")
+        Credentials.credentials_dict[_PG_KEY] = previous
+        self.load(_table_profile())
+
+        self.assertIs(Credentials.credentials_dict[_PG_KEY], previous)
+
+    def test_prior_credential_restored_after_failed_read(self) -> None:
+        previous = Credential("old_user", "old_password")
+        Credentials.credentials_dict[_PG_KEY] = previous
+        self.mock_read.side_effect = RuntimeError("boom")
+        self.load(_table_profile())
+
+        self.assertIs(Credentials.credentials_dict[_PG_KEY], previous)
+
+    def test_other_registry_entries_untouched(self) -> None:
+        other = Credential("other_user", "other_password")
+        Credentials.credentials_dict["other.example.com"] = other
+        self.load(_table_profile())
+
+        self.assertIs(Credentials.credentials_dict["other.example.com"], other)
+
+
+class TestDataTableProfileConnections(_DataTableTestBase):
+    """Read failures and connection cleanup."""
+
+    def test_connections_closed_once_after_success(self) -> None:
+        self.load(_table_profile(), _table_profile(column="other"))
+        self.mock_close.assert_called_once_with()
+
+    def test_connections_closed_once_after_failed_read(self) -> None:
+        self.mock_read.side_effect = ConnectionError("db down")
+        _, result = self.load(_table_profile())
+
+        self.mock_close.assert_called_once_with()
+        self.assertIn("Database connection failed for profile HeatIn.Q", result.errors[0])
+
+    def test_connections_closed_when_loading_raises_unexpectedly(self) -> None:
+        with patch.object(
+            self.loader, "_process_data_table_profile", side_effect=RuntimeError("unexpected")
+        ):
+            data, result = self.load(_table_profile())
+
+        self.mock_close.assert_called_once_with()
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertIn("Failed to process database profiles: unexpected", result.errors[0])
+
+    def test_close_failure_keeps_loaded_data_but_marks_result_invalid(self) -> None:
+        # Closing connections failing after a successful load keeps the data and
+        # reports the failure as the only error.
+        self.mock_close.side_effect = RuntimeError("close boom")
+        data, result = self.load(_table_profile())
+
+        self.assertEqual(list(data), [f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"])
+        self.assertFalse(result.is_valid)
+        self.assertEqual(result.errors, ["Failed to process database profiles: close boom"])
+
+    def test_all_invalid_profiles_each_reported_and_close_called_once(self) -> None:
+        data, result = self.load(
+            _table_profile(configuration=None),
+            _table_profile(host=None),
+            _table_profile(column=None),
+        )
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertEqual(len(result.errors), 3)
+        self.assertIn("no DatabaseConfiguration", result.errors[0])
+        self.assertIn("must define both host and port", result.errors[1])
+        self.assertIn("no columnName", result.errors[2])
+        self.assertNotIn("No database profiles found in ESDL file", result.warnings)
+        self.mock_close.assert_called_once_with()
+        self.mock_read.assert_not_called()
+
+    def test_connections_not_closed_when_nothing_to_load(self) -> None:
+        self.load(_table_profile(configuration=esdl.FileConfiguration(uri="x.csv")))
+        self.mock_close.assert_not_called()
+
+    def test_read_failure_reported_as_data_processing_error_with_datetime_column_passed(
+        self,
+    ) -> None:
+        self.mock_read.side_effect = ValueError("'ts' is not in list")
+        data, result = self.load(_table_profile(datetimeColumnName="ts"))
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertIn("Data processing error for profile HeatIn.Q", result.errors[0])
+        self.assertIn("'ts' is not in list", result.errors[0])
+
+    def test_unexpected_read_exception_categorised_as_unexpected(self) -> None:
+        self.mock_read.side_effect = RuntimeError("PostgreSQL connection not established")
+        _, result = self.load(_table_profile())
+
+        self.assertIn("Unexpected error loading profile HeatIn.Q", result.errors[0])
+
+    def test_read_failure_of_one_profile_keeps_others(self) -> None:
+        self.mock_read.side_effect = [
+            ConnectionError("db down"),
+            (_table_rows([1.0, 2.0]), _HEADER),
+        ]
+        data, result = self.load(_table_profile(), _table_profile())
+
+        self.assertEqual(list(data), [f"asset2{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"])
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("Database connection failed for profile HeatIn.Q", result.errors[0])
+        self.assertIn("db down", result.errors[0])
+
+    def test_connections_closed_and_registry_restored_on_keyboard_interrupt(self) -> None:
+        previous = Credential("old_user", "old_password")
+        Credentials.credentials_dict[_PG_KEY] = previous
+        self.mock_read.side_effect = KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.load(_table_profile())
+
+        self.mock_close.assert_called_once_with()
+        self.assertIs(Credentials.credentials_dict[_PG_KEY], previous)
+
+
+class TestDataTableProfileReshapeErrors(_DataTableTestBase):
+    """Bad data returned by the read is reported, never loaded."""
+
+    def test_malformed_read_results_reported_as_data_processing_errors(self) -> None:
+        rows = _table_rows([1.0, 2.0])
+        cases = {
+            "null value": (_table_rows([1.0, None, 3.0]), _HEADER),
+            "multi-column header": ([[_T0, 1.0, 2.0]], ["datetime", "a", "b"]),
+            "empty rows": ([], _HEADER),
+            "no result": (None, None),
+            "duplicate timestamps": ([rows[0], rows[0], rows[1]], _HEADER),
+            "non-hourly spacing": ([[_T0, 1.0], [_T0 + timedelta(minutes=15), 2.0]], _HEADER),
+        }
+        for name, read_result in cases.items():
+            with self.subTest(case=name):
+                self.mock_read.return_value = read_result
+                data, result = self.load(_table_profile())
+
+                self.assertEqual(data, {})
+                self.assertFalse(result.is_valid)
+                self.assertEqual(len(result.errors), 1)
+                self.assertTrue(
+                    result.errors[0].startswith("Data processing error for profile HeatIn.Q"),
+                    result.errors[0],
+                )
+
+    def test_infinite_value_with_zero_multiplier_rejected(self) -> None:
+        # inf * 0.0 is NaN, which passes the range comparison, so the value must be
+        # rejected before the multiplier is applied.
+        self.mock_read.return_value = (_table_rows([1.0, float("inf")]), _HEADER)
+        data, result = self.load(_table_profile(multiplier=0.0))
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertIn("NULL/NaN/infinite", result.errors[0])
+
+
+class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
+    """Multiplier and unit handling."""
+
+    KEY = f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"
+
+    def test_multiplier_applied_exactly_once(self) -> None:
+        data, _ = self.load(_table_profile(multiplier=2.0))
+        self.assertEqual(data[self.KEY].values, [2.0, 4.0, 6.0])
+
+    def test_none_multiplier_treated_as_one(self) -> None:
+        profile = _table_profile()
+        profile.multiplier = None
+        data, result = self.load(profile)
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(data[self.KEY].values, [1.0, 2.0, 3.0])
+
+    def test_negative_multiplier_applied(self) -> None:
+        data, _ = self.load(_table_profile(multiplier=-1.0))
+        self.assertEqual(data[self.KEY].values, [-1.0, -2.0, -3.0])
+
+    def test_zero_multiplier_warns_and_zeroes_values(self) -> None:
+        data, _ = self.load(_table_profile(multiplier=0.0))
+
+        self.assertEqual(data[self.KEY].values, [0.0, 0.0, 0.0])
+        zero_warnings = [w for w in self.warning_texts() if "multiplier=0.0" in w]
+        self.assertEqual(len(zero_warnings), 1)
+        self.assertIn("tbl.HeatIn.Q", zero_warnings[0])
+
+    def test_missing_unit_warns_once_and_does_not_crash(self) -> None:
+        data, result = self.load(_table_profile())
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual(len(data), 1)
+        no_unit = [w for w in self.warning_texts() if "has no unit" in w]
+        self.assertEqual(len(no_unit), 1)
+        self.assertIn("tbl.HeatIn.Q", no_unit[0])
+
+    def test_unit_conversion_applied_when_unit_present(self) -> None:
+        unit = esdl.QuantityAndUnitType(
+            physicalQuantity=esdl.PhysicalQuantityEnum.POWER,
+            unit=esdl.UnitEnum.WATT,
+            multiplier=esdl.MultiplierEnum.MEGA,
+        )
+        data, result = self.load(_table_profile(profileQuantityAndUnit=unit))
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(data[self.KEY].values, [1e6, 2e6, 3e6])
+        self.assertEqual([w for w in self.warning_texts() if "has no unit" in w], [])
+
+    def test_unit_conversion_and_multiplier_both_applied(self) -> None:
+        unit = esdl.QuantityAndUnitType(
+            physicalQuantity=esdl.PhysicalQuantityEnum.POWER,
+            unit=esdl.UnitEnum.WATT,
+            multiplier=esdl.MultiplierEnum.KILO,
+        )
+        data, _ = self.load(_table_profile(profileQuantityAndUnit=unit, multiplier=2.0))
+
+        self.assertEqual(data[self.KEY].values, [2000.0, 4000.0, 6000.0])
+
+    def test_influx_zero_multiplier_warning_text_unchanged(self) -> None:
+        profile = _make_profile(measurement="heat", field="field_a", multiplier=0.0)
+        df = pd.DataFrame({0: [1.0, 2.0]})
+
+        self.loader._apply_multiplier(df, profile)
+
+        self.assertIn(
+            "Profile 'heat.field_a' has multiplier=0.0 — all output values will be zero",
+            self.warning_texts(),
+        )
+
+
+class TestDataTableProfileMergeWithInflux(_DataTableTestBase):
+    """Influx and DataTable profiles in one ESDL."""
+
+    def _influx_profile(self) -> esdl.InfluxDBProfile:
+        return esdl.InfluxDBProfile(
+            host="influx.example.com", port=8086, database="db", measurement="heat", field="power"
+        )
+
+    def _fake_influx_load(self, key: str, values: list[float]) -> object:
+        def fake(
+            _profile: object, time_series_data: dict[str, TimeSeries], _errors: list[str]
+        ) -> bool:
+            time_series_data[key] = TimeSeries(time_step=3600.0, values=values)
+            return True
+
+        return fake
+
+    def test_influx_and_data_table_results_merged(self) -> None:
+        influx_key = f"asset1{COMPOSITE_KEY_SEPARATOR}power"
+        with patch.object(
+            self.loader,
+            "_process_single_profile",
+            side_effect=self._fake_influx_load(influx_key, [9.0]),
+        ) as mock_single:
+            data, result = self.load(self._influx_profile(), _table_profile())
+
+        self.assertTrue(result.is_valid)
+        mock_single.assert_called_once()
+        self.assertEqual(set(data), {influx_key, f"asset2{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"})
+        self.assertEqual(data[influx_key].values, [9.0])
+        self.mock_close.assert_called_once_with()
+
+    def test_influx_plus_output_only_data_table_skips_without_no_profiles_warning(self) -> None:
+        influx_key = f"asset1{COMPOSITE_KEY_SEPARATOR}power"
+        output_profile = _table_profile(profileType=esdl.ProfileTypeEnum.OUTPUT, column="out")
+        with patch.object(
+            self.loader,
+            "_process_single_profile",
+            side_effect=self._fake_influx_load(influx_key, [9.0]),
+        ):
+            data, result = self.load(self._influx_profile(), output_profile)
+
+        self.assertEqual(list(data), [influx_key])
+        self.assertEqual(result.warnings, [])
+        skipped = [w for w in self.warning_texts() if w.startswith("Skipped")]
+        self.assertEqual(len(skipped), 1)
+        self.assertTrue(skipped[0].startswith("Skipped 1"))
+        self.mock_read.assert_not_called()
+
+    def test_influx_only_esdl_does_not_touch_data_table_read(self) -> None:
+        influx_key = f"asset1{COMPOSITE_KEY_SEPARATOR}power"
+        with patch.object(
+            self.loader,
+            "_process_single_profile",
+            side_effect=self._fake_influx_load(influx_key, [9.0]),
+        ):
+            data, _ = self.load(self._influx_profile())
+
+        self.assertEqual(list(data), [influx_key])
+        self.mock_read.assert_not_called()
+        self.mock_close.assert_called_once_with()
+
+    def test_key_collision_with_influx_keeps_first_and_reports_error(self) -> None:
+        # Influx profile on asset1 with field "HeatIn.Q" and a DataTable profile on the same
+        # asset with the same column: the Influx entry (loaded first) wins.
+        key = f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"
+        energy_system = _energy_system([("asset1", self._influx_profile())])
+        port = next(p for p in energy_system.eAllContents() if isinstance(p, esdl.InPort))
+        port.profile.append(_table_profile())
+        with patch.object(
+            self.loader,
+            "_process_single_profile",
+            side_effect=self._fake_influx_load(key, [9.0]),
+        ):
+            data, result = self.loader.load_time_series_from_esdl(energy_system)
+
+        self.assertEqual(data[key].values, [9.0])
+        self.assertFalse(result.is_valid)
+        self.assertIn(f"Duplicate time series key '{key}'", result.errors[0])
+        self.assertEqual(len(result.errors), 1)
+        duplicates = [w for w in self.warning_texts() if "Duplicate time series key" in w]
+        self.assertEqual(len(duplicates), 1)
+        self.assertIn(key, duplicates[0])
+
+    def test_key_collision_between_data_table_profiles_keeps_first_and_reports_error(self) -> None:
+        self.mock_read.side_effect = [
+            (_table_rows([1.0, 2.0]), _HEADER),
+            (_table_rows([7.0, 8.0]), _HEADER),
+        ]
+        energy_system = _energy_system([("asset1", _table_profile())])
+        port = next(p for p in energy_system.eAllContents() if isinstance(p, esdl.InPort))
+        port.profile.append(_table_profile(table="other_table"))
+        data, result = self.loader.load_time_series_from_esdl(energy_system)
+
+        key = f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"
+        self.assertEqual(data[key].values, [1.0, 2.0])
+        self.assertFalse(result.is_valid)
+        self.assertIn(f"Duplicate time series key '{key}'", result.errors[0])
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(
+            len([w for w in self.warning_texts() if "Duplicate time series key" in w]), 1
+        )
 
 
 if __name__ == "__main__":
