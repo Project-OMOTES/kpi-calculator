@@ -46,6 +46,7 @@ class SecureCredentialManager(CredentialManager):
         self.security_logger = get_security_logger()
         self.db_logger = get_database_logger("credential_manager")
         self._env_prefix_cache: dict[tuple[str, int], str] = {}
+        self._warned_unscoped_fallback = False
 
     def _get_env_prefix(self, host: str, port: int) -> str:
         """Get environment variable prefix for host:port (cached)."""
@@ -55,6 +56,52 @@ class SecureCredentialManager(CredentialManager):
             self._env_prefix_cache[cache_key] = f"KPI_DB_{normalized_host}_{port}"
         return self._env_prefix_cache[cache_key]
 
+    @staticmethod
+    def _normalise_host(host: str) -> str:
+        """Lowercase a host and drop a URL scheme and trailing slash."""
+        host = host.strip().lower()
+        for scheme in ("https://", "http://"):
+            host = host.removeprefix(scheme)
+        return host.rstrip("/")
+
+    def _matches_influxdb_fallback_target(self, host: str, port: int) -> bool:
+        """Return True if host:port is the InfluxDB server named by INFLUXDB_HOSTNAME/PORT.
+
+        Fails closed: if either variable is unset or the port is not an integer, the
+        INFLUXDB_* credentials are not used.
+        """
+        fallback_host = os.getenv("INFLUXDB_HOSTNAME")
+        fallback_port = os.getenv("INFLUXDB_PORT")
+        if not fallback_host or not fallback_port:
+            # Warn once when INFLUXDB_* secrets are configured but not used, so the missing
+            # scope is diagnosable; stay quiet when no fallback was configured at all.
+            configured = os.getenv("INFLUXDB_USERNAME") and os.getenv("INFLUXDB_PASSWORD")
+            if configured and not self._warned_unscoped_fallback:
+                self._warned_unscoped_fallback = True
+                self.db_logger.warning(
+                    "INFLUXDB_* credentials are not used: set INFLUXDB_HOSTNAME and "
+                    "INFLUXDB_PORT to the server they belong to",
+                    {"host": host, "port": port},
+                )
+            else:
+                self.db_logger.debug(
+                    "INFLUXDB_* fallback skipped: INFLUXDB_HOSTNAME and INFLUXDB_PORT not set",
+                    {"host": host, "port": port},
+                )
+            return False
+        try:
+            matches = int(fallback_port) == port and self._normalise_host(
+                fallback_host
+            ) == self._normalise_host(host)
+        except ValueError:
+            matches = False
+        if not matches:
+            self.db_logger.debug(
+                "INFLUXDB_* fallback skipped: host:port is not INFLUXDB_HOSTNAME:INFLUXDB_PORT",
+                {"host": host, "port": port},
+            )
+        return matches
+
     def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Load credentials from environment variables.
 
@@ -62,9 +109,12 @@ class SecureCredentialManager(CredentialManager):
         with the format KPI_DB_{HOST}_{PORT}_{FIELD}, where HOST is uppercased and
         dots/hyphens are replaced with underscores. If either the username or password
         is missing, it falls back to using INFLUXDB_* environment variables for
-        compatibility with simulator-worker setups. The priority order is:
+        compatibility with simulator-worker setups, but only for the host and port named
+        by INFLUXDB_HOSTNAME and INFLUXDB_PORT: the requested host comes from the ESDL, and
+        the unscoped INFLUXDB_* secrets must not be sent to any other destination. The
+        priority order is:
         1. KPI_DB_{HOST}_{PORT}_{FIELD} (primary)
-        2. INFLUXDB_* (fallback if primary is incomplete)
+        2. INFLUXDB_* (fallback if primary is incomplete and host:port matches)
 
         Args:
             host: Database host (e.g., "wu-profiles.esdl-beta.hesi.energy")
@@ -83,12 +133,10 @@ class SecureCredentialManager(CredentialManager):
         verify_ssl_env = os.getenv(f"{env_prefix}_VERIFY_SSL")
 
         # Fallback to INFLUXDB_* variables (simulator-worker compatibility)
-        if not username or not password:
+        if (not username or not password) and self._matches_influxdb_fallback_target(host, port):
             username = username or os.getenv("INFLUXDB_USERNAME")
             password = password or os.getenv("INFLUXDB_PASSWORD")
             database = database or os.getenv("INFLUXDB_DATABASE")
-            # INFLUXDB_HOSTNAME and INFLUXDB_PORT are informational only
-            # (we already know host:port from the ESDL InfluxDBProfile)
 
         if not username or not password:
             self.db_logger.debug(

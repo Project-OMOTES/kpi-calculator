@@ -150,6 +150,8 @@ class TestSecureCredentialManager(unittest.TestCase):
             "INFLUXDB_USERNAME": "simulator_user",
             "INFLUXDB_PASSWORD": "simulator_pass",
             "INFLUXDB_DATABASE": "simulator_db",
+            "INFLUXDB_HOSTNAME": "localhost",
+            "INFLUXDB_PORT": str(INFLUXDB_PORT),
         },
     )
     def test_get_database_credentials_influxdb_fallback(self) -> None:
@@ -164,6 +166,92 @@ class TestSecureCredentialManager(unittest.TestCase):
         self.assertEqual(credentials.database, "simulator_db")
         self.assertFalse(credentials.ssl)
         self.assertFalse(credentials.verify_ssl)
+
+    @staticmethod
+    def _fallback_env(**overrides: str | None) -> dict[str, str]:
+        env = {
+            "INFLUXDB_USERNAME": "simulator_user",
+            "INFLUXDB_PASSWORD": "simulator_pass",
+            "INFLUXDB_HOSTNAME": "influxdb.internal",
+            "INFLUXDB_PORT": str(INFLUXDB_PORT),
+        }
+        for key, value in overrides.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
+        return env
+
+    def test_influxdb_fallback_used_only_for_the_named_host_and_port(self) -> None:
+        cases: list[tuple[str, str, int, dict[str, str | None], bool]] = [
+            ("matching host and port", "influxdb.internal", INFLUXDB_PORT, {}, True),
+            (
+                "case and scheme differences",
+                "influxdb.internal",
+                INFLUXDB_PORT,
+                {"INFLUXDB_HOSTNAME": "HTTP://InfluxDB.Internal/"},
+                True,
+            ),
+            (
+                "requested host in upper case",
+                "InfluxDB.Internal",
+                INFLUXDB_PORT,
+                {},
+                True,
+            ),
+            ("different host", "attacker.example.com", INFLUXDB_PORT, {}, False),
+            ("different port", "influxdb.internal", 5432, {}, False),
+            (
+                "hostname unset",
+                "influxdb.internal",
+                INFLUXDB_PORT,
+                {"INFLUXDB_HOSTNAME": None},
+                False,
+            ),
+            ("port unset", "influxdb.internal", INFLUXDB_PORT, {"INFLUXDB_PORT": None}, False),
+            (
+                "port not an integer",
+                "influxdb.internal",
+                INFLUXDB_PORT,
+                {"INFLUXDB_PORT": "abc"},
+                False,
+            ),
+        ]
+        for description, host, port, overrides, expected in cases:
+            with self.subTest(case=description):
+                with patch.dict(os.environ, self._fallback_env(**overrides), clear=True):
+                    credentials = self.manager.get_database_credentials(host, port)
+                if expected:
+                    self.assertIsNotNone(credentials)
+                    self.assertEqual(credentials.username, "simulator_user")
+                    self.assertEqual(credentials.password, "simulator_pass")
+                else:
+                    self.assertIsNone(credentials)
+
+    def test_unscoped_influxdb_secrets_are_reported_with_a_warning(self) -> None:
+        env = self._fallback_env(INFLUXDB_HOSTNAME=None, INFLUXDB_PORT=None)
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(self.manager.db_logger, "warning") as warning:
+                for _ in range(3):
+                    self.assertIsNone(
+                        self.manager.get_database_credentials("influxdb.internal", 8086)
+                    )
+        warning.assert_called_once()
+        self.assertIn("set INFLUXDB_HOSTNAME and INFLUXDB_PORT", warning.call_args.args[0])
+
+    def test_no_warning_when_no_influxdb_fallback_is_configured(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(self.manager.db_logger, "warning") as warning:
+                self.assertIsNone(self.manager.get_database_credentials("influxdb.internal", 8086))
+        warning.assert_not_called()
+
+    def test_influxdb_fallback_does_not_complete_a_partial_kpi_credential_elsewhere(
+        self,
+    ) -> None:
+        env = self._fallback_env()
+        env["KPI_DB_ATTACKER_EXAMPLE_COM_5432_USERNAME"] = "kpi_user"
+        with patch.dict(os.environ, env, clear=True):
+            self.assertIsNone(self.manager.get_database_credentials("attacker.example.com", 5432))
 
     @patch.dict(
         os.environ,
