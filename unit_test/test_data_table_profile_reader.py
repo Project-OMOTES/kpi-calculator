@@ -1,6 +1,7 @@
 # unit_test/test_data_table_profile_reader.py
 """Tests for the pure DataTableProfile helpers (eligibility, validation, reshape)."""
 
+import threading
 import unittest
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
@@ -27,9 +28,12 @@ def make_config(
     host: str | None = "pg.example.com",
     port: int | None = 5432,
     config_type: esdl.DatabaseTypeEnum = esdl.DatabaseTypeEnum.POSTGRESQL,
+    database: str | None = None,
 ) -> esdl.DatabaseConfiguration:
     """Return a real DatabaseConfiguration."""
-    return esdl.DatabaseConfiguration(id="cfg1", host=host, port=port, type=config_type)
+    return esdl.DatabaseConfiguration(
+        id="cfg1", host=host, port=port, type=config_type, database=database
+    )
 
 
 def make_profile(
@@ -90,6 +94,27 @@ class TestIsDatabaseProfile(unittest.TestCase):
 
 class TestValidateDataTableProfile(unittest.TestCase):
     """Pre-read validation of profile and configuration."""
+
+    def test_influxdb_configuration_without_database_rejected(self) -> None:
+        for database in (None, ""):
+            with self.subTest(database=database):
+                config = make_config(config_type=esdl.DatabaseTypeEnum.INFLUXDB, database=database)
+                with self.assertRaises(ValidationError) as ctx:
+                    validate_data_table_profile(make_profile(config=config), "asset1")
+                self.assertIn("INFLUXDB but names no database", str(ctx.exception))
+                self.assertIn("asset1", str(ctx.exception))
+
+    def test_influxdb_configuration_with_database_accepted(self) -> None:
+        config = make_config(config_type=esdl.DatabaseTypeEnum.INFLUXDB, database="energy")
+        target = validate_data_table_profile(make_profile(config=config), "asset1")
+        self.assertEqual(target, DataTableTarget("pg.example.com", 5432))
+
+    def test_postgresql_configuration_without_database_accepted(self) -> None:
+        for database in (None, ""):
+            with self.subTest(database=database):
+                config = make_config(database=database)
+                target = validate_data_table_profile(make_profile(config=config), "asset1")
+                self.assertEqual(target, DataTableTarget("pg.example.com", 5432))
 
     def test_valid_profile_returns_target(self) -> None:
         target = validate_data_table_profile(make_profile(), "asset1")
@@ -238,6 +263,23 @@ class TestRegisteredCredential(unittest.TestCase):
         ):
             self.fail("body must not run when registration fails")
         self.assertIs(Credentials.credentials_dict[self.KEY], previous)
+
+    def test_concurrent_registration_of_same_key_is_serialised(self) -> None:
+        other_entered = threading.Event()
+
+        def register_other() -> None:
+            with registered_credential("pg.example.com", 5432, "other", "otherpassword"):
+                other_entered.set()
+
+        with registered_credential("pg.example.com", 5432, "user", "password1"):
+            thread = threading.Thread(target=register_other)
+            thread.start()
+            self.assertFalse(other_entered.wait(timeout=0.2))
+            self.assertEqual(Credentials.credentials_dict[self.KEY].username, "user")
+        thread.join(timeout=5)
+
+        self.assertTrue(other_entered.is_set())
+        self.assertNotIn(self.KEY, Credentials.credentials_dict)
 
     def test_other_keys_untouched(self) -> None:
         Credentials.credentials_dict["other.example.com"] = Credential("o", "otherpassword")

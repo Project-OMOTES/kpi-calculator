@@ -1,6 +1,7 @@
 # unit_test/test_database_time_series_loader.py
 """Tests for database time series loader."""
 
+import threading
 import unittest
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
@@ -11,6 +12,7 @@ from esdl import esdl
 from esdl.profiles.credentials import Credential, Credentials
 
 from kpicalculator.adapters.common_model import TimeSeries
+from kpicalculator.adapters.data_table_profile_reader import DATABASE_READ_LOCK
 from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
 from kpicalculator.common.constants import (
     COMPOSITE_KEY_SEPARATOR,
@@ -218,6 +220,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.measurement = "power"
         profile.field = "consumption"
+        profile.multiplier = 1.0
 
         # Mock get credentials to raise exception
         with patch.object(self.loader, "_get_credentials_for_profile") as mock_get_creds:
@@ -235,6 +238,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.field = "power"
         profile.measurement = "consumption"
+        profile.multiplier = 1.0
         energy_system.eAllContents.return_value = [profile]
 
         with patch.object(self.loader, "_extract_asset_id", return_value="asset_1"):
@@ -1254,13 +1258,20 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertIn(key_a, time_series_data)
         self.assertIn(key_b, time_series_data)
 
+    @patch(f"{_INFLUXDB_PATH.rsplit('.', 1)[0]}.ConnectionSettings")
     @patch(_INFLUXDB_PATH)
-    def test_database_mismatch_is_hard_error(self, mock_influx_cls) -> None:
-        """Profile database differing from credentials database is a hard error — no fallback."""
+    def test_batch_connects_to_the_profile_database(self, mock_influx_cls, mock_settings) -> None:
+        """The batch query uses the profile's database, as the single-profile path does."""
         p1 = _make_profile(field="field_a", asset_id="asset_1", database="profile_db")
         p2 = _make_profile(field="field_b", asset_id="asset_2", database="profile_db")
 
-        mismatched = DatabaseCredentials(
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        other_db = DatabaseCredentials(
             host="influx.example.com",
             port=8086,
             username="user",
@@ -1269,18 +1280,118 @@ class TestProcessProfileBatch(unittest.TestCase):
             ssl=False,
             verify_ssl=False,
         )
+
+        errors: list = []
+        time_series_data: dict = {}
+        with patch.object(self.loader, "_get_credentials_for_profile", return_value=other_db):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                with patch.object(self.loader, "_process_single_profile") as mock_single:
+                    successful, failed = self.loader._process_profile_batch(
+                        [p1, p2], time_series_data, errors
+                    )
+
+        self.assertEqual(mock_settings.call_args.kwargs["database"], "profile_db")
+        mock_single.assert_not_called()
+        self.assertEqual((successful, failed, errors), (2, 0, []))
+
+    @patch(_INFLUXDB_PATH)
+    def test_non_finite_multiplier_fails_before_any_query(self, mock_influx_cls) -> None:
+        """A single Influx profile with a NaN/inf multiplier is recorded once, with no query."""
+        for multiplier in (float("nan"), float("inf")):
+            with self.subTest(multiplier=multiplier):
+                mock_influx_cls.reset_mock()
+                profile = _make_profile(field="field_a", asset_id="asset_1", multiplier=multiplier)
+                errors: list = []
+                with patch.object(
+                    self.loader, "_get_credentials_for_profile", return_value=self.credentials
+                ):
+                    successful, failed = self.loader._process_profile_batch([profile], {}, errors)
+
+                mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+                self.assertEqual((successful, failed), (0, 1))
+                self.assertEqual(len(errors), 1)
+                self.assertIn("multiplier must be finite", errors[0])
+
+    def test_profile_without_database_is_rejected_before_any_query(self) -> None:
+        for database in (None, ""):
+            with self.subTest(database=database):
+                profile = _make_profile(database=database)
+                with self.assertRaises(CredentialError) as ctx:
+                    self.loader._get_credentials_for_profile(profile)
+                self.assertIn("no database configured", str(ctx.exception))
+
+    @patch(_INFLUXDB_PATH)
+    def test_batch_without_database_falls_back_and_records_one_error_per_profile(
+        self, mock_influx_cls
+    ) -> None:
+        p1 = _make_profile(field="field_a", asset_id="asset_1", database=None)
+        p2 = _make_profile(field="field_b", asset_id="asset_2", database=None)
+        errors: list = []
+
+        successful, failed = self.loader._process_profile_batch([p1, p2], {}, errors)
+
+        mock_influx_cls.assert_not_called()
+        self.assertEqual((successful, failed), (0, 2))
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all("no database configured" in e for e in errors))
+
+    @patch(_INFLUXDB_PATH)
+    def test_non_numeric_multiplier_is_recorded_without_aborting_the_batch(
+        self, mock_influx_cls
+    ) -> None:
+        """A non-numeric multiplier fails that profile only; the rest of the group still loads."""
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier="abc")
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
         mock_influx_cls._parse_esdl_profile_filters.return_value = []
 
         errors: list = []
-        with patch.object(self.loader, "_get_credentials_for_profile", return_value=mismatched):
-            with patch.object(self.loader, "_process_single_profile") as mock_single:
-                successful, failed = self.loader._process_profile_batch([p1, p2], {}, errors)
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch([bad, p1, p2], {}, errors)
 
-        mock_single.assert_not_called()
-        mock_influx_cls.assert_not_called()
-        self.assertEqual(successful, 0)
-        self.assertEqual(failed, 2)
-        self.assertEqual(len(errors), 2)
+        self.assertEqual((successful, failed), (2, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("multiplier must be finite", errors[0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_non_finite_multiplier_is_not_batched_and_not_retried(self, mock_influx_cls) -> None:
+        """In a batch, the bad-multiplier profile fails once; the others share one query."""
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier=float("nan"))
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        errors: list = []
+        time_series_data: dict = {}
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch(
+                    [bad, p1, p2], time_series_data, errors
+                )
+
+        mock_manager.load_influxdb.assert_called_once()
+        self.assertEqual(
+            mock_manager.load_influxdb.call_args.kwargs["fields"], ["field_a", "field_b"]
+        )
+        mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+        self.assertEqual((successful, failed), (2, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("multiplier must be finite", errors[0])
 
     @patch(_INFLUXDB_PATH)
     def test_missing_profile_header_falls_back_to_per_profile(self, mock_influx_cls) -> None:
@@ -1518,12 +1629,23 @@ class TestDataTableProfileLoading(_DataTableTestBase):
     def test_influxdb_typed_database_configuration_is_read(self) -> None:
         profile = _table_profile()
         profile.configuration.type = esdl.DatabaseTypeEnum.INFLUXDB
+        profile.configuration.database = "energy"
         data, result = self.load(profile)
 
         self.assertTrue(result.is_valid)
         self.assertEqual(list(data), [self.KEY])
         self.assertEqual(data[self.KEY].values, [1.0, 2.0, 3.0])
         self.mock_read.assert_called_once()
+
+    def test_influxdb_typed_configuration_without_database_reported_before_read(self) -> None:
+        profile = _table_profile()
+        profile.configuration.type = esdl.DatabaseTypeEnum.INFLUXDB
+        data, result = self.load(profile)
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertIn("INFLUXDB but names no database", result.errors[0])
+        self.mock_read.assert_not_called()
 
     def test_two_columns_on_one_asset_both_load(self) -> None:
         energy_system = _energy_system([("asset1", _table_profile(column="A"))])
@@ -1949,6 +2071,56 @@ class TestDataTableProfileConnections(_DataTableTestBase):
         self.assertIs(Credentials.credentials_dict[_PG_KEY], previous)
 
 
+def _lock_held_by_another_thread() -> bool:
+    """Probe DATABASE_READ_LOCK from a separate thread (an RLock is re-entrant per thread)."""
+    acquired: list[bool] = []
+
+    def probe() -> None:
+        got = DATABASE_READ_LOCK.acquire(blocking=False)
+        if got:
+            DATABASE_READ_LOCK.release()
+        acquired.append(got)
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join()
+    return not acquired[0]
+
+
+class TestDatabaseReadLock(_DataTableTestBase):
+    """Loads in one process are serialised on pyESDL's shared state."""
+
+    def test_lock_held_while_profiles_load_and_connections_close(self) -> None:
+        held: list[bool] = []
+
+        def read(*_args: object, **_kwargs: object) -> tuple[list, list]:
+            held.append(_lock_held_by_another_thread())
+            return _table_rows([1.0, 2.0, 3.0]), _HEADER
+
+        self.mock_read.side_effect = read
+        self.mock_close.side_effect = lambda: held.append(_lock_held_by_another_thread())
+
+        self.load(_table_profile())
+
+        self.assertEqual(held, [True, True])
+        self.assertFalse(_lock_held_by_another_thread())
+
+    def test_lock_not_held_during_influx_batches(self) -> None:
+        held: list[bool] = []
+
+        def batch(*_args: object, **_kwargs: object) -> tuple[int, int]:
+            held.append(_lock_held_by_another_thread())
+            return 1, 0
+
+        with (
+            patch.object(self.loader, "_group_profiles_for_batch", return_value={"k": [1]}),
+            patch.object(self.loader, "_process_profile_batch", side_effect=batch),
+        ):
+            self.loader._load_database_profiles([Mock()], [], {}, [])
+
+        self.assertEqual(held, [False])
+
+
 class TestDataTableProfileReshapeErrors(_DataTableTestBase):
     """Bad data returned by the read is reported, never loaded."""
 
@@ -2002,6 +2174,16 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
 
         self.assertTrue(result.is_valid, result.errors)
         self.assertEqual(data[self.KEY].values, [1.0, 2.0, 3.0])
+
+    def test_non_finite_multiplier_rejected(self) -> None:
+        for multiplier in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(multiplier=multiplier):
+                data, result = self.load(_table_profile(multiplier=multiplier))
+
+                self.assertEqual(data, {})
+                self.assertFalse(result.is_valid)
+                self.assertIn("multiplier must be finite", result.errors[0])
+                self.mock_read.assert_not_called()
 
     def test_negative_multiplier_applied(self) -> None:
         data, _ = self.load(_table_profile(multiplier=-1.0))

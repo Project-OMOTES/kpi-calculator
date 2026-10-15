@@ -9,6 +9,7 @@ reshaping of the returned rows into a clean, hourly, UTC time series.
 """
 
 import math
+import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,13 @@ from esdl.profiles.datatableprofilemanager import DataTableProfileManager
 from ..common.constants import SECONDS_PER_HOUR
 from ..exceptions import ValidationError
 from ..security.input_validator import InputValidator
+
+DATABASE_READ_LOCK = threading.RLock()
+"""Serialises use of pyESDL's process-wide state (credential registry, open connections).
+
+Held for the whole network read, without a timeout: a hung host blocks other DataTable
+reads and the connection cleanup in the same process.
+"""
 
 
 class DataTableTarget(NamedTuple):
@@ -61,8 +69,8 @@ def validate_data_table_profile(profile: esdl.DataTableProfile, asset_id: str) -
         The validated host and port.
 
     Raises:
-        ValidationError: Missing configuration, host, port or column name, or an
-            unparsable filter.
+        ValidationError: Missing configuration, host, port or column name, an INFLUXDB
+            configuration without a database, or an unparsable filter.
         SecurityError: Host rejected by the host policy.
     """
     configuration = profile.configuration
@@ -87,6 +95,13 @@ def validate_data_table_profile(profile: esdl.DataTableProfile, asset_id: str) -
         )
     InputValidator.validate_database_host(configuration.host)
     InputValidator.validate_database_port(configuration.port)
+    # pyESDL would try to create an Influx database from an empty name. For POSTGRESQL an
+    # empty database name selects the server default, so it is not checked there.
+    if configuration.type == esdl.DatabaseTypeEnum.INFLUXDB and not configuration.database:
+        raise ValidationError(
+            f"DatabaseConfiguration for asset {asset_id} (table '{profile.tableName}') is of "
+            f"type INFLUXDB but names no database"
+        )
 
     if not profile.columnName or not profile.columnName.strip():
         raise ValidationError(
@@ -121,21 +136,22 @@ def registered_credential(host: str, port: int, username: str, password: str) ->
     """Register a credential under ``host:port`` with pyESDL and restore the registry on exit.
 
     ``Credentials.credentials_dict`` is process-wide, so the previous entry for the key (or
-    its absence) is put back after the ``with`` block, also when the block raises. The
-    read-modify-restore is not synchronised: concurrent loads of the same ``host:port`` in
-    one process can overwrite each other's credential.
+    its absence) is put back after the ``with`` block, also when the block raises.
+    ``DATABASE_READ_LOCK`` is held for the whole block, so concurrent loads in one process
+    cannot read or restore each other's credential.
     """
     key = f"{host}:{port}"
-    registry = Credentials.credentials_dict
-    previous: Credential | None = registry.get(key)
-    try:
-        Credentials.add_credential(key, username, password)
-        yield
-    finally:
-        if previous is None:
-            registry.pop(key, None)
-        else:
-            registry[key] = previous
+    with DATABASE_READ_LOCK:
+        registry = Credentials.credentials_dict
+        previous: Credential | None = registry.get(key)
+        try:
+            Credentials.add_credential(key, username, password)
+            yield
+        finally:
+            if previous is None:
+                registry.pop(key, None)
+            else:
+                registry[key] = previous
 
 
 def _coerce_value(value: Any) -> float:
