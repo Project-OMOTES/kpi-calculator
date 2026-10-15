@@ -77,13 +77,14 @@ class DatabaseTimeSeriesLoader:
 
     2. Graceful Degradation:
        - Individual profile failures do not crash entire loading process
-       - Failed profiles result in None values rather than exceptions
+       - Profiles that fail to load are skipped and reported in ValidationResult.errors
+       - Profiles with no field name are skipped with a warning only
        - Partial data loading succeeds when some profiles are accessible
        - All errors are logged with detailed context for troubleshooting
 
     3. Helper Methods:
        - _categorize_profile_error(): Categorizes exceptions and formats messages
-       - _handle_query_error(): Provides consistent error logging and degradation
+       - _handle_query_error(): Provides consistent query error logging
 
     This design ensures system stability while providing clear error reporting
     for debugging and monitoring database connectivity issues.
@@ -513,9 +514,6 @@ class DatabaseTimeSeriesLoader:
             time_series = self._load_profile_data(profile)
             profile_time = time.time() - profile_start
 
-            if not time_series:
-                return False
-
             composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{field_name}"
             time_series_data[composite_key] = time_series
             self.db_logger.log_time_series_processing(
@@ -575,14 +573,18 @@ class DatabaseTimeSeriesLoader:
                 # Fallback to using measurement as ID
                 return str(profile.measurement)
 
-    def _load_profile_data(self, profile: esdl.InfluxDBProfile) -> TimeSeries | None:
+    def _load_profile_data(self, profile: esdl.InfluxDBProfile) -> TimeSeries:
         """Load data for a single InfluxDB profile.
 
         Args:
             profile: ESDL InfluxDBProfile element
 
         Returns:
-            TimeSeries object with loaded data, or None if loading failed
+            TimeSeries object with loaded data
+
+        Raises:
+            Exception: Any failure while loading, after it has been logged. The caller
+                (``_process_single_profile``) records it in the validation errors.
         """
         measurement = profile.measurement
         field = profile.field
@@ -641,7 +643,7 @@ class DatabaseTimeSeriesLoader:
 
         except Exception as e:
             self._handle_query_error(e, measurement, field)
-            return None
+            raise
 
     def _get_credentials_for_profile(self, profile: esdl.InfluxDBProfile) -> DatabaseCredentials:
         """Get database credentials for InfluxDB profile securely.
@@ -899,32 +901,15 @@ class DatabaseTimeSeriesLoader:
         return f"Unexpected error loading profile {profile_field}: {error!s}"
 
     def _handle_query_error(self, error: Exception, measurement: str, field: str) -> None:
-        """Handle query execution errors with graceful degradation.
+        """Log a query execution error with context (measurement, field, error).
 
-        This method implements a consistent error handling strategy for database
-        query operations, ensuring that all errors are properly logged while
-        maintaining graceful degradation behavior.
-
-        Strategy:
-        - All exceptions are logged with detailed context (measurement, field, error)
-        - All exceptions result in graceful degradation (caller returns None)
-        - No exceptions are re-raised to ensure system stability
-        - Consistent logging format for troubleshooting and monitoring
-
-        This approach ensures that individual profile loading failures do not
-        crash the entire time series loading process, allowing partial data
-        loading when some profiles are accessible.
+        This method only logs. The caller re-raises so that
+        ``_process_single_profile`` can record the failure in the validation errors
+        and continue with the remaining profiles.
 
         Args:
             error: The exception that occurred during query execution
             measurement: The InfluxDB measurement being queried
             field: The specific field being queried
-
-        Note:
-            After calling this method, the caller should return None to indicate
-            failed loading. This preserves the original graceful degradation
-            behavior where all loading failures result in None rather than
-            exceptions being propagated.
         """
         self.db_logger.log_query_error(measurement, field, error)
-        # All errors result in graceful degradation (return None from caller)

@@ -209,7 +209,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         mock_validator.validate_time_series_data.assert_called_once()
 
     def test_load_profile_data_exception_handling(self) -> None:
-        """Test profile data loading with exception."""
+        """Test profile data loading logs and re-raises a failure."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.measurement = "power"
         profile.field = "consumption"
@@ -218,9 +218,58 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with patch.object(self.loader, "_get_credentials_for_profile") as mock_get_creds:
             mock_get_creds.side_effect = CredentialError("No credentials")
 
-            result = self.loader._load_profile_data(profile)
+            with patch.object(self.loader, "_handle_query_error") as mock_handle:
+                with self.assertRaises(CredentialError):
+                    self.loader._load_profile_data(profile)
 
-        self.assertIsNone(result)
+        mock_handle.assert_called_once()
+
+    def test_single_profile_credential_failure_is_reported(self) -> None:
+        """A credential failure on the single-profile path must appear in the errors."""
+        energy_system = Mock()
+        profile = Mock(spec=esdl.InfluxDBProfile)
+        profile.field = "power"
+        profile.measurement = "consumption"
+        energy_system.eAllContents.return_value = [profile]
+
+        with patch.object(self.loader, "_extract_asset_id", return_value="asset_1"):
+            with patch.object(self.loader, "_get_credentials_for_profile") as mock_get_creds:
+                mock_get_creds.side_effect = CredentialError("No credentials")
+
+                result_data, validation_result = self.loader.load_time_series_from_esdl(
+                    energy_system
+                )
+
+        self.assertEqual(result_data, {})
+        self.assertFalse(validation_result.is_valid)
+        self.assertEqual(len(validation_result.errors), 1)
+        self.assertIn("Configuration error loading profile power", validation_result.errors[0])
+        self.assertIn("No credentials", validation_result.errors[0])
+
+    def test_failed_profile_reported_while_other_profile_loads(self) -> None:
+        """One failing profile is reported and the other still loads."""
+        energy_system = Mock()
+        profile1 = Mock(spec=esdl.InfluxDBProfile)
+        profile1.field = "power"
+        profile1.measurement = "consumption"
+        profile2 = Mock(spec=esdl.InfluxDBProfile)
+        profile2.field = "flow"
+        profile2.measurement = "heat"
+        energy_system.eAllContents.return_value = [profile1, profile2]
+        time_series = TimeSeries(time_step=3600.0, values=[1.0, 2.0])
+
+        with patch.object(self.loader, "_extract_asset_id", side_effect=["asset_1", "asset_2"]):
+            with patch.object(self.loader, "_load_profile_data") as mock_load:
+                mock_load.side_effect = [ConnectionError("db down"), time_series]
+
+                result_data, validation_result = self.loader.load_time_series_from_esdl(
+                    energy_system
+                )
+
+        self.assertEqual(list(result_data.values()), [time_series])
+        self.assertFalse(validation_result.is_valid)
+        self.assertEqual(len(validation_result.errors), 1)
+        self.assertIn("Database connection failed for profile power", validation_result.errors[0])
 
     def test_get_credentials_for_profile_https_prefix(self) -> None:
         """Test credential extraction with HTTPS prefix in host."""
@@ -932,6 +981,39 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertEqual(time_series_data[key_b].values, [3.0, 3.0])
         warning_messages = [str(call.args[0]) for call in mock_warn.call_args_list]
         self.assertTrue(any("multiplier=0.0" in m for m in warning_messages))
+
+    @patch(_INFLUXDB_PATH)
+    def test_failed_retry_after_batch_extraction_reports_single_error(
+        self, mock_influx_cls
+    ) -> None:
+        """A profile whose batch extraction and per-profile retry both fail yields one error."""
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [float("nan"), 20.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        errors: list[str] = []
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                with patch.object(
+                    self.loader, "_load_profile_data", side_effect=ConnectionError("DB down")
+                ):
+                    time_series_data: dict = {}
+                    successful, failed = self.loader._process_profile_batch(
+                        [p1, p2], time_series_data, errors
+                    )
+
+        self.assertEqual((successful, failed), (1, 1))
+        self.assertEqual(list(time_series_data), [f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Database connection failed for profile field_b", errors[0])
 
     @patch(_INFLUXDB_PATH)
     def test_batch_failure_falls_back_to_per_profile(self, mock_influx_cls) -> None:
