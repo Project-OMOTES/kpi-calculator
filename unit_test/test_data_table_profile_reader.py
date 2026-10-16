@@ -14,10 +14,11 @@ from kpicalculator.adapters.data_table_profile_reader import (
     DataTableTarget,
     is_database_profile,
     registered_credential,
+    require_honoured_tls,
     reshape_rows,
     validate_data_table_profile,
 )
-from kpicalculator.exceptions import SecurityError, ValidationError
+from kpicalculator.exceptions import CredentialError, SecurityError, ValidationError
 from kpicalculator.security.input_validator import InputValidator
 
 T0 = datetime(2024, 1, 1, tzinfo=UTC)
@@ -201,6 +202,69 @@ class TestValidateDataTableProfile(unittest.TestCase):
 
     def test_empty_filter_accepted(self) -> None:
         self.assertEqual(validate_data_table_profile(make_profile(filter_=""), "a1").port, 5432)
+
+
+class TestRequireHonouredTls(unittest.TestCase):
+    """TLS requirements pyESDL cannot be told about are rejected unless guaranteed anyway."""
+
+    def test_postgres_requirements_follow_pgsslmode(self) -> None:
+        config = make_config()
+        # (ssl, verify_ssl, PGSSLMODE, accepted)
+        cases = [
+            (False, False, None, True),
+            (False, False, "disable", True),
+            (True, False, None, False),
+            (True, False, "prefer", False),
+            (True, False, "require", True),
+            (True, False, "verify-ca", True),
+            (True, False, "VERIFY-FULL", True),
+            (False, True, "require", False),
+            (False, True, "verify-ca", True),
+            (True, True, "verify-full", True),
+            (True, True, "require", False),
+        ]
+        for ssl, verify_ssl, mode, accepted in cases:
+            with self.subTest(ssl=ssl, verify_ssl=verify_ssl, mode=mode):
+                env = {} if mode is None else {"PGSSLMODE": mode}
+                with patch.dict("os.environ", env, clear=True):
+                    if accepted:
+                        require_honoured_tls(config, ssl, verify_ssl)
+                    else:
+                        with self.assertRaisesRegex(CredentialError, "PGSSLMODE"):
+                            require_honoured_tls(config, ssl, verify_ssl)
+
+    def test_postgres_requirement_rejected_when_a_service_file_may_override_pgsslmode(
+        self,
+    ) -> None:
+        env = {"PGSSLMODE": "verify-full", "PGSERVICE": "svc"}
+        with patch.dict("os.environ", env, clear=True):
+            with self.assertRaisesRegex(CredentialError, "unset PGSERVICE"):
+                require_honoured_tls(make_config(), True, False)
+            # No requirement, nothing to guarantee.
+            require_honoured_tls(make_config(), False, False)
+
+    def test_influxdb_requirements_follow_pyesdl_tls_rule(self) -> None:
+        # (host, port, accepted): pyESDL uses TLS for port 443 or an "https" host.
+        cases = [
+            ("influx.example.com", 443, True),
+            ("https://influx.example.com", 8086, True),
+            ("influx.example.com", 8086, False),
+        ]
+        for host, port, accepted in cases:
+            with self.subTest(host=host, port=port):
+                config = make_config(
+                    host=host,
+                    port=port,
+                    config_type=esdl.DatabaseTypeEnum.INFLUXDB,
+                    database="energy",
+                )
+                # PGSSLMODE must not matter for INFLUXDB-typed reads.
+                with patch.dict("os.environ", {"PGSSLMODE": "verify-full"}, clear=True):
+                    if accepted:
+                        require_honoured_tls(config, True, True)
+                    else:
+                        with self.assertRaisesRegex(CredentialError, "https host or port 443"):
+                            require_honoured_tls(config, True, False)
 
 
 class TestRegisteredCredential(unittest.TestCase):

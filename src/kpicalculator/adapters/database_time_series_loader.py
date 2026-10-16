@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Protocol, cast
 
+import numpy as np
 import pandas as pd
 from esdl import esdl
 from esdl.profiles.influxdbprofilemanager import ConnectionSettings, InfluxDBProfileManager
@@ -36,6 +37,7 @@ from .data_table_profile_reader import (
     DATABASE_READ_LOCK,
     is_database_profile,
     registered_credential,
+    require_honoured_tls,
     reshape_rows,
     validate_data_table_profile,
 )
@@ -645,14 +647,22 @@ class DatabaseTimeSeriesLoader:
         as ``host:port`` for the duration of the read. The pyESDL cache is disabled (its
         key omits the profile filter), the multiplier is applied here after float coercion
         rather than by pyESDL, and the connection stays open for the caller to close.
+        Credentials that require TLS are rejected unless the read is guaranteed to use it
+        (see ``require_honoured_tls``).
 
         Raises:
             Exception: Any validation, credential, read or reshape failure.
         """
         target = validate_data_table_profile(profile, asset_id)
         self._finite_multiplier(profile)  # fail before any read
-        username, password = self._get_data_table_credentials(target.host, target.port)
-        with registered_credential(target.host, target.port, username, password):
+        credentials = self._get_data_table_credentials(target.host, target.port)
+        require_honoured_tls(profile.configuration, credentials.ssl, credentials.verify_ssl)
+        with registered_credential(
+            target.host,
+            target.port,
+            cast(str, credentials.username),
+            cast(str, credentials.password),
+        ):
             data, header = load_profile_data_and_header(
                 profile,
                 enable_cache=False,
@@ -661,8 +671,8 @@ class DatabaseTimeSeriesLoader:
             )
         return self._data_table_rows_to_time_series(profile, data, header)
 
-    def _get_data_table_credentials(self, host: str, port: int) -> tuple[str, str]:
-        """Resolve and validate a username and password from the CredentialManager chain.
+    def _get_data_table_credentials(self, host: str, port: int) -> DatabaseCredentials:
+        """Resolve and validate credentials from the CredentialManager chain.
 
         Raises:
             CredentialError: No credentials found.
@@ -670,7 +680,7 @@ class DatabaseTimeSeriesLoader:
         """
         credentials = self._get_secure_credentials(host, port)
         InputValidator.validate_database_credentials(credentials)
-        return cast(str, credentials.username), cast(str, credentials.password)
+        return credentials
 
     def _data_table_rows_to_time_series(
         self,
@@ -731,18 +741,24 @@ class DatabaseTimeSeriesLoader:
         """Apply profile multiplier to a DataFrame, warning if the multiplier is zero.
 
         Raises:
-            ValidationError: If the multiplier is NaN or infinite.
+            ValidationError: If the multiplier is NaN or infinite, or the scaled values are
+                not finite (unit conversion can overflow, and ``inf * 0.0`` is NaN).
         """
         multiplier = self._finite_multiplier(profile)
+        if isinstance(profile, esdl.DataTableProfile):
+            label = f"{profile.tableName}.{profile.columnName}"
+        else:
+            label = f"{profile.measurement}.{profile.field}"
         if multiplier == 0.0:
-            if isinstance(profile, esdl.DataTableProfile):
-                label = f"{profile.tableName}.{profile.columnName}"
-            else:
-                label = f"{profile.measurement}.{profile.field}"
             self.db_logger.warning(
                 f"Profile '{label}' has multiplier=0.0 — all output values will be zero"
             )
-        return df * multiplier
+        scaled = df * multiplier
+        if not np.isfinite(scaled.to_numpy(dtype=float)).all():
+            raise ValidationError(
+                f"Profile '{label}' has non-finite values after unit conversion and scaling"
+            )
+        return scaled
 
     def _extract_asset_id(self, profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> str:
         """Extract asset ID from the profile container (port, carrier or table/measurement)."""

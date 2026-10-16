@@ -9,6 +9,7 @@ reshaping of the returned rows into a clean, hourly, UTC time series.
 """
 
 import math
+import os
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -20,8 +21,8 @@ from esdl import esdl
 from esdl.profiles.credentials import Credential, Credentials
 from esdl.profiles.datatableprofilemanager import DataTableProfileManager
 
-from ..common.constants import SECONDS_PER_HOUR
-from ..exceptions import ValidationError
+from ..common.constants import DEFAULT_DATABASE_SSL_PORT, SECONDS_PER_HOUR
+from ..exceptions import CredentialError, ValidationError
 from ..security.input_validator import InputValidator
 
 DATABASE_READ_LOCK = threading.RLock()
@@ -30,6 +31,10 @@ DATABASE_READ_LOCK = threading.RLock()
 Held for the whole network read, without a timeout: a hung host blocks other DataTable
 reads and the connection cleanup in the same process.
 """
+
+
+_TLS_SSLMODES = ("require", "verify-ca", "verify-full")
+_VERIFYING_SSLMODES = ("verify-ca", "verify-full")
 
 
 class DataTableTarget(NamedTuple):
@@ -117,6 +122,47 @@ def validate_data_table_profile(profile: esdl.DataTableProfile, asset_id: str) -
         )
     _validate_filter(profile, asset_id)
     return DataTableTarget(configuration.host, configuration.port)
+
+
+def require_honoured_tls(
+    configuration: esdl.DatabaseConfiguration, ssl: bool, verify_ssl: bool
+) -> None:
+    """Reject a TLS requirement that the pyESDL read cannot honour.
+
+    pyESDL's credentials carry only a username and password, so ``ssl`` and ``verify_ssl``
+    cannot be passed on. Postgres reads use libpq's ``sslmode``, which pyESDL leaves to
+    libpq: the ``PGSSLMODE`` environment variable, or a service file selected by
+    ``PGSERVICE``, whose values override it. The default, ``prefer``, may fall back to
+    plaintext. A requirement is therefore accepted only when ``PGSSLMODE`` guarantees it
+    and ``PGSERVICE`` is unset. INFLUXDB-typed reads use TLS, with verification, when the
+    host contains "https" or the port is 443.
+
+    Raises:
+        CredentialError: ``ssl`` or ``verify_ssl`` is requested but not guaranteed.
+    """
+    if not (ssl or verify_ssl):
+        return
+    if configuration.type == esdl.DatabaseTypeEnum.INFLUXDB:
+        if "https" in configuration.host or configuration.port == DEFAULT_DATABASE_SSL_PORT:
+            return
+        remedy = f"use an https host or port {DEFAULT_DATABASE_SSL_PORT}"
+    else:
+        mode = os.environ.get("PGSSLMODE", "").strip().lower()
+        accepted = _VERIFYING_SSLMODES if verify_ssl else _TLS_SSLMODES
+        if os.environ.get("PGSERVICE"):
+            remedy = (
+                f"unset PGSERVICE (its service file can override PGSSLMODE) and set "
+                f"PGSSLMODE to one of {', '.join(accepted)}"
+            )
+        elif mode in accepted:
+            return
+        else:
+            remedy = f"set PGSSLMODE to one of {', '.join(accepted)}"
+    raise CredentialError(
+        f"Credentials for {configuration.host}:{configuration.port} require "
+        f"{'verified ' if verify_ssl else ''}TLS, which pyESDL cannot be told to use; "
+        f"{remedy}, or remove ssl/verify_ssl from the credentials"
+    )
 
 
 def _validate_filter(profile: esdl.DataTableProfile, asset_id: str) -> None:

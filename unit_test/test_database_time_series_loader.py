@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
+import numpy as np
 import pandas as pd
 from esdl import esdl
 from esdl.profiles.credentials import Credential, Credentials
@@ -18,7 +19,7 @@ from kpicalculator.common.constants import (
     COMPOSITE_KEY_SEPARATOR,
 )
 from kpicalculator.common.types import DatabaseCredentials
-from kpicalculator.exceptions import CredentialError
+from kpicalculator.exceptions import CredentialError, ValidationError
 from kpicalculator.security.credential_manager import CredentialManager
 from kpicalculator.security.input_validator import InputValidator
 
@@ -198,6 +199,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
                     mock_df.values.flatten.return_value.tolist.return_value = test_values
                     # Make the mock support multiplication (df * profile.multiplier)
                     mock_df.__mul__ = Mock(return_value=mock_df)
+                    mock_df.to_numpy.return_value = np.array(test_values)
                     mock_convert.return_value = mock_df
 
                     # Mock extract asset ID
@@ -1895,6 +1897,28 @@ class TestDataTableProfileCredentials(_DataTableTestBase):
         )
         self.assertIs(Credentials.credentials_dict[_PG_KEY], previous)
 
+    def test_tls_requirement_rejected_before_any_read_unless_pgsslmode_guarantees_it(
+        self,
+    ) -> None:
+        self.loader.set_credential_manager(
+            MockCredentialManager(
+                {f"{_PG_HOST}: {_PG_PORT}": _pg_credentials(ssl=True, verify_ssl=True)}
+            )
+        )
+        with patch.dict("os.environ", {}, clear=True):
+            data, result = self.load(_table_profile())
+
+        self.assertEqual(data, {})
+        self.assertIn("PGSSLMODE", result.errors[0])
+        self.mock_read.assert_not_called()
+        self.assertNotIn(_PG_KEY, Credentials.credentials_dict)
+
+        with patch.dict("os.environ", {"PGSSLMODE": "verify-full"}, clear=True):
+            data, result = self.load(_table_profile())
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(len(data), 1)
+
     def test_each_target_reads_with_its_own_credential(self) -> None:
         second_host = "pg2.example.com"
         self.loader.set_credential_manager(
@@ -2184,6 +2208,28 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
                 self.assertFalse(result.is_valid)
                 self.assertIn("multiplier must be finite", result.errors[0])
                 self.mock_read.assert_not_called()
+
+    def test_overflow_in_unit_conversion_rejected_even_with_zero_multiplier(self) -> None:
+        # 1e308 MW overflows to inf in W, and inf * 0.0 would be NaN, which the range
+        # validation does not catch.
+        self.mock_read.return_value = (_table_rows([1e308, 1.0]), _HEADER)
+        unit = esdl.QuantityAndUnitType(
+            physicalQuantity=esdl.PhysicalQuantityEnum.POWER,
+            unit=esdl.UnitEnum.WATT,
+            multiplier=esdl.MultiplierEnum.MEGA,
+        )
+        data, result = self.load(_table_profile(profileQuantityAndUnit=unit, multiplier=0.0))
+
+        self.assertEqual(data, {})
+        self.assertIn("non-finite values after unit conversion and scaling", result.errors[0])
+        self.assertIn("tbl.HeatIn.Q", result.errors[0])
+
+    def test_influx_scaling_to_non_finite_values_rejected(self) -> None:
+        profile = _make_profile(measurement="heat", field="field_a", multiplier=1e200)
+        df = pd.DataFrame({0: [1e200, 1.0]})
+
+        with self.assertRaisesRegex(ValidationError, "'heat.field_a' has non-finite values"):
+            self.loader._apply_multiplier(df, profile)
 
     def test_negative_multiplier_applied(self) -> None:
         data, _ = self.load(_table_profile(multiplier=-1.0))
