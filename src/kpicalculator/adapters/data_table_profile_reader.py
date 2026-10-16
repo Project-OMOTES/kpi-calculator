@@ -34,7 +34,7 @@ reads and the connection cleanup in the same process.
 
 
 _TLS_SSLMODES = ("require", "verify-ca", "verify-full")
-_VERIFYING_SSLMODES = ("verify-ca", "verify-full")
+_VERIFYING_SSLMODES = ("verify-full",)
 
 
 class DataTableTarget(NamedTuple):
@@ -134,7 +134,8 @@ def require_honoured_tls(
     libpq: the ``PGSSLMODE`` environment variable, or a service file selected by
     ``PGSERVICE``, whose values override it. The default, ``prefer``, may fall back to
     plaintext. A requirement is therefore accepted only when ``PGSSLMODE`` guarantees it
-    and ``PGSERVICE`` is unset. INFLUXDB-typed reads use TLS, with verification, when the
+    and ``PGSERVICE`` is unset; ``verify_ssl`` needs ``verify-full`` because ``verify-ca``
+    does not check the server's hostname. INFLUXDB-typed reads use TLS, with verification, when the
     host contains "https" or the port is 443.
 
     Raises:

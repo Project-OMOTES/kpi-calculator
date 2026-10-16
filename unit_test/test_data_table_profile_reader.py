@@ -219,7 +219,8 @@ class TestRequireHonouredTls(unittest.TestCase):
             (True, False, "verify-ca", True),
             (True, False, "VERIFY-FULL", True),
             (False, True, "require", False),
-            (False, True, "verify-ca", True),
+            (False, True, "verify-ca", False),
+            (True, True, "verify-ca", False),
             (True, True, "verify-full", True),
             (True, True, "require", False),
         ]
