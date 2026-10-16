@@ -47,6 +47,7 @@ class SecureCredentialManager(CredentialManager):
         self.db_logger = get_database_logger("credential_manager")
         self._env_prefix_cache: dict[tuple[str, int], str] = {}
         self._warned_unscoped_fallback = False
+        self._warned_unscoped_prefixes: set[str] = set()
 
     def _get_env_prefix(self, host: str, port: int) -> str:
         """Get environment variable prefix for host:port (cached)."""
@@ -102,17 +103,41 @@ class SecureCredentialManager(CredentialManager):
             )
         return matches
 
+    def _kpi_prefix_applies(self, env_prefix: str, host: str, port: int) -> bool:
+        """Return True if the KPI_DB_* variables under env_prefix may be used for this host.
+
+        The prefix maps '.' and '-' to '_', so different hosts can share one prefix, and
+        the requested host comes from the ESDL. Variables under a prefix are therefore used
+        only when <prefix>_HOST names the requested host; otherwise all of them are ignored.
+        A prefix with no credential variables set has nothing to scope.
+        """
+        fields = ("USERNAME", "PASSWORD", "DATABASE", "SSL", "VERIFY_SSL")
+        if not any(os.getenv(f"{env_prefix}_{field}") for field in fields):
+            return True
+        env_host = os.getenv(f"{env_prefix}_HOST")
+        if env_host and self._normalise_host(env_host) == self._normalise_host(host):
+            return True
+        if env_prefix not in self._warned_unscoped_prefixes:
+            self._warned_unscoped_prefixes.add(env_prefix)
+            self.db_logger.warning(
+                f"{env_prefix}_* credentials are not used: {env_prefix}_HOST must be set to "
+                f"the host they belong to",
+                {"host": host, "port": port},
+            )
+        return False
+
     def get_database_credentials(self, host: str, port: int) -> DatabaseCredentials | None:
         """Load credentials from environment variables.
 
         This method first attempts to load credentials using environment variables
         with the format KPI_DB_{HOST}_{PORT}_{FIELD}, where HOST is uppercased and
-        dots/hyphens are replaced with underscores. If either the username or password
-        is missing, it falls back to using INFLUXDB_* environment variables for
-        compatibility with simulator-worker setups, but only for the host and port named
-        by INFLUXDB_HOSTNAME and INFLUXDB_PORT: the requested host comes from the ESDL, and
-        the unscoped INFLUXDB_* secrets must not be sent to any other destination. The
-        priority order is:
+        dots/hyphens are replaced with underscores. Because that mapping is ambiguous,
+        they are used only if KPI_DB_{HOST}_{PORT}_HOST names the requested host. If
+        either the username or password is missing, it falls back to using INFLUXDB_*
+        environment variables for compatibility with simulator-worker setups, but only for
+        the host and port named by INFLUXDB_HOSTNAME and INFLUXDB_PORT: the requested host
+        comes from the ESDL, and the unscoped INFLUXDB_* secrets must not be sent to any
+        other destination. The priority order is:
         1. KPI_DB_{HOST}_{PORT}_{FIELD} (primary)
         2. INFLUXDB_* (fallback if primary is incomplete and host:port matches)
 
@@ -125,12 +150,17 @@ class SecureCredentialManager(CredentialManager):
         """
         env_prefix = self._get_env_prefix(host, port)
 
-        # Try KPI_DB_* variables first (primary)
-        username = os.getenv(f"{env_prefix}_USERNAME")
-        password = os.getenv(f"{env_prefix}_PASSWORD")
-        database = os.getenv(f"{env_prefix}_DATABASE")
-        ssl_env = os.getenv(f"{env_prefix}_SSL")
-        verify_ssl_env = os.getenv(f"{env_prefix}_VERIFY_SSL")
+        # Try KPI_DB_* variables first (primary), if the prefix belongs to this host
+        scoped = self._kpi_prefix_applies(env_prefix, host, port)
+
+        def kpi_value(field: str) -> str | None:
+            return os.getenv(f"{env_prefix}_{field}") if scoped else None
+
+        username = kpi_value("USERNAME")
+        password = kpi_value("PASSWORD")
+        database = kpi_value("DATABASE")
+        ssl_env = kpi_value("SSL")
+        verify_ssl_env = kpi_value("VERIFY_SSL")
 
         # Fallback to INFLUXDB_* variables (simulator-worker compatibility)
         if (not username or not password) and self._matches_influxdb_fallback_target(host, port):

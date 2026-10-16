@@ -101,6 +101,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_TEST_EXAMPLE_COM_8086_HOST": "test.example.com",
             "KPI_DB_TEST_EXAMPLE_COM_8086_USERNAME": "test_user",
             "KPI_DB_TEST_EXAMPLE_COM_8086_PASSWORD": "test_pass",
         },
@@ -145,6 +146,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_HOST": (
+                "wu-profiles.esdl-beta.hesi.energy"
+            ),
             "KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_USERNAME": "test_user",
             "KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443_PASSWORD": "test_pass",
         },

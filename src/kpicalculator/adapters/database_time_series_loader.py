@@ -126,7 +126,8 @@ class DatabaseTimeSeriesLoader:
                 env_prefix = f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_{port}"
                 error = CredentialError(
                     f"No credentials found for {host}: {port}. "
-                    f"Set environment variables or configure credentials file. "
+                    f"Set environment variables (including {env_prefix}_HOST) or "
+                    f"configure credentials file. "
                     f"(Context: host={host}, port={port}, env_prefix={env_prefix})"
                 )
                 self.db_logger.log_credential_error(host, port, error)

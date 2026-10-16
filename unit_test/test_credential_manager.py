@@ -63,6 +63,7 @@ class TestSecureCredentialManager(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_EXAMPLE_COM_443_HOST": "example.com",
             "KPI_DB_EXAMPLE_COM_443_USERNAME": "testuser",
             "KPI_DB_EXAMPLE_COM_443_PASSWORD": "testpass",
             "KPI_DB_EXAMPLE_COM_443_DATABASE": "testdb",
@@ -86,6 +87,7 @@ class TestSecureCredentialManager(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_EXAMPLE_COM_443_HOST": "example.com",
             "KPI_DB_EXAMPLE_COM_443_USERNAME": "testuser",
             "KPI_DB_EXAMPLE_COM_443_PASSWORD": "testpass",
             # No SSL or VERIFY_SSL variables - should use defaults
@@ -103,6 +105,7 @@ class TestSecureCredentialManager(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_COMPLEX_HOST_NAME_8080_HOST": "complex-host.name",
             "KPI_DB_COMPLEX_HOST_NAME_8080_USERNAME": "testuser",
             "KPI_DB_COMPLEX_HOST_NAME_8080_PASSWORD": "testpass",
         },
@@ -134,6 +137,7 @@ class TestSecureCredentialManager(unittest.TestCase):
         for username, password, expected, description in test_cases:
             with self.subTest(case=description):
                 test_env = self._filter_env_vars("KPI_DB_EXAMPLE_COM_443_")
+                test_env["KPI_DB_EXAMPLE_COM_443_HOST"] = "example.com"
 
                 if username is not None:
                     test_env["KPI_DB_EXAMPLE_COM_443_USERNAME"] = username
@@ -228,6 +232,67 @@ class TestSecureCredentialManager(unittest.TestCase):
                 else:
                     self.assertIsNone(credentials)
 
+    def test_kpi_credentials_require_the_matching_host(self) -> None:
+        prefix = "KPI_DB_WU_PROFILES_ESDL_BETA_HESI_ENERGY_443"
+        base = {f"{prefix}_USERNAME": "kpi_user", f"{prefix}_PASSWORD": "kpi_pass"}
+        real = "wu-profiles.esdl-beta.hesi.energy"
+        lookalike = "wu-profiles-esdl-beta-hesi.energy"
+        cases: list[tuple[str, dict[str, str], str, bool]] = [
+            ("matching host", {f"{prefix}_HOST": real}, real, True),
+            (
+                "host differs in case and scheme",
+                {f"{prefix}_HOST": f"HTTPS://{real.upper()}/"},
+                real,
+                True,
+            ),
+            ("host variable unset", {}, real, False),
+            ("host variable empty", {f"{prefix}_HOST": ""}, real, False),
+            ("look-alike host sharing the prefix", {f"{prefix}_HOST": real}, lookalike, False),
+        ]
+        for description, extra, requested, expected in cases:
+            with self.subTest(case=description):
+                with patch.dict(os.environ, {**base, **extra}, clear=True):
+                    credentials = self.manager.get_database_credentials(requested, HTTPS_PORT)
+                if expected:
+                    self.assertIsNotNone(credentials)
+                    self.assertEqual(credentials.username, "kpi_user")
+                else:
+                    self.assertIsNone(credentials)
+
+    def test_ignored_kpi_credentials_are_not_mixed_with_the_influxdb_fallback(self) -> None:
+        prefix = "KPI_DB_INFLUXDB_INTERNAL_8086"
+        env = self._fallback_env()
+        env.update(
+            {
+                f"{prefix}_HOST": "other.example.com",
+                f"{prefix}_USERNAME": "kpi_user",
+                f"{prefix}_PASSWORD": "kpi_pass",
+                f"{prefix}_DATABASE": "kpi_db",
+                f"{prefix}_SSL": "true",
+                f"{prefix}_VERIFY_SSL": "true",
+            }
+        )
+        with patch.dict(os.environ, env, clear=True):
+            credentials = self.manager.get_database_credentials("influxdb.internal", INFLUXDB_PORT)
+
+        self.assertIsNotNone(credentials)
+        self.assertEqual(credentials.username, "simulator_user")
+        self.assertEqual(credentials.password, "simulator_pass")
+        self.assertEqual(credentials.database, "energy_profiles")
+        self.assertFalse(credentials.ssl)
+        self.assertFalse(credentials.verify_ssl)
+
+    def test_kpi_credentials_without_host_are_warned_about_once_per_prefix(self) -> None:
+        prefix = "KPI_DB_EXAMPLE_COM_443"
+        env = {f"{prefix}_USERNAME": "kpi_user", f"{prefix}_PASSWORD": "kpi_pass"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(self.manager.db_logger, "warning") as warning:
+                for _ in range(3):
+                    self.assertIsNone(self.manager.get_database_credentials("example.com", 443))
+        warning.assert_called_once()
+        self.assertIn(f"{prefix}_HOST must be set", warning.call_args.args[0])
+        self.assertNotIn("kpi_pass", warning.call_args.args[0])
+
     def test_unscoped_influxdb_secrets_are_reported_with_a_warning(self) -> None:
         env = self._fallback_env(INFLUXDB_HOSTNAME=None, INFLUXDB_PORT=None)
         with patch.dict(os.environ, env, clear=True):
@@ -256,6 +321,7 @@ class TestSecureCredentialManager(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_LOCALHOST_8086_HOST": "localhost",
             "KPI_DB_LOCALHOST_8086_USERNAME": "kpi_user",
             "KPI_DB_LOCALHOST_8086_PASSWORD": "kpi_pass",
             "INFLUXDB_USERNAME": "simulator_user",
@@ -587,6 +653,7 @@ class TestCreateDefaultCredentialManager(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
+                "KPI_DB_TEST_HOST_443_HOST": "test.host",
                 "KPI_DB_TEST_HOST_443_USERNAME": "envuser",
                 "KPI_DB_TEST_HOST_443_PASSWORD": "envpassword123",
             },
@@ -682,6 +749,7 @@ class TestCredentialManagerDatabaseLoaderIntegration(unittest.TestCase):
     @patch.dict(
         os.environ,
         {
+            "KPI_DB_INTEGRATION_TEST_COM_8086_HOST": "integration.test.com",
             "KPI_DB_INTEGRATION_TEST_COM_8086_USERNAME": "integration_user",
             "KPI_DB_INTEGRATION_TEST_COM_8086_PASSWORD": "integration_pass",
         },
