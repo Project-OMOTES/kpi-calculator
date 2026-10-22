@@ -191,7 +191,8 @@ class TestInputValidator(unittest.TestCase):
     def test_validate_database_credentials_invalid_hostname(self) -> None:
         """Test database credential validation with invalid hostname."""
         invalid_hostname = "invalid_hostname_with_underscores_everywhere"
-        # Pydantic now handles basic hostname format validation
+        # DatabaseCredentials has its own stricter hostname regex that rejects underscores;
+        # this does not exercise the shared HOSTNAME_REGEX_PATTERN.
         with self.assertRaises(PydanticValidationError) as context:
             DatabaseCredentials(
                 host=invalid_hostname,
@@ -642,6 +643,21 @@ class TestValidateDatabaseHost(unittest.TestCase):
         with self.assertRaises(ValidationError) as ctx:
             InputValidator.validate_database_host("not a valid hostname!!!", allow_localhost=False)
         self.assertIn("Invalid hostname or IP address format", str(ctx.exception))
+
+    def test_underscore_inside_label_accepted(self) -> None:
+        """Container service names such as omotes_postgres pass the host check."""
+        for host in ["omotes_postgres", "a_b.c_d", "db-1_x.example.com"]:
+            with self.subTest(host=host):
+                result = InputValidator.validate_database_host(host, allow_localhost=False)
+                self.assertEqual(result, host)
+
+    def test_underscore_at_label_edge_or_empty_label_rejected(self) -> None:
+        """A label may not start or end with an underscore, and labels may not be empty."""
+        for host in ["_leading", "trailing_", "_a.b", "a._b", "a_.b", "a..b", "_"]:
+            with self.subTest(host=host):
+                with self.assertRaises(ValidationError) as ctx:
+                    InputValidator.validate_database_host(host, allow_localhost=False)
+                self.assertIn("Invalid hostname or IP address format", str(ctx.exception))
 
     def test_empty_host_raises_validation_error(self) -> None:
         """Empty or whitespace-only host is caught early with a clear error message.

@@ -197,8 +197,9 @@ XXE_ATTACK_PATTERNS = [
     r'PUBLIC\s+["\']',  # Public entity references
 ]
 
-# Hostname validation pattern (RFC 1123 compliant)
+# Hostname validation pattern (RFC 1123 plus underscores inside labels, so container
+# service names such as ``omotes_postgres`` pass; a label still starts and ends alphanumeric)
 HOSTNAME_REGEX_PATTERN = (
-    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*"
-    r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$"
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9_-]{0,61}[a-zA-Z0-9])?\.)*"
+    r"[a-zA-Z0-9](?:[a-zA-Z0-9_-]{0,61}[a-zA-Z0-9])?$"
 )
