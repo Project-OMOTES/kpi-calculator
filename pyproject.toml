@@ -34,7 +34,7 @@ dependencies = [
 
 [dependency-groups]
 test = [
-    "pytest ~=7.3.1",
+    "pytest>=7.3.1,<9.1.0",
     "pytest-cov ~=4.0.0",
     "hypothesis>=6.0.0", # Property-based testing
     "pytest-xdist>=3.0.0", # Parallel test execution
