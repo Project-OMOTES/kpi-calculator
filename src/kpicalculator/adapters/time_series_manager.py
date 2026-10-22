@@ -10,6 +10,7 @@ from ..common.constants import COMPOSITE_KEY_SEPARATOR, KNOWN_TIME_SERIES_FIELDS
 from ..security.credential_manager import CredentialManager
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
+from .data_table_profile_reader import is_database_profile
 from .database_time_series_loader import DatabaseTimeSeriesLoader
 from .xml_time_series_adapter import PiXmlTimeSeries
 
@@ -22,13 +23,23 @@ class TimeSeriesManager:
     with configurable priority and graceful degradation.
     """
 
-    def __init__(self, credential_manager: CredentialManager | None = None):
+    def __init__(
+        self,
+        credential_manager: CredentialManager | None = None,
+        *,
+        allow_passwordless_database: bool = False,
+    ):
         """Initialize TimeSeriesManager with required components.
 
         Args:
-            credential_manager: Manager for secure database credentials
+            credential_manager: Manager for InfluxDB credentials. PostgreSQL DataTableProfiles
+                take their login from pyESDL's ``Credentials`` registry.
+            allow_passwordless_database: Read PostgreSQL DataTableProfiles without a complete
+                registered login instead of failing closed (see ``DatabaseTimeSeriesLoader``).
         """
-        self.database_loader = DatabaseTimeSeriesLoader(credential_manager)
+        self.database_loader = DatabaseTimeSeriesLoader(
+            credential_manager, allow_passwordless_database=allow_passwordless_database
+        )
         self.logger = logging.getLogger(__name__)
 
     def load_time_series(
@@ -67,7 +78,7 @@ class TimeSeriesManager:
                     return self._load_from_dataframes(timeseries_dataframes, energy_system)
 
                 if source == "database" and self._has_database_profiles(energy_system):
-                    self.logger.info("Loading time series from InfluxDB database")
+                    self.logger.info("Loading time series from database")
                     return self.database_loader.load_time_series_from_esdl(energy_system)
 
                 if source == "xml" and xml_file:
@@ -319,18 +330,18 @@ class TimeSeriesManager:
             return 3600.0
 
     def _has_database_profiles(self, energy_system: esdl.EnergySystem) -> bool:
-        """Check if energy system contains InfluxDB profile references.
+        """Check if energy system contains profiles that are read from a database.
+
+        Eligible profiles are ``InfluxDBProfile`` elements and ``DataTableProfile``
+        elements that are not OUTPUT profiles and use a ``DatabaseConfiguration`` (or none).
 
         Args:
             energy_system: ESDL energy system to check
 
         Returns:
-            True if database profiles are found, False otherwise
+            True if eligible database profiles are found, False otherwise
         """
-        influx_profiles = [
-            x for x in energy_system.eAllContents() if isinstance(x, esdl.InfluxDBProfile)
-        ]
-        return len(influx_profiles) > 0
+        return any(is_database_profile(x) for x in energy_system.eAllContents())
 
     def _load_from_xml(
         self, xml_file: str, energy_system: esdl.EnergySystem
