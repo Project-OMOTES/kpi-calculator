@@ -31,7 +31,7 @@ print(f"LCOE: {results['costs']['lcoe']} EUR/MWh")
 The package reads an ESDL energy system design and:
 
 1. **Extracts cost data** from ESDL `costInformation` elements, converting between units (EUR/m, EUR/kW, EUR/MW, EUR/MWh, %, etc.)
-2. **Loads time series** from the best available source — pandas DataFrames, InfluxDB profiles, or XML files. Without time series, energy values are returned as zero.
+2. **Loads time series** from the best available source — pandas DataFrames, database profiles (InfluxDB or PostgreSQL), or XML files. Without time series, energy values are returned as zero.
 3. **Calculates KPIs** across three categories:
    - **Cost**: CAPEX, OPEX, NPV (30-year, 5% discount), LCOE
    - **Energy**: Consumption, production, demand, efficiency

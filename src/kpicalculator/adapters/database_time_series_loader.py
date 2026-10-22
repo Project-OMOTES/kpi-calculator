@@ -1,16 +1,17 @@
 # src/kpicalculator/adapters/database_time_series_loader.py
-"""Database time series loader following MESIDO InfluxDB pattern."""
+"""Database time series loader for InfluxDB and PostgreSQL profiles in ESDL files."""
 
 import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pandas as pd
 from esdl import esdl
 from esdl.profiles.influxdbprofilemanager import ConnectionSettings, InfluxDBProfileManager
-from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, convert_to_unit
+from esdl.profiles.profile_utils import close_db_connections, load_profile_data_and_header
+from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, UnitException, convert_to_unit
 
 from ..common.constants import (
     COMPOSITE_KEY_SEPARATOR,
@@ -30,6 +31,16 @@ from ..security.credential_manager import (
 from ..security.input_validator import InputValidator
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
+from .data_table_profile_reader import (
+    DataTableTarget,
+    check_database_login,
+    database_read_lock,
+    detached_copy,
+    enable_autocommit,
+    is_database_profile,
+    reshape_rows,
+    validate_data_table_profile,
+)
 
 
 class TimeSeriesDataProtocol(Protocol):
@@ -60,9 +71,15 @@ class _BatchHardError(Exception):
 class DatabaseTimeSeriesLoader:
     """Load time series data from database references in ESDL files.
 
-    This follows the MESIDO pattern for InfluxDB connectivity, supporting
-    InfluxDBProfile elements embedded in ESDL files with connection details.
-    Uses secure credential management with no hard-coded credentials.
+    Supports ``InfluxDBProfile`` elements (read with batched InfluxDB queries, following
+    the MESIDO pattern) and PostgreSQL ``DataTableProfile`` elements (read per profile
+    through pyESDL's ``load_profile_data_and_header``). ``DataTableProfile`` elements with
+    ``profileType`` OUTPUT or a non-database configuration are skipped.
+
+    Credentials come from two places. Influx profiles use the ``CredentialManager`` chain
+    (``KPI_DB_*``, ``INFLUXDB_*``, config file). PostgreSQL reads use pyESDL's own
+    ``Credentials`` registry (``DB_HOST``/``DB_USER``/``DB_PASSWORD`` read once when
+    ``esdl.profiles.credentials`` is first imported, or ``Credentials.add_credential``).
 
     Exception Handling Strategy:
     ===========================
@@ -78,7 +95,7 @@ class DatabaseTimeSeriesLoader:
     2. Graceful Degradation:
        - Individual profile failures do not crash entire loading process
        - Profiles that fail to load are skipped and reported in ValidationResult.errors
-       - Profiles with no field name are skipped with a warning only
+       - Influx profiles with no field name are skipped with a warning only
        - Profiles that load are returned even when others fail; any load failure still
          makes ValidationResult.is_valid False
        - All errors are logged with detailed context for troubleshooting
@@ -86,18 +103,29 @@ class DatabaseTimeSeriesLoader:
     3. Helper Methods:
        - _categorize_profile_error(): Categorizes exceptions and formats messages
        - _handle_query_error(): Provides consistent query error logging
+       - _process_data_table_profile(): Loads one DataTableProfile with the same degradation
 
     This design ensures system stability while providing clear error reporting
     for debugging and monitoring database connectivity issues.
     """
 
-    def __init__(self, credential_manager: CredentialManager | None = None):
+    def __init__(
+        self,
+        credential_manager: CredentialManager | None = None,
+        *,
+        allow_passwordless_database: bool = False,
+    ):
         """Initialize database loader with secure credential management.
 
         Args:
-            credential_manager: Secure credential manager. Uses default if None.
+            credential_manager: Credential manager for Influx profiles. Uses default if None.
+            allow_passwordless_database: Read PostgreSQL DataTableProfiles even when pyESDL
+                has no complete login (username and password) for the host. The default
+                fails closed, because libpq may then authenticate from ``PGUSER``,
+                ``PGPASSWORD``, ``.pgpass``, ``PGSERVICE`` or trust authentication.
         """
         self.credential_manager = credential_manager or create_default_credential_manager()
+        self.allow_passwordless_database = allow_passwordless_database
         self.db_logger = get_database_logger("time_series_loader")
 
     def _get_secure_credentials(self, host: str, port: int) -> DatabaseCredentials:
@@ -144,34 +172,45 @@ class DatabaseTimeSeriesLoader:
     def load_time_series_from_esdl(
         self, energy_system: esdl.EnergySystem
     ) -> tuple[dict[str, TimeSeries], ValidationResult]:
-        """Load all InfluxDB time series profiles from ESDL energy system.
+        """Load all database time series profiles from an ESDL energy system.
+
+        ``InfluxDBProfile`` elements go through batched InfluxDB queries; eligible
+        ``DataTableProfile`` elements are read one by one through pyESDL. Both kinds are
+        merged into one dict; on a composite-key collision the first entry is kept and the
+        duplicate is recorded as an error. When DataTable profiles were read,
+        ``close_db_connections()`` runs once in a ``finally`` afterwards.
 
         Args:
-            energy_system: ESDL EnergySystem containing InfluxDBProfile elements
+            energy_system: ESDL EnergySystem containing InfluxDBProfile and/or
+                DataTableProfile elements
 
         Returns:
             Tuple of (time_series_dict, validation_result)
-            - time_series_dict: Maps asset_id to TimeSeries objects
+            - time_series_dict: Maps composite keys (asset_id|field) to TimeSeries objects
             - validation_result: Validation status and any warnings/errors
         """
         start_time = time.time()
-        self.db_logger.info("Starting InfluxDB profile loading from ESDL")
+        self.db_logger.info("Starting database profile loading from ESDL")
 
         time_series_data: dict[str, TimeSeries] = {}
         errors: list[str] = []
         warnings: list[str] = []
 
         try:
-            # Find all InfluxDBProfile elements in the ESDL
-            influx_profiles = [
-                x for x in energy_system.eAllContents() if isinstance(x, esdl.InfluxDBProfile)
-            ]
+            influx_profiles, table_profiles = self._collect_database_profiles(energy_system)
 
-            profile_count = len(influx_profiles)
-            self.db_logger.info("Found InfluxDB profiles in ESDL", {"profile_count": profile_count})
+            profile_count = len(influx_profiles) + len(table_profiles)
+            self.db_logger.info(
+                "Found database profiles in ESDL",
+                {
+                    "profile_count": profile_count,
+                    "influx_profiles": len(influx_profiles),
+                    "data_table_profiles": len(table_profiles),
+                },
+            )
 
-            if not influx_profiles:
-                warnings.append("No InfluxDB profiles found in ESDL file")
+            if not profile_count:
+                warnings.append("No database profiles found in ESDL file")
                 return time_series_data, ValidationResult(True, [], warnings)
 
             successful_loads = 0
@@ -180,7 +219,7 @@ class DatabaseTimeSeriesLoader:
             batches = self._group_profiles_for_batch(influx_profiles)
             self.db_logger.info(
                 "Grouped profiles into batches",
-                {"profile_count": profile_count, "batch_count": len(batches)},
+                {"profile_count": len(influx_profiles), "batch_count": len(batches)},
             )
 
             for batch_profiles in batches.values():
@@ -190,10 +229,16 @@ class DatabaseTimeSeriesLoader:
                 successful_loads += batch_successful
                 failed_loads += batch_failed
 
+            table_successful, table_failed = self._load_data_table_profiles(
+                table_profiles, time_series_data, errors
+            )
+            successful_loads += table_successful
+            failed_loads += table_failed
+
             # Log summary
             total_time = time.time() - start_time
             self.db_logger.info(
-                "InfluxDB profile loading completed",
+                "Database profile loading completed",
                 {
                     "total_profiles": profile_count,
                     "successful_loads": successful_loads,
@@ -203,7 +248,7 @@ class DatabaseTimeSeriesLoader:
             )
 
         except Exception as e:
-            errors.append(f"Failed to process InfluxDB profiles: {e!s}")
+            errors.append(f"Failed to process database profiles: {e!s}")
             self.db_logger.error("Critical error during profile loading", exception=e)
 
         validation_result = ValidationResult(
@@ -211,6 +256,28 @@ class DatabaseTimeSeriesLoader:
         )
 
         return time_series_data, validation_result
+
+    def _collect_database_profiles(
+        self, energy_system: esdl.EnergySystem
+    ) -> tuple[list[esdl.InfluxDBProfile], list[esdl.DataTableProfile]]:
+        """Collect Influx and eligible DataTable profiles; warn once about skipped ones."""
+        influx_profiles: list[esdl.InfluxDBProfile] = []
+        table_profiles: list[esdl.DataTableProfile] = []
+        skipped = 0
+        for element in energy_system.eAllContents():
+            if isinstance(element, esdl.InfluxDBProfile):
+                influx_profiles.append(element)
+            elif isinstance(element, esdl.DataTableProfile):
+                if is_database_profile(element):
+                    table_profiles.append(element)
+                else:
+                    skipped += 1
+        if skipped:
+            self.db_logger.warning(
+                f"Skipped {skipped} DataTableProfile(s) that are OUTPUT profiles or use a "
+                f"non-database configuration"
+            )
+        return influx_profiles, table_profiles
 
     def _group_profiles_for_batch(
         self, profiles: list[esdl.InfluxDBProfile]
@@ -537,6 +604,189 @@ class DatabaseTimeSeriesLoader:
             )
             return False
 
+    def _load_data_table_profiles(
+        self,
+        profiles: list[esdl.DataTableProfile],
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+    ) -> tuple[int, int]:
+        """Read DataTable profiles one by one, then close pyESDL's connections once.
+
+        Returns:
+            (successful_loads, failed_loads)
+        """
+        if not profiles:
+            return 0, 0
+        successful = 0
+        try:
+            for profile in profiles:
+                if self._process_data_table_profile(profile, time_series_data, errors):
+                    successful += 1
+        finally:
+            try:
+                with database_read_lock():
+                    close_db_connections()
+            except TimeoutError as e:
+                self.db_logger.error(
+                    "Could not close pyESDL database connections; they stay open", {}, e
+                )
+        return successful, len(profiles) - successful
+
+    def _process_data_table_profile(
+        self,
+        profile: esdl.DataTableProfile,
+        time_series_data: dict[str, TimeSeries],
+        errors: list[str],
+    ) -> bool:
+        """Read one DataTableProfile and add it to time_series_data.
+
+        An existing entry with the same composite key is kept; the duplicate is recorded as an
+        error without being read.
+
+        Returns:
+            True if the profile was loaded successfully, False otherwise.
+        """
+        asset_id = "?"
+        try:
+            asset_id = self._extract_asset_id(profile)
+            target = validate_data_table_profile(profile, asset_id)
+
+            composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{profile.columnName}"
+            if composite_key in time_series_data:
+                message = (
+                    f"Duplicate time series key '{composite_key}' (table "
+                    f"'{profile.tableName}'); keeping the first entry"
+                )
+                self.db_logger.warning(message)
+                errors.append(message)
+                return False
+
+            profile_start = time.time()
+            time_series = self._read_data_table_profile(profile, target)
+            profile_time = time.time() - profile_start
+            time_series_data[composite_key] = time_series
+            self.db_logger.log_time_series_processing(
+                asset_id, len(time_series.values), time_series.time_step, profile_time
+            )
+            return True
+
+        except Exception as e:
+            subject = f"{profile.columnName or '?'} (asset {asset_id}, table '{profile.tableName}')"
+            errors.append(self._categorize_profile_error(e, subject))
+            self.db_logger.error(
+                "DataTable profile loading failed",
+                {"table_name": profile.tableName, "column_name": profile.columnName},
+                e,
+            )
+            return False
+
+    def _read_data_table_profile(
+        self, profile: esdl.DataTableProfile, target: DataTableTarget
+    ) -> TimeSeries:
+        """Read one validated DataTableProfile through pyESDL and reshape it.
+
+        The login comes from pyESDL's ``Credentials`` registry and must be complete unless
+        ``allow_passwordless_database`` is set (see ``check_database_login``). The read runs
+        on a copy of the profile without a configuration id, so an id from the ESDL file
+        cannot select another host's credential. The pyESDL cache is disabled (its key omits
+        the profile filter), the multiplier is applied here after float coercion rather than
+        by pyESDL, and the connection stays open, in autocommit, for the caller to close.
+        A unit that pyESDL reads from ``datatable_metadata`` is stored on the copy.
+
+        Raises:
+            Exception: Any validation, credential, read or reshape failure.
+        """
+        read_profile = detached_copy(profile)
+        with database_read_lock():
+            warning = check_database_login(
+                read_profile.configuration,
+                allow_passwordless=self.allow_passwordless_database,
+            )
+            if warning:
+                self.db_logger.warning(warning)
+            self.db_logger.log_connection_attempt(target.host, target.port)
+            enable_autocommit(read_profile)
+            data, header = load_profile_data_and_header(
+                read_profile,
+                enable_cache=False,
+                apply_multiplier=False,
+                close_connection_after_load=False,
+            )
+        return self._data_table_rows_to_time_series(profile, read_profile, data, header)
+
+    def _data_table_rows_to_time_series(
+        self,
+        profile: esdl.DataTableProfile,
+        read_profile: esdl.DataTableProfile,
+        data: Sequence[Sequence[Any]] | None,
+        header: Sequence[Any] | None,
+    ) -> TimeSeries:
+        """Convert pyESDL rows into a unit-converted, multiplied and validated TimeSeries.
+
+        The unit is the profile's own ``profileQuantityAndUnit``, else the one pyESDL read from
+        ``datatable_metadata`` onto ``read_profile``.
+
+        Raises:
+            ValidationError: Neither source provides a unit.
+        """
+        column_name = cast(str, profile.columnName)
+        label = f"{profile.tableName}.{column_name}"
+        quantity_and_unit = profile.profileQuantityAndUnit or read_profile.profileQuantityAndUnit
+        if quantity_and_unit is None:
+            raise ValidationError(
+                f"DataTable profile '{label}' has no unit: set profileQuantityAndUnit on the "
+                f"profile in the ESDL or provide it in the datatable_metadata table"
+            )
+        rows = reshape_rows(data, header, column_name)
+        df = pd.DataFrame(
+            [row[1] for row in rows], index=pd.DatetimeIndex([row[0] for row in rows])
+        )
+        df.iloc[:, 0] = self._to_base_unit(df.iloc[:, 0], quantity_and_unit, label)
+        multiplier = 1.0 if profile.multiplier is None else profile.multiplier
+        if multiplier == 0.0:
+            self.db_logger.warning(
+                f"Profile '{label}' has multiplier=0.0 — all output values will be zero"
+            )
+        df = df * multiplier
+        values_list = df.values.flatten().tolist()
+        validated_values = InputValidator.validate_time_series_data(
+            values_list, f"DataTable profile {label}"
+        )
+        return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
+
+    @staticmethod
+    def _to_base_unit(
+        values: pd.Series, quantity_and_unit: esdl.QuantityAndUnitType, label: str
+    ) -> pd.Series:
+        """Convert a whole series to W (power), J (energy) or leave a cost series as it is.
+
+        Raises:
+            ValidationError: The physical quantity is not power, energy or cost, or the unit
+                cannot be converted to the base unit of its quantity.
+        """
+        try:
+            quantity = quantity_and_unit.reference.physicalQuantity
+        except AttributeError:
+            quantity = quantity_and_unit.physicalQuantity
+        target = {
+            esdl.PhysicalQuantityEnum.POWER: POWER_IN_W,
+            esdl.PhysicalQuantityEnum.ENERGY: ENERGY_IN_J,
+        }.get(quantity)
+        if target is not None:
+            try:
+                return cast(pd.Series, convert_to_unit(values, quantity_and_unit, target))
+            except UnitException as e:
+                raise ValidationError(
+                    f"DataTable profile '{label}' has a unit that cannot be converted to the "
+                    f"base unit of {quantity}: {e}"
+                ) from e
+        if quantity == esdl.PhysicalQuantityEnum.COST:
+            return values
+        raise ValidationError(
+            f"DataTable profile '{label}' has physical quantity {quantity}; only power, energy "
+            f"and cost profiles are supported"
+        )
+
     def _rows_to_dataframe(
         self, rows: Sequence[Sequence[datetime | float | None]], col_index: int
     ) -> pd.DataFrame:
@@ -561,8 +811,8 @@ class DatabaseTimeSeriesLoader:
             )
         return df * multiplier
 
-    def _extract_asset_id(self, profile: esdl.InfluxDBProfile) -> str:
-        """Extract asset ID from InfluxDB profile container."""
+    def _extract_asset_id(self, profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> str:
+        """Extract asset ID from the profile container (port, carrier or table/measurement)."""
         try:
             # Profile associated to asset port
             return str(profile.eContainer().energyasset.id)
@@ -571,7 +821,9 @@ class DatabaseTimeSeriesLoader:
                 # Profile associated to carrier
                 return str(profile.eContainer().id)
             except AttributeError:
-                # Fallback to using measurement as ID
+                # Fallback to using measurement (Influx) or table name (DataTable) as ID
+                if isinstance(profile, esdl.DataTableProfile):
+                    return str(profile.tableName)
                 return str(profile.measurement)
 
     def _load_profile_data(self, profile: esdl.InfluxDBProfile) -> TimeSeries:

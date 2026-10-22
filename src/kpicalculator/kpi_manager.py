@@ -130,7 +130,7 @@ class KpiManager:
         Cost data is extracted from ESDL costInformation elements.
 
         Note:
-            InfluxDB profile loading is disabled here. To enable it, call
+            Database profile loading (InfluxDB, DataTable) is disabled here. To enable it, call
             ``EsdlAdapter().load_data(..., use_database_profiles=True)`` directly.
 
         Args:

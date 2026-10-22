@@ -27,25 +27,35 @@ from .time_series_manager import TimeSeriesManager
 class EsdlAdapter(BaseAdapter):
     """Adapter for loading energy system data from ESDL files with database support.
 
-    Supports both XML time series files (for testing) and InfluxDB profiles
-    (for production) following the MESIDO pattern.
+    Supports both XML time series files (for testing) and database profiles
+    (InfluxDBProfile and PostgreSQL DataTableProfile, for production) following the MESIDO
+    pattern.
     """
 
     def __init__(
         self,
         credential_manager: CredentialManager | None = None,
+        *,
+        allow_passwordless_database: bool = False,
     ):
         """Initialize the ESDL adapter.
 
         Args:
-            credential_manager: Optional secure credential manager for database access
+            credential_manager: Optional credential manager for InfluxDB access. PostgreSQL
+                DataTableProfiles take their login from pyESDL's ``Credentials`` registry.
+            allow_passwordless_database: Read PostgreSQL DataTableProfiles without a complete
+                registered login instead of failing closed (see ``DatabaseTimeSeriesLoader``).
         """
         super().__init__()
-        self.database_loader = DatabaseTimeSeriesLoader(credential_manager)
+        self.database_loader = DatabaseTimeSeriesLoader(
+            credential_manager, allow_passwordless_database=allow_passwordless_database
+        )
         # Session-level warning tracking to prevent log spam
         self._logged_warnings: set[str] = set()
         self._legacy_asset_count = 0
-        self.time_series_manager = TimeSeriesManager(credential_manager)
+        self.time_series_manager = TimeSeriesManager(
+            credential_manager, allow_passwordless_database=allow_passwordless_database
+        )
         self.logger = logging.getLogger(__name__)
 
     def load_data(  # type: ignore[override]  # narrows source: Any → str | Path intentionally
@@ -65,7 +75,7 @@ class EsdlAdapter(BaseAdapter):
             timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
                 with time-indexed energy/power data. When provided, takes precedence
                 over database loading and time_series_file.
-            use_database_profiles: Whether to load InfluxDB profiles.
+            use_database_profiles: Whether to load database profiles (InfluxDB, DataTable).
 
         Returns:
             EnergySystem object with costs from ESDL costInformation.
@@ -135,7 +145,7 @@ class EsdlAdapter(BaseAdapter):
             esdl_string: ESDL XML content as a string
             timeseries_dataframes: Optional dict mapping asset IDs to pandas DataFrames
                 with time-indexed energy/power data.
-            use_database_profiles: Whether to load InfluxDB profiles (default False
+            use_database_profiles: Whether to load database profiles (default False
                 for in-memory workflows)
 
         Returns:
@@ -181,7 +191,7 @@ class EsdlAdapter(BaseAdapter):
         Args:
             es: Parsed PyESDL EnergySystem.
             timeseries_dataframes: Optional asset-id-keyed DataFrames.
-            use_database_profiles: Whether to load InfluxDB profiles.
+            use_database_profiles: Whether to load database profiles (InfluxDB, DataTable).
 
         Returns:
             EnergySystem with costs extracted from the ESDL object.
@@ -215,7 +225,7 @@ class EsdlAdapter(BaseAdapter):
             source_metadata: Metadata about the source (file path or "string")
             time_series_file: Optional XML time series file path
             timeseries_dataframes: Optional dict of asset ID to DataFrame mappings
-            use_database_profiles: Whether to load InfluxDB profiles
+            use_database_profiles: Whether to load database profiles
 
         Returns:
             EnergySystem object with processed assets and costs
@@ -389,7 +399,7 @@ class EsdlAdapter(BaseAdapter):
             if COMPOSITE_KEY_SEPARATOR in composite_key:
                 asset_id, field_name = composite_key.split(COMPOSITE_KEY_SEPARATOR, 1)
                 if asset_id == esdl_element.id:
-                    # Use the field name from InfluxDBProfile as the time series key
+                    # Use InfluxDBProfile.field / DataTableProfile.columnName as the time series key
                     time_series_data[field_name] = ts_data
                     self.logger.debug(
                         f"Using database profile for asset {esdl_element.id} "
@@ -406,7 +416,8 @@ class EsdlAdapter(BaseAdapter):
             if warning_key not in self._logged_warnings:
                 self.logger.warning(
                     f"Found assets with time series data but no parameter information. "
-                    f"Use InfluxDBProfile.field or XML parameterId for proper parameter mapping. "
+                    f"Use InfluxDBProfile.field, DataTableProfile.columnName or XML parameterId "
+                    f"for proper parameter mapping. "
                     f"(First occurrence: asset {esdl_element.id})"
                 )
                 self._logged_warnings.add(warning_key)
@@ -870,5 +881,5 @@ class EsdlAdapter(BaseAdapter):
             self.logger.info(
                 f"Session summary: {self._legacy_asset_count} assets had time series data "
                 f"without parameter information. Consider upgrading to InfluxDBProfile "
-                f"with field names for proper parameter mapping."
+                f"or DataTableProfile with field/column names for proper parameter mapping."
             )
