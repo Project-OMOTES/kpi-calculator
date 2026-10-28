@@ -640,7 +640,7 @@ class FinancialCalculator:
         return "Other"
 
     def aggregate_by_category(
-        self, asset_financials: dict[str, "AssetFinancialResult"]
+        self, asset_financials: dict[str, AssetFinancialResult]
     ) -> tuple[dict[str, float], dict[str, float]]:
         """Derive CAPEX and OPEX category breakdowns from a pre-computed asset breakdown.
 
