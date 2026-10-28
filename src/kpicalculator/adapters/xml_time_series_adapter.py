@@ -109,7 +109,7 @@ class PiXmlTimeSeries:
                 if first_prop.events:  # Check if events list is non-empty
                     try:
                         result[asset_id] = [float(event.value) for event in first_prop.events]
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         # Skip assets with invalid numeric conversion
                         continue
 
@@ -133,7 +133,7 @@ class PiXmlTimeSeries:
                             values = [float(event.value) for event in series.events]
                             time_step = series.get_time_step()
                             asset_parameters[parameter_name] = (values, time_step)
-                        except (ValueError, TypeError):
+                        except ValueError, TypeError:
                             # Skip parameters with invalid numeric conversion
                             continue
 
