@@ -156,4 +156,49 @@ jobs:
           source .venv-test/bin/activate
           uv pip install dist/*.whl
 
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: [build, verify]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      id-token: write  # Required for trusted publishing to PyPI
+      contents: read
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
+          verbose: true
+
+  create-github-release-notes:
+    name: Add artifacts to GitHub Release
+    needs: [publish-to-pypi]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'dist/*'
+      - name: Upload artifacts to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # --clobber allows re-running workflow without errors if artifacts already exist
+          gh release upload '${{ github.ref_name }}' dist/** --repo '${{ github.repository }}' --clobber
   
