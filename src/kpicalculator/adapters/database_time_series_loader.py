@@ -1,12 +1,14 @@
 # src/kpicalculator/adapters/database_time_series_loader.py
 """Database time series loader for InfluxDB and PostgreSQL profiles in ESDL files."""
 
+import math
 import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Protocol, cast
 
+import numpy as np
 import pandas as pd
 from esdl import esdl
 from esdl.profiles.influxdbprofilemanager import ConnectionSettings, InfluxDBProfileManager
@@ -59,13 +61,6 @@ class InfluxDBProfileProtocol(Protocol):
     database: str
     measurement: str
     field: str
-
-
-class _BatchHardError(Exception):
-    """Raised by _execute_batch_query for unrecoverable misconfigurations (no fallback)."""
-
-    def __init__(self, failed_count: int) -> None:
-        self.failed_count = failed_count
 
 
 class DatabaseTimeSeriesLoader:
@@ -149,7 +144,8 @@ class DatabaseTimeSeriesLoader:
                 env_prefix = f"KPI_DB_{host.replace('.', '_').replace('-', '_').upper()}_{port}"
                 error = CredentialError(
                     f"No credentials found for {host}: {port}. "
-                    f"Set environment variables or configure credentials file. "
+                    f"Set environment variables (including {env_prefix}_HOST) or "
+                    f"configure credentials file. "
                     f"(Context: host={host}, port={port}, env_prefix={env_prefix})"
                 )
                 self.db_logger.log_credential_error(host, port, error)
@@ -335,15 +331,24 @@ class DatabaseTimeSeriesLoader:
             success = self._process_single_profile(profiles[0], time_series_data, errors)
             return (1, 0) if success else (0, 1)
 
-        # Profiles with empty/None field cannot be batched; route them per-profile up front.
-        valid_profiles = [p for p in profiles if p.field]
-        invalid_field_profiles = [p for p in profiles if not p.field]
+        # Profiles with an empty/None field or a non-finite multiplier cannot be batched;
+        # route them per-profile up front.
+        valid_profiles: list[esdl.InfluxDBProfile] = []
+        unbatchable_profiles: list[esdl.InfluxDBProfile] = []
+        for p in profiles:
+            if p.field and self._has_finite_multiplier(p):
+                valid_profiles.append(p)
+            else:
+                unbatchable_profiles.append(p)
         # Pick representative from valid profiles so credential validation always succeeds.
         representative = valid_profiles[0] if valid_profiles else profiles[0]
         measurement = representative.measurement
-        warn_msg = f"Profile in '{measurement}' has empty field — processing per-profile"
+        warn_msg = (
+            f"Profile in '{measurement}' has an empty field or non-finite multiplier "
+            f"— processing per-profile"
+        )
         successful, failed = self._fallback_to_per_profile(
-            invalid_field_profiles, time_series_data, errors, warn_msg=warn_msg
+            unbatchable_profiles, time_series_data, errors, warn_msg=warn_msg
         )
 
         if not valid_profiles:
@@ -355,10 +360,8 @@ class DatabaseTimeSeriesLoader:
 
         try:
             manager, field_index_map = self._execute_batch_query(
-                valid_profiles, representative, measurement, errors, failed
+                valid_profiles, representative, measurement
             )
-        except _BatchHardError as e:
-            return successful, e.failed_count
         except Exception as e:
             self.db_logger.warning(
                 f"Batch query failed for measurement '{measurement}', "
@@ -377,13 +380,11 @@ class DatabaseTimeSeriesLoader:
         valid_profiles: list[esdl.InfluxDBProfile],
         representative: esdl.InfluxDBProfile,
         measurement: str,
-        errors: list[str],
-        failed_so_far: int,
     ) -> tuple[InfluxDBProfileManager, dict[str, int]]:
         """Authenticate, issue the batch SELECT, and return the manager + field index map.
 
-        Raises _BatchHardError for unrecoverable misconfigurations (e.g. DB name mismatch).
-        Raises any other Exception for transient failures the caller should fall back from.
+        Connects to the profile's database, which the batch group shares. Any failure is
+        raised for the caller to fall back from.
         """
         # Fetch representative's credentials first, then validate the rest.
         # The loop calls are validation-only side-effects; return values are intentionally
@@ -393,24 +394,11 @@ class DatabaseTimeSeriesLoader:
             if profile is not representative:
                 self._get_credentials_for_profile(profile)
 
-        if representative.database != credentials.database:
-            error_msg = (
-                f"Profile database '{representative.database}' does not match "
-                f"credentials database '{credentials.database}' for "
-                f"measurement '{measurement}' — skipping batch"
-            )
-            self.db_logger.error(error_msg)
-            errors.extend(
-                self._categorize_profile_error(ValueError(error_msg), p.field)
-                for p in valid_profiles
-            )
-            raise _BatchHardError(failed_so_far + len(valid_profiles))
-
         manager = InfluxDBProfileManager(
             ConnectionSettings(
                 host=credentials.host,
                 port=credentials.port,
-                database=credentials.database,
+                database=representative.database,
                 username=credentials.username,
                 password=credentials.password,
                 ssl=credentials.ssl,
@@ -440,7 +428,10 @@ class DatabaseTimeSeriesLoader:
         )
 
         if not manager.profile_data_list:
-            raise ValueError(f"No data returned for measurement '{measurement}'")
+            raise ValueError(
+                f"No data returned for measurement '{measurement}' in database "
+                f"'{representative.database}'"
+            )
         if not manager.profile_header:
             raise ValueError(f"Batch result for measurement '{measurement}' has no header")
 
@@ -650,6 +641,7 @@ class DatabaseTimeSeriesLoader:
         try:
             asset_id = self._extract_asset_id(profile)
             target = validate_data_table_profile(profile, asset_id)
+            self._finite_multiplier(profile)  # fail before any read
 
             composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{profile.columnName}"
             if composite_key in time_series_data:
@@ -742,17 +734,59 @@ class DatabaseTimeSeriesLoader:
             [row[1] for row in rows], index=pd.DatetimeIndex([row[0] for row in rows])
         )
         df.iloc[:, 0] = self._to_base_unit(df.iloc[:, 0], quantity_and_unit, label)
-        multiplier = 1.0 if profile.multiplier is None else profile.multiplier
+        multiplier = self._finite_multiplier(profile)
         if multiplier == 0.0:
             self.db_logger.warning(
                 f"Profile '{label}' has multiplier=0.0 — all output values will be zero"
             )
         df = df * multiplier
+        self._require_finite_values(
+            df,
+            f"DataTable profile '{label}' has non-finite values after unit conversion "
+            f"and multiplier {multiplier}",
+        )
         values_list = df.values.flatten().tolist()
         validated_values = InputValidator.validate_time_series_data(
             values_list, f"DataTable profile {label}"
         )
         return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
+
+    @staticmethod
+    def _require_finite_values(df: pd.DataFrame, message: str) -> None:
+        """Raise ValidationError(message) if df holds NaN, inf or non-numeric values."""
+        try:
+            finite = bool(np.isfinite(df.to_numpy(dtype=float)).all())
+        except (TypeError, ValueError):
+            finite = False
+        if not finite:
+            raise ValidationError(message)
+
+    @staticmethod
+    def _finite_multiplier(profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> float:
+        """Return the profile multiplier (1.0 when unset).
+
+        Raises:
+            ValidationError: The multiplier is NaN, infinite or not a number.
+        """
+        multiplier = getattr(profile, "multiplier", None)
+        if multiplier is None:
+            return 1.0
+        try:
+            finite = math.isfinite(multiplier)
+        except (TypeError, OverflowError):
+            finite = False
+        if not finite:
+            raise ValidationError(f"Profile has a non-finite multiplier ({multiplier})")
+        return float(multiplier)
+
+    @classmethod
+    def _has_finite_multiplier(cls, profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> bool:
+        """Return True if the profile multiplier is unset or a finite number."""
+        try:
+            cls._finite_multiplier(profile)
+        except ValidationError:
+            return False
+        return True
 
     @staticmethod
     def _to_base_unit(
@@ -800,16 +834,24 @@ class DatabaseTimeSeriesLoader:
         return df
 
     def _apply_multiplier(self, df: pd.DataFrame, profile: esdl.InfluxDBProfile) -> pd.DataFrame:
-        """Apply profile multiplier to a DataFrame, warning if the multiplier is zero."""
-        multiplier = getattr(profile, "multiplier", None)
-        if multiplier is None:
-            multiplier = 1.0
+        """Apply profile multiplier to a DataFrame, warning if the multiplier is zero.
+
+        Raises:
+            ValidationError: The multiplier is NaN or infinite, or the scaled values are.
+        """
+        multiplier = self._finite_multiplier(profile)
         if multiplier == 0.0:
             self.db_logger.warning(
                 f"Profile '{profile.measurement}.{profile.field}' has multiplier=0.0 — "
                 f"all output values will be zero"
             )
-        return df * multiplier
+        scaled = df * multiplier
+        self._require_finite_values(
+            scaled,
+            f"InfluxDB profile {profile.measurement}.{profile.field} has non-finite values "
+            f"after unit conversion and multiplier",
+        )
+        return scaled
 
     def _extract_asset_id(self, profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> str:
         """Extract asset ID from the profile container (port, carrier or table/measurement)."""
@@ -843,6 +885,7 @@ class DatabaseTimeSeriesLoader:
         field = profile.field
 
         try:
+            self._finite_multiplier(profile)  # fail before any query
             self.db_logger.log_query_execution(
                 measurement, field, (profile.startDate, profile.endDate)
             )
@@ -852,7 +895,7 @@ class DatabaseTimeSeriesLoader:
 
             # Log connection success
             self.db_logger.log_connection_success(
-                credentials.host, credentials.port, credentials.database
+                credentials.host, credentials.port, profile.database
             )
 
             # Create InfluxDB profile manager
@@ -908,8 +951,17 @@ class DatabaseTimeSeriesLoader:
             DatabaseCredentials from secure sources
 
         Raises:
-            CredentialError: If no credentials found for the profile
+            CredentialError: If the profile names no database, or no credentials are found
+                for it
         """
+        # pyESDL would try to create a database from an empty name.
+        if not profile.database:
+            raise CredentialError(
+                f"InfluxDB profile has no database configured "
+                f"(Context: profile_host={profile.host}, profile_port={profile.port}, "
+                f"profile_measurement={profile.measurement}, profile_field={profile.field})"
+            )
+
         # Parse host from profile (handle URL prefixes)
         profile_host = profile.host
         ssl_setting = False
@@ -927,8 +979,7 @@ class DatabaseTimeSeriesLoader:
             validated_port = InputValidator.validate_database_port(profile.port)
 
             # CRITICAL SECURITY FIX: Validate database identifiers to prevent injection
-            if profile.database:
-                self._validate_profile_field(profile, "database", profile.database)
+            self._validate_profile_field(profile, "database", profile.database)
             self._validate_profile_field(profile, "measurement", profile.measurement)
             self._validate_profile_field(profile, "field", profile.field)
 
@@ -995,6 +1046,12 @@ class DatabaseTimeSeriesLoader:
         self, profile: esdl.InfluxDBProfile, time_series_data: TimeSeriesDataProtocol
     ) -> None:
         """Validate profile data following MESIDO pattern."""
+        if not time_series_data.profile_data_list:
+            raise ValueError(
+                f"No data returned for {profile.measurement}.{profile.field} in database "
+                f"'{profile.database}' between {profile.startDate} and {profile.endDate}"
+            )
+
         # Validate start/end dates match
         if time_series_data.end_datetime != profile.endDate:
             raise ValueError(

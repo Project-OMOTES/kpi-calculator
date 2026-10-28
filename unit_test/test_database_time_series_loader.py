@@ -21,7 +21,7 @@ from kpicalculator.adapters.data_table_profile_reader import (
 from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
 from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
 from kpicalculator.common.types import DatabaseCredentials
-from kpicalculator.exceptions import CredentialError
+from kpicalculator.exceptions import CredentialError, ValidationError
 from kpicalculator.security.credential_manager import CredentialManager
 from kpicalculator.security.input_validator import InputValidator
 
@@ -103,6 +103,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertIn("host=unknown.host.com", str(error))
         self.assertIn("port=8080", str(error))
         self.assertIn("env_prefix=KPI_DB_UNKNOWN_HOST_COM_8080", str(error))
+        self.assertIn("KPI_DB_UNKNOWN_HOST_COM_8080_HOST", str(error))
 
     def test_get_secure_credentials_exception_handling(self) -> None:
         """Test credential retrieval with manager exception."""
@@ -158,10 +159,11 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(asset_id, "fallback_measurement")
 
     @patch("kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager")
-    @patch("kpicalculator.adapters.database_time_series_loader.InputValidator")
-    def test_load_profile_data_success(self, mock_validator, mock_profile_manager) -> None:
-        """Test successful profile data loading."""
-        # Setup mocks
+    def test_load_profile_data_success(self, mock_profile_manager) -> None:
+        """Rows are scaled by the multiplier and the connection log names the profile database."""
+        log_patch = patch.object(self.loader.db_logger, "log_connection_success")
+        mock_log = log_patch.start()
+        self.addCleanup(log_patch.stop)
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.measurement = "power"
         profile.field = "consumption"
@@ -169,7 +171,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile.port = 443
         profile.startDate = datetime(2024, 1, 1)
         profile.endDate = datetime(2024, 1, 2)
-        profile.multiplier = 1.0
+        profile.multiplier = 2.0
+        profile.database = "profile_db"
 
         # Mock profile manager
         mock_time_series_data = Mock()
@@ -185,10 +188,6 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             mock_time_series_data
         )
 
-        # Mock input validator
-        test_values = [100.0, 200.0, 150.0]
-        mock_validator.validate_time_series_data.return_value = test_values
-
         # Mock get credentials method
         with patch.object(self.loader, "_get_credentials_for_profile") as mock_get_creds:
             mock_get_creds.return_value = self.test_credentials
@@ -197,11 +196,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             with patch.object(self.loader, "_validate_profile_data"):
                 # Mock unit conversion method
                 with patch.object(self.loader, "_convert_units") as mock_convert:
-                    mock_df = Mock()
-                    mock_df.values.flatten.return_value.tolist.return_value = test_values
-                    # Make the mock support multiplication (df * profile.multiplier)
-                    mock_df.__mul__ = Mock(return_value=mock_df)
-                    mock_convert.return_value = mock_df
+                    mock_convert.side_effect = lambda df, _: df
 
                     # Mock extract asset ID
                     with patch.object(self.loader, "_extract_asset_id") as mock_extract:
@@ -211,18 +206,21 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         # Verify result
         self.assertIsInstance(result, TimeSeries)
-        self.assertEqual(result.values, test_values)
+        self.assertEqual(result.values, [200.0, 400.0, 300.0])
         self.assertEqual(result.time_step, 3600.0)  # DEFAULT_TIME_STEP_SECONDS
+        mock_log.assert_called_once_with(
+            self.test_credentials.host, self.test_credentials.port, "profile_db"
+        )
 
         # Verify mocks were called
         mock_profile_manager.create_esdl_influxdb_profile_manager.assert_called_once()
-        mock_validator.validate_time_series_data.assert_called_once()
 
     def test_load_profile_data_exception_handling(self) -> None:
         """Test profile data loading logs and re-raises a failure."""
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.measurement = "power"
         profile.field = "consumption"
+        profile.multiplier = 1.0
 
         # Mock get credentials to raise exception
         with patch.object(self.loader, "_get_credentials_for_profile") as mock_get_creds:
@@ -240,6 +238,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile.field = "power"
         profile.measurement = "consumption"
+        profile.multiplier = 1.0
         energy_system.eAllContents.return_value = [profile]
 
         with patch.object(self.loader, "_extract_asset_id", return_value="asset_1"):
@@ -433,6 +432,21 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
             self.loader._validate_profile_data(profile, time_series_data)
 
         self.assertIn("Expected 3600s time resolution", str(context.exception))
+
+    def test_validate_profile_data_empty_result_names_the_database(self) -> None:
+        profile = _make_profile(database="missing_db")
+        time_series_data = Mock()
+        time_series_data.profile_data_list = []
+        time_series_data.start_datetime = None
+        time_series_data.end_datetime = None
+
+        with self.assertRaises(ValueError) as context:
+            self.loader._validate_profile_data(profile, time_series_data)
+
+        message = str(context.exception)
+        self.assertIn("No data returned for heat.field_a", message)
+        self.assertIn("'missing_db'", message)
+        self.assertNotIn("datetime mismatch", message)
 
     def test_convert_units_power(self) -> None:
         """Test unit conversion for power quantities."""
@@ -1259,33 +1273,472 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertIn(key_a, time_series_data)
         self.assertIn(key_b, time_series_data)
 
+    @patch(f"{_INFLUXDB_PATH.rsplit('.', 1)[0]}.ConnectionSettings")
     @patch(_INFLUXDB_PATH)
-    def test_database_mismatch_is_hard_error(self, mock_influx_cls) -> None:
-        """Profile database differing from credentials database is a hard error — no fallback."""
+    def test_batch_connects_to_the_profile_database(self, mock_influx_cls, mock_settings) -> None:
+        """The batch query uses the profile's database, as the single-profile path does."""
         p1 = _make_profile(field="field_a", asset_id="asset_1", database="profile_db")
         p2 = _make_profile(field="field_b", asset_id="asset_2", database="profile_db")
 
-        mismatched = DatabaseCredentials(
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"],
+            {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]},
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        other_db = DatabaseCredentials(
             host="influx.example.com",
             port=8086,
             username="user",
             password="password1",
             database="credentials_db",
-            ssl=False,
+            ssl=True,
             verify_ssl=False,
         )
-        mock_influx_cls._parse_esdl_profile_filters.return_value = []
 
         errors: list = []
-        with patch.object(self.loader, "_get_credentials_for_profile", return_value=mismatched):
-            with patch.object(self.loader, "_process_single_profile") as mock_single:
-                successful, failed = self.loader._process_profile_batch([p1, p2], {}, errors)
+        time_series_data: dict = {}
+        with patch.object(self.loader, "_get_credentials_for_profile", return_value=other_db):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                with patch.object(self.loader, "_process_single_profile") as mock_single:
+                    successful, failed = self.loader._process_profile_batch(
+                        [p1, p2], time_series_data, errors
+                    )
 
+        settings = mock_settings.call_args.kwargs
+        self.assertEqual(settings["database"], "profile_db")
+        self.assertEqual(
+            (
+                settings["host"],
+                settings["port"],
+                settings["username"],
+                settings["password"],
+                settings["ssl"],
+                settings["verify_ssl"],
+            ),
+            ("influx.example.com", 8086, "user", "password1", True, False),
+        )
         mock_single.assert_not_called()
-        mock_influx_cls.assert_not_called()
-        self.assertEqual(successful, 0)
-        self.assertEqual(failed, 2)
+        self.assertEqual((successful, failed, errors), (2, 0, []))
+        self.assertEqual(
+            time_series_data[f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"].values, [1.0, 2.0]
+        )
+        self.assertEqual(
+            time_series_data[f"asset_2{COMPOSITE_KEY_SEPARATOR}field_b"].values, [3.0, 4.0]
+        )
+
+    @patch(_INFLUXDB_PATH)
+    def test_non_finite_multiplier_fails_before_any_query(self, mock_influx_cls) -> None:
+        """A single Influx profile with a NaN/inf multiplier is recorded once, with no query."""
+        for multiplier in (float("nan"), float("inf")):
+            with self.subTest(multiplier=multiplier):
+                mock_influx_cls.reset_mock()
+                profile = _make_profile(field="field_a", asset_id="asset_1", multiplier=multiplier)
+                errors: list = []
+                with patch.object(
+                    self.loader, "_get_credentials_for_profile", return_value=self.credentials
+                ):
+                    successful, failed = self.loader._process_profile_batch([profile], {}, errors)
+
+                mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+                self.assertEqual((successful, failed), (0, 1))
+                self.assertEqual(len(errors), 1)
+                self.assertIn("non-finite multiplier", errors[0])
+
+    def test_multiplier_too_large_for_a_float_is_a_validation_error(self) -> None:
+        profile = _make_profile(multiplier=10**400)
+        self.assertFalse(self.loader._has_finite_multiplier(profile))
+        with self.assertRaises(ValidationError) as ctx:
+            self.loader._finite_multiplier(profile)
+        self.assertIn("non-finite multiplier", str(ctx.exception))
+
+    def test_apply_multiplier_rejects_non_finite_result(self) -> None:
+        # Finite inputs that overflow to inf only after scaling.
+        for value, multiplier in ((1e308, 10.0), (-1e308, 10.0)):
+            with self.subTest(value=value, multiplier=multiplier):
+                profile = _make_profile(multiplier=multiplier)
+                with self.assertRaises(ValidationError) as ctx:
+                    self.loader._apply_multiplier(pd.DataFrame({"v": [value, 1.0]}), profile)
+                self.assertIn("non-finite values", str(ctx.exception))
+
+    def test_apply_multiplier_rejects_nan_values_with_unit_multiplier(self) -> None:
+        profile = _make_profile(multiplier=1.0)
+        for frame in (
+            pd.DataFrame({"v": [float("nan"), 1.0]}),
+            pd.DataFrame({"v": [None, 1.0]}, dtype=object),
+        ):
+            with self.subTest(frame=frame.to_dict()):
+                with self.assertRaises(ValidationError) as ctx:
+                    self.loader._apply_multiplier(frame, profile)
+                self.assertIn("non-finite values", str(ctx.exception))
+
+    def test_apply_multiplier_rejects_non_numeric_object_values(self) -> None:
+        profile = _make_profile(multiplier=1.0)
+        with self.assertRaises(ValidationError) as ctx:
+            self.loader._apply_multiplier(pd.DataFrame({"v": [1 + 2j]}, dtype=object), profile)
+        self.assertIn("non-finite values", str(ctx.exception))
+
+    def test_require_finite_values_rejects_non_numeric_frames_with_the_given_message(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self.loader._require_finite_values(pd.DataFrame({"v": ["a"]}), "custom message")
+        self.assertEqual(str(ctx.exception), "custom message")
+
+    def test_non_numeric_multiplier_is_a_validation_error(self) -> None:
+        profile = _make_profile(multiplier="abc")
+        self.assertFalse(self.loader._has_finite_multiplier(profile))
+        with self.assertRaises(ValidationError) as ctx:
+            self.loader._finite_multiplier(profile)
+        self.assertIn("non-finite multiplier", str(ctx.exception))
+
+    def test_profile_without_database_is_rejected_by_credential_lookup(self) -> None:
+        for database in (None, ""):
+            with self.subTest(database=database):
+                profile = _make_profile(database=database)
+                with self.assertRaises(CredentialError) as ctx:
+                    self.loader._get_credentials_for_profile(profile)
+                self.assertIn("no database configured", str(ctx.exception))
+
+    @patch(_INFLUXDB_PATH)
+    def test_unbatchable_error_survives_failed_extraction_and_retry(self, mock_influx_cls) -> None:
+        nan = float("nan")
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier=nan)
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_influx_cls.return_value = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, nan], "field_b": [3.0, 4.0]}
+        )
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        errors: list = []
+
+        def fail_with_error(profile, _ts, errs) -> bool:
+            if profile is p2:
+                return True
+            errs.append(f"failed-{profile.field}")
+            return False
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                with patch.object(
+                    self.loader, "_process_single_profile", side_effect=fail_with_error
+                ):
+                    result = self.loader._process_profile_batch([bad, p1, p2], {}, errors)
+
+        self.assertEqual(result, (1, 2))
+        self.assertEqual(errors, ["failed-field_bad", "failed-field_a"])
+
+    @patch(_INFLUXDB_PATH)
+    def test_each_failed_retry_keeps_its_own_error(self, mock_influx_cls) -> None:
+        nan = float("nan")
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_influx_cls.return_value = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, nan], "field_b": [nan, 4.0]}
+        )
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        errors: list = []
+
+        def fail_with_error(profile, _ts, errs) -> bool:
+            errs.append(f"failed-{profile.field}")
+            return False
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_process_single_profile", side_effect=fail_with_error):
+                result = self.loader._process_profile_batch([p1, p2], {}, errors)
+
+        self.assertEqual(result, (0, 2))
+        self.assertEqual(errors, ["failed-field_a", "failed-field_b"])
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_batchable_profile_left_after_partition_can_fail(self, mock_influx_cls) -> None:
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier=float("nan"))
+        good = _make_profile(field="field_a", asset_id="asset_1", database=None)
+        errors: list = []
+
+        result = self.loader._process_profile_batch([bad, good], {}, errors)
+
+        self.assertEqual(result, (0, 2))
         self.assertEqual(len(errors), 2)
+        self.assertEqual(mock_influx_cls.mock_calls, [])
+
+    @patch(_INFLUXDB_PATH)
+    def test_failed_batch_query_still_counts_the_unbatchable_profile(self, mock_influx_cls) -> None:
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier=float("nan"))
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        failing_manager = Mock()
+        failing_manager.load_influxdb.side_effect = ConnectionError("down")
+        mock_influx_cls.return_value = failing_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        mock_influx_cls.create_esdl_influxdb_profile_manager.return_value = self._make_mock_manager(
+            ["field_a"], {"field_a": [1.0, 2.0]}
+        )
+        errors: list = []
+        time_series_data: dict = {}
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                result = self.loader._process_profile_batch([bad, p1, p2], time_series_data, errors)
+
+        self.assertEqual(result, (2, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("non-finite multiplier", errors[0])
+        self.assertNotIn(f"asset_bad{COMPOSITE_KEY_SEPARATOR}field_bad", time_series_data)
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_profile_load_rejects_non_finite_scaled_values(self, mock_influx_cls) -> None:
+        cases = (
+            ("inf scaled by zero", float("inf"), 0.0),
+            ("nan row", float("nan"), 1.0),
+        )
+        for label, value, multiplier in cases:
+            with self.subTest(label):
+                profile = _make_profile(multiplier=multiplier)
+                mock_influx_cls.create_esdl_influxdb_profile_manager.return_value = (
+                    self._make_mock_manager(["field_a"], {"field_a": [value, 1.0]})
+                )
+                errors: list = []
+                time_series_data: dict = {}
+
+                with patch.object(
+                    self.loader, "_get_credentials_for_profile", return_value=self.credentials
+                ):
+                    with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                        ok = self.loader._process_single_profile(profile, time_series_data, errors)
+
+                self.assertFalse(ok)
+                self.assertEqual(time_series_data, {})
+                self.assertEqual(len(errors), 1)
+
+    def test_batch_extraction_rejects_inf_scaled_by_zero(self) -> None:
+        profile = _make_profile(field="field_a", asset_id="asset_1", multiplier=0.0)
+        manager = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [float("inf"), 1.0], "field_b": [3.0, 4.0]}
+        )
+        errors: list = []
+        time_series_data: dict = {}
+
+        with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+            ok = self.loader._extract_profile_from_batch(
+                profile, {"field_a": 1, "field_b": 2}, manager, "heat", time_series_data, errors
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(time_series_data, {})
+        self.assertEqual(len(errors), 1)
+
+    def test_unbatchable_profiles_are_logged_as_processed_per_profile(self) -> None:
+        bad = _make_profile(field="field_bad", multiplier=float("nan"))
+        p1 = _make_profile(field="field_a")
+        p2 = _make_profile(field="field_b")
+
+        with patch.object(self.loader.db_logger, "warning") as mock_warning:
+            with patch.object(self.loader, "_process_single_profile", return_value=False):
+                self.loader._process_profile_batch([bad, p1, p2], {}, [])
+
+        self.assertTrue(
+            any("processing per-profile" in call.args[0] for call in mock_warning.call_args_list)
+        )
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_profile_load_passes_the_credentials_to_the_manager(
+        self, mock_influx_cls
+    ) -> None:
+        credentials = DatabaseCredentials(
+            host="influx.example.com",
+            port=8086,
+            username="user",
+            password="password1",
+            database="db",
+            ssl=True,
+            verify_ssl=False,
+        )
+        profile = _make_profile()
+        mock_influx_cls.create_esdl_influxdb_profile_manager.return_value = self._make_mock_manager(
+            ["field_a"], {"field_a": [1.0, 2.0]}
+        )
+
+        with patch.object(self.loader, "_get_credentials_for_profile", return_value=credentials):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                self.loader._load_profile_data(profile)
+
+        self.assertEqual(
+            mock_influx_cls.create_esdl_influxdb_profile_manager.call_args.args,
+            (profile, "user", "password1", True, False),
+        )
+
+    def test_whitespace_only_database_is_rejected_by_credential_validation(self) -> None:
+        with self.assertRaises(CredentialError) as ctx:
+            self.loader._get_credentials_for_profile(_make_profile(database="  "))
+        self.assertIn("Security validation failed", str(ctx.exception))
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_profile_without_database_records_one_error_and_no_query(
+        self, mock_influx_cls
+    ) -> None:
+        errors: list = []
+        successful, failed = self.loader._process_profile_batch(
+            [_make_profile(database=None)], {}, errors
+        )
+
+        self.assertEqual((successful, failed), (0, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no database configured", errors[0])
+        self.assertEqual(mock_influx_cls.mock_calls, [])
+
+    @patch(_INFLUXDB_PATH)
+    def test_non_finite_multiplier_profile_is_left_out_of_the_batch(self, mock_influx_cls) -> None:
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier=float("nan"))
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]}
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        errors: list = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch([bad, p1, p2], {}, errors)
+
+        mock_manager.load_influxdb.assert_called_once()
+        self.assertEqual(
+            mock_manager.load_influxdb.call_args.kwargs["fields"], ["field_a", "field_b"]
+        )
+        self.assertEqual((successful, failed), (2, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("non-finite multiplier", errors[0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_batch_of_only_unbatchable_profiles_runs_no_query(self, mock_influx_cls) -> None:
+        no_field = _make_profile(field=None, asset_id="asset_1")
+        bad = _make_profile(field="field_b", asset_id="asset_2", multiplier=float("nan"))
+        errors: list = []
+        time_series_data: dict = {}
+
+        successful, failed = self.loader._process_profile_batch(
+            [no_field, bad], time_series_data, errors
+        )
+
+        self.assertEqual((successful, failed), (0, 2))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("non-finite multiplier", errors[0])
+        self.assertEqual(time_series_data, {})
+        mock_influx_cls.return_value.load_influxdb.assert_not_called()
+        mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_batchable_profile_left_after_partition_is_loaded_per_profile(
+        self, mock_influx_cls
+    ) -> None:
+        bad = _make_profile(field="field_bad", asset_id="asset_bad", multiplier=float("nan"))
+        good = _make_profile(field="field_a", asset_id="asset_1")
+        mock_manager = self._make_mock_manager(["field_a"], {"field_a": [1.0, 2.0]})
+        mock_influx_cls.create_esdl_influxdb_profile_manager.return_value = mock_manager
+        errors: list = []
+        time_series_data: dict = {}
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch(
+                    [bad, good], time_series_data, errors
+                )
+
+        self.assertEqual((successful, failed), (1, 1))
+        self.assertEqual(len(errors), 1)
+        mock_influx_cls.assert_not_called()
+        mock_influx_cls.create_esdl_influxdb_profile_manager.assert_called_once()
+        self.assertEqual(
+            time_series_data[f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"].values, [1.0, 2.0]
+        )
+
+    @patch(_INFLUXDB_PATH)
+    def test_batch_credentials_come_from_a_valid_profile_not_an_unbatchable_one(
+        self, mock_influx_cls
+    ) -> None:
+        bad = _make_profile(field="", asset_id="asset_bad")
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]}
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+        with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+            with patch.object(self.loader, "_process_single_profile", return_value=True):
+                successful, failed = self.loader._process_profile_batch([bad, p1, p2], {}, [])
+
+        mock_manager.load_influxdb.assert_called_once()
+        self.assertEqual((successful, failed), (3, 0))
+
+    @patch(_INFLUXDB_PATH)
+    def test_empty_batch_result_error_names_the_database(self, mock_influx_cls) -> None:
+        empty = Mock()
+        empty.profile_data_list = []
+        empty.profile_header = ["datetime", "field_a", "field_b"]
+        mock_influx_cls.return_value = empty
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        p1 = _make_profile(database="missing_db", field="field_a", asset_id="asset_1")
+        p2 = _make_profile(database="missing_db", field="field_b", asset_id="asset_2")
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with self.assertRaises(ValueError) as context:
+                self.loader._execute_batch_query([p1, p2], p1, "heat")
+
+        self.assertIn("No data returned for measurement 'heat'", str(context.exception))
+        self.assertIn("'missing_db'", str(context.exception))
+
+    @patch(_INFLUXDB_PATH)
+    def test_empty_single_profile_result_is_reported_as_no_data(self, mock_influx_cls) -> None:
+        empty = Mock()
+        empty.profile_data_list = []
+        empty.start_datetime = None
+        empty.end_datetime = None
+        mock_influx_cls.create_esdl_influxdb_profile_manager.return_value = empty
+        profile = _make_profile(database="missing_db")
+        errors: list = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            ok = self.loader._process_single_profile(profile, {}, errors)
+
+        self.assertFalse(ok)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("No data returned for heat.field_a", errors[0])
+        self.assertIn("'missing_db'", errors[0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_batch_without_database_falls_back_and_records_one_error_per_profile(
+        self, mock_influx_cls
+    ) -> None:
+        p1 = _make_profile(field="field_a", asset_id="asset_1", database=None)
+        p2 = _make_profile(field="field_b", asset_id="asset_2", database=None)
+        errors: list = []
+
+        with patch.object(
+            self.loader, "_process_single_profile", wraps=self.loader._process_single_profile
+        ) as mock_single:
+            successful, failed = self.loader._process_profile_batch([p1, p2], {}, errors)
+
+        self.assertEqual(mock_single.call_count, 2)
+        self.assertEqual(mock_influx_cls.mock_calls, [])
+        self.assertEqual((successful, failed), (0, 2))
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all("no database configured" in e for e in errors))
 
     @patch(_INFLUXDB_PATH)
     def test_missing_profile_header_falls_back_to_per_profile(self, mock_influx_cls) -> None:
@@ -2306,6 +2759,39 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
         zero_warnings = [w for w in self.warning_texts() if "multiplier=0.0" in w]
         self.assertEqual(len(zero_warnings), 1)
         self.assertIn("tbl.HeatIn.Q", zero_warnings[0])
+
+    def test_non_finite_multiplier_rejected(self) -> None:
+        for name, multiplier in (
+            ("nan", float("nan")),
+            ("inf", float("inf")),
+            ("-inf", float("-inf")),
+        ):
+            with self.subTest(multiplier=name):
+                self.mock_read.reset_mock()
+                data, result = self.load(_table_profile(multiplier=multiplier))
+
+                self.assertEqual(data, {})
+                self.assertFalse(result.is_valid)
+                self.assertEqual(len(result.errors), 1)
+                self.assertIn("non-finite multiplier", result.errors[0])
+                self.assertIn("(asset asset1, table 'tbl')", result.errors[0])
+                self.mock_read.assert_not_called()
+
+    def test_overflow_in_unit_conversion_rejected_even_with_zero_multiplier(self) -> None:
+        # 1e308 MW overflows to inf in W, and inf * 0.0 is NaN.
+        unit = esdl.QuantityAndUnitType(
+            physicalQuantity=esdl.PhysicalQuantityEnum.POWER,
+            unit=esdl.UnitEnum.WATT,
+            multiplier=esdl.MultiplierEnum.MEGA,
+        )
+        self.mock_read.return_value = (_table_rows([1e308, 1.0]), _HEADER)
+        data, result = self.load(_table_profile(profileQuantityAndUnit=unit, multiplier=0.0))
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("non-finite values after unit conversion", result.errors[0])
+        self.assertIn("multiplier 0.0", result.errors[0])
 
     def test_missing_unit_reported_as_error_and_profile_not_loaded(self) -> None:
         data, result = self.load(_table_profile(with_unit=False))
