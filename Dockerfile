@@ -1,5 +1,5 @@
 # Multi-stage build for security and efficiency
-FROM python:3.11-bookworm AS builder
+FROM python:3.14-bookworm AS builder
 
 # Install uv for modern Python dependency management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

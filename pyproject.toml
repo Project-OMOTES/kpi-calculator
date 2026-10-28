@@ -1,7 +1,7 @@
 [project]
 name = "kpi-calculator"
 dynamic = ["version"]
-requires-python = ">=3.11"
+requires-python = ">=3.14.10"
 authors = [
     { name = "Jesús Andrés Rodríguez Sarasty", email = "jesusandres.rodriguez@deltares.nl" },
 ]
@@ -10,7 +10,7 @@ readme = "README.md"
 classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -22,163 +22,186 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy>=2.1.0,<3.0", # Compatible with simulator-worker
-    "pandas>=2.2.2,<3.0", # Requires pandas >=2.2.2 for numpy 2.x compatibility
-    "pyesdl~=26.2", # Compatible with simulator-worker
-    "xmltodict==0.14.2",
+    "numpy>=2.4.0,<3.0",
+    "pandas>=3.0.0,<4.0",
+    "pyesdl~=26.10",
+    "xmltodict>=0.14.2",
     "influxdb>=5.3.2",
-    "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
-    "urllib3>=2.6.3", # Security: CVE fixes
-    "filelock>=3.25.0", # Security: CVE fixes
+    "pydantic>=2.12.4,<3.0",
+    "urllib3>=2.6.3",
+    "filelock>=3.25.0",
 ]
 
+
 [dependency-groups]
+
 test = [
-    "pytest>=7.3.1,<9.1.0",
-    "pytest-cov ~=4.0.0",
-    "hypothesis>=6.0.0", # Property-based testing
-    "pytest-xdist>=3.0.0", # Parallel test execution
+    "pytest>=9.0.0,<10.0",
+    "pytest-cov>=7.0.0,<8.0",
+    "hypothesis>=6.0.0",
+    "pytest-xdist>=3.0.0",
 ]
+
 lint = [
-    "ruff>=0.6.0",
-    "mypy ~= 1.5.1",
-    "pre-commit ~= 3.6.0",
-    "pandas-stubs~=2.1.1", # Type stubs for pandas
-    "types-xmltodict", # Type stubs for xmltodict
+    "ruff>=0.14.0",
+    "mypy>=1.18.0",
+    "pre-commit>=4.0.0",
+    "pandas-stubs>=3.0.0",
+    "types-xmltodict",
 ]
+
 analysis = [
-    "codespell>=2.0.0",    # Spell checking
-    "vulture>=2.0.0",      # Dead code detection
-    "pylint>=3.0.0",       # Duplicate code detection (run with --disable=all --enable=similarities)
-    "pipdeptree>=2.0.0",   # Dependency analysis and visualization
-    "pip-audit>=2.0.0",    # Official Python package vulnerability scanner
-    # Note: For tree functionality, use native OS tree command or ls for basic listing
+    "codespell>=2.0.0",
+    "vulture>=2.0.0",
+    "pylint>=4.0.0",
+    "pipdeptree>=2.0.0",
+    "pip-audit>=2.0.0",
 ]
+
 docs = [
-    "sphinx >= 5.3",
-    "furo >= 2023.1.0",
-    "sphinx-copybutton >= 0.5.0",
-    "sphinx-autodoc-typehints >= 1.18.0",
+    "sphinx>=8.0",
+    "furo>=2025.0.0",
+    "sphinx-copybutton>=0.5.0",
+    "sphinx-autodoc-typehints>=3.0.0",
 ]
+
 build = [
-    "setuptools >= 70.0.0",
-    "pip >= 25.3",
-    "wheel ~= 0.46.2",
-    "setuptools-git-versioning < 2",
-    "build ~= 1.0.3",
+    "setuptools>=75.0.0",
+    "pip>=26.2.2",
+    "wheel~=0.46.2",
+    "setuptools-git-versioning<3",
+    "build>=1.3.0",
     "bump2version==1.0.1",
 ]
+
 # The 'dev' group aggregates all other dependency groups for full development setup
-# and does not include direct dependencies of its own
 dev = [
-    {include-group = "test"},
-    {include-group = "lint"},
-    {include-group = "docs"},
-    {include-group = "build"},
-    {include-group = "analysis"},
+    { include-group = "test" },
+    { include-group = "lint" },
+    { include-group = "docs" },
+    { include-group = "build" },
+    { include-group = "analysis" },
 ]
+
 
 [project.urls]
 homepage = "https://www.nwn.nu"
-documentation = "https://kpi-calculator.readthedocs.io/"  # TODO: update once ReadTheDocs project is registered
+documentation = "https://kpi-calculator.readthedocs.io/"
 repository = "https://github.com/Nieuwe-Warmte-Nu/kpi-calculator"
 changelog = "https://github.com/Nieuwe-Warmte-Nu/kpi-calculator/blob/main/CHANGELOG.md"
+
 
 [project.scripts]
 kpicalculator = "kpicalculator:main"
 
+
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [
-    "setuptools >= 70.0.0",  # Security: CVE fixes in 70.0.0+
-    "wheel ~= 0.46.2",
-    "setuptools-git-versioning<2",
+    "setuptools>=75.0.0",
+    "wheel~=0.46.2",
+    "setuptools-git-versioning<3",
 ]
+
 
 [tool.setuptools-git-versioning]
 enabled = true
 
+
 [tool.setuptools.package-data]
 kpicalculator = ["py.typed"]
+
 
 [tool.pytest.ini_options]
 addopts = "--cov=src/kpicalculator --cov-report html --cov-report term-missing --cov-fail-under 80"
 testpaths = ["unit_test"]
 pythonpath = ["src"]
-# Exclude obsolete tests that were replaced by Pydantic validation
 markers = [
     "obsolete: marks tests as obsolete (replaced by modern implementations)"
 ]
 
+
 [tool.coverage.run]
 source = ["src"]
 omit = [
-    "src/kpicalculator/adapters/xml_time_series_adapter.py",  # Testing only - exclude from coverage
+    "src/kpicalculator/adapters/xml_time_series_adapter.py",
 ]
 
-# Ruff replaces flake8, isort, and black
+
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 exclude = [".venv", "venv", "doc", "code_bases"]
+
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes
-    "I",    # isort
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "C9",   # McCabe complexity
-    "UP",   # pyupgrade
-    "S",    # bandit (security)
-    "T20",  # flake8-print
-    "RET",  # flake8-return
-    "SIM",  # flake8-simplify
-    "PTH",  # flake8-use-pathlib
-    "ARG",  # flake8-unused-arguments
-    "PIE",  # flake8-pie (unnecessary code patterns)
-    "RSE",  # flake8-raise (unnecessary exception parentheses)
-    "PERF", # perflint (performance anti-patterns)
-    "RUF",  # ruff-specific rules
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "C9",
+    "UP",
+    "S",
+    "T20",
+    "RET",
+    "SIM",
+    "PTH",
+    "ARG",
+    "PIE",
+    "RSE",
+    "PERF",
+    "RUF",
 ]
+
 ignore = [
-    "C408", # Suggestion to use dict() over {}
-    "B019", # lru_cache on methods (intentional design choice)
+    "C408",
+    "B019",
 ]
+
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"test_*.py" = ["S101", "S106", "SIM117"]  # Tests: bare asserts, test-data passwords, nested patch contexts
-"unit_test/test_credential_manager.py" = ["B017"]  # Broad exception assertions in edge-case tests
-"src/kpicalculator/adapters/xml_time_series_adapter.py" = ["ALL"]  # Testing only - exclude from all linting
-"src/kpicalculator/security/input_validator.py" = ["C901"]  # Security validation is inherently branchy - complexity checked manually
+"test_*.py" = ["S101", "S106", "SIM117"]
+"unit_test/test_credential_manager.py" = ["B017"]
+"src/kpicalculator/adapters/xml_time_series_adapter.py" = ["ALL"]
+"src/kpicalculator/security/input_validator.py" = ["C901"]
+
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
+
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 
+
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 exclude = ['.venv/*', 'venv/*', 'doc/*', 'ci/*']
 
-# mypy per-module options:
+
 [[tool.mypy.overrides]]
-module = ["unit_test.*", "pandas.*", "xmltodict.*", "esdl.*", "esdl.esdl_handler.*", "jinja2.*"]
+module = [
+    "unit_test.*",
+    "pandas.*",
+    "xmltodict.*",
+    "esdl.*",
+    "esdl.esdl_handler.*",
+    "jinja2.*",
+]
 check_untyped_defs = true
 ignore_missing_imports = true
 
 
-# Interrogate configuration for documentation coverage
 [tool.interrogate]
 ignore-init-method = true
 ignore-init-module = false
