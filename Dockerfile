@@ -24,7 +24,7 @@ RUN set -e; \
     fi
 
 # Production stage with minimal attack surface
-FROM python:3.11-slim-bookworm AS production
+FROM python:3.14-slim-bookworm AS production
 
 # Create non-root user for security
 RUN groupadd --gid 1000 kpiuser && \

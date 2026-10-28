@@ -1,4 +1,4 @@
-name: Deply to GitHub Container Registry
+name: Deploy to GitHub Container Registry
 on:
   push:
     tags:
