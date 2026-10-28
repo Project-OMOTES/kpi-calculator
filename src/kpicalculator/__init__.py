@@ -133,7 +133,7 @@ def main() -> None:
     except KpiCalculatorError as e:
         print(f"Error: {e}", file=sys.stderr)  # noqa: T201
         sys.exit(1)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)  # noqa: T201

@@ -825,7 +825,7 @@ class EsdlAdapter(BaseAdapter):
 
             # Default: EUR
             return "EUR"
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             # Handle any edge cases with missing attributes gracefully
             return "EUR"
 
@@ -861,7 +861,7 @@ class EsdlAdapter(BaseAdapter):
 
             return "/".join(parts)
 
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             return "EUR"
 
     def _log_session_summary(self) -> None:

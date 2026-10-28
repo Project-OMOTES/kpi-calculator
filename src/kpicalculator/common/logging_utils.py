@@ -86,7 +86,7 @@ class StructuredLogger:
         try:
             structured_message = json.dumps(log_entry, default=str)
             self.logger.log(level, structured_message)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # Fallback to simple logging if JSON serialization fails
             fallback_message = f"{message}"
             if context:

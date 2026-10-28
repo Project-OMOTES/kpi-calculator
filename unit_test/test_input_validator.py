@@ -872,7 +872,7 @@ class TestIntegratedValidation(unittest.TestCase):
         # Should pass business logic validation too
         try:
             InputValidator.validate_database_credentials(credentials)
-        except (ValidationError, PydanticValidationError):
+        except ValidationError, PydanticValidationError:
             self.fail("Valid credentials should pass both validation layers")
 
     def test_integrated_validation_layer_separation(self) -> None:
