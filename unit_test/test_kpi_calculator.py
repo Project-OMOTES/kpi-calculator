@@ -1336,12 +1336,12 @@ class BaseAdapterValidationTest(unittest.TestCase):
     concrete subclass — without loading any ESDL file.
     """
 
-    def _make_adapter(self) -> "EsdlAdapter":  # noqa: F821
+    def _make_adapter(self) -> EsdlAdapter:  # noqa: F821
         from kpicalculator.adapters.esdl_adapter import EsdlAdapter
 
         return EsdlAdapter()
 
-    def _make_asset(self, **kwargs) -> "Asset":
+    def _make_asset(self, **kwargs) -> Asset:
         from kpicalculator.adapters.common_model import Asset, AssetType
 
         defaults = dict(
@@ -1354,7 +1354,7 @@ class BaseAdapterValidationTest(unittest.TestCase):
         defaults.update(kwargs)
         return Asset(**defaults)
 
-    def _make_system(self, assets: list) -> "EnergySystem":
+    def _make_system(self, assets: list) -> EnergySystem:
         from kpicalculator.adapters.common_model import EnergySystem
 
         return EnergySystem(name="Test System", assets=assets)
@@ -1440,7 +1440,7 @@ class EacTcoCalculatorTest(unittest.TestCase):
         investment: float = 100_000.0,
         opex_annual: float = 5_000.0,
         technical_lifetime: float = 40.0,
-    ) -> "EnergySystem":
+    ) -> EnergySystem:
         from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
 
         asset = Asset(
@@ -1871,7 +1871,7 @@ class AssetFinancialBreakdownTest(unittest.TestCase):
         opex_annual: float = 5_000.0,
         technical_lifetime: float = 40.0,
         asset_id: str = "asset_1",
-    ) -> "EnergySystem":
+    ) -> EnergySystem:
         from kpicalculator.adapters.common_model import Asset, AssetType, EnergySystem
 
         if asset_type is None:
@@ -2179,7 +2179,7 @@ class PerAssetLcoeTest(unittest.TestCase):
     EnergyCalculator and passes it in; FinancialCalculator never imports EnergyCalculator.
     """
 
-    def _make_producer_system_with_timeseries(self) -> tuple["KpiManager", str]:
+    def _make_producer_system_with_timeseries(self) -> tuple[KpiManager, str]:
         """Load the standard ESDL fixture with a real time series for energy data."""
         esdl_file = DATA_DIR / "Unit_test_ESDL.esdl"
         series_file = DATA_DIR / "power_timeseries.xml"
