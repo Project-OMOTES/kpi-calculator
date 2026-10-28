@@ -10,6 +10,7 @@ from ..common.constants import COMPOSITE_KEY_SEPARATOR, KNOWN_TIME_SERIES_FIELDS
 from ..security.credential_manager import CredentialManager
 from .base_adapter import ValidationResult
 from .common_model import TimeSeries
+from .data_table_profile_reader import is_database_profile
 from .database_time_series_loader import DatabaseTimeSeriesLoader
 from .xml_time_series_adapter import PiXmlTimeSeries
 
@@ -67,7 +68,7 @@ class TimeSeriesManager:
                     return self._load_from_dataframes(timeseries_dataframes, energy_system)
 
                 if source == "database" and self._has_database_profiles(energy_system):
-                    self.logger.info("Loading time series from InfluxDB database")
+                    self.logger.info("Loading time series from database")
                     return self.database_loader.load_time_series_from_esdl(energy_system)
 
                 if source == "xml" and xml_file:
@@ -100,7 +101,7 @@ class TimeSeriesManager:
                 DatetimeIndex. All numeric columns are stored; columns whose
                 names are not recognised by the KPI calculators (e.g.
                 unknown_field, custom_metric) are stored but will not
-                contribute to any KPI — a warning is logged in that case.
+                contribute to any KPI — a consolidated warning is returned.
             energy_system: ESDL energy system for validation
 
         Returns:
@@ -108,15 +109,18 @@ class TimeSeriesManager:
         """
         time_series_dict = {}
         issues = []
+        unrecognized_cols: list[str] = []
 
         # Validate DataFrame format and content
         validation_result = self._validate_dataframe_time_series(dataframes, energy_system)
 
         for asset_id, df in dataframes.items():
             try:
-                # Validate DataFrame is not empty
                 if df.empty:
-                    issues.append(f"Empty DataFrame for asset {asset_id}")
+                    continue
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    continue
+                if df.isnull().any().any():
                     continue
 
                 # Detect time step from DataFrame index (same for all columns)
@@ -147,10 +151,7 @@ class TimeSeriesManager:
                         )
 
                         if column_name not in KNOWN_TIME_SERIES_FIELDS:
-                            self.logger.warning(
-                                f"Column '{column_name}' for asset {asset_id} is not a "
-                                f"recognized KPI field and will not contribute to any KPI"
-                            )
+                            unrecognized_cols.append(f"{asset_id}/{column_name}")
                         else:
                             self.logger.debug(
                                 f"Converted DataFrame column '{column_name}' for asset "
@@ -172,11 +173,19 @@ class TimeSeriesManager:
                 issues.append(error_msg)
                 continue
 
-        # Combine validation results
+        extra_warnings = list(validation_result.warnings)
+        if unrecognized_cols:
+            extra_warnings.append(
+                self._summarize_column_list(
+                    unrecognized_cols,
+                    "are not recognised KPI fields",
+                )
+            )
+
         combined_validation = ValidationResult(
             is_valid=validation_result.is_valid and len(issues) == 0,
             errors=validation_result.errors + issues,
-            warnings=validation_result.warnings,
+            warnings=extra_warnings,
         )
 
         return time_series_dict, combined_validation
@@ -195,6 +204,7 @@ class TimeSeriesManager:
         """
         issues = []
         warnings = []
+        negative_cols: list[str] = []
 
         # Extract asset IDs from ESDL
         esdl_asset_ids = {
@@ -232,16 +242,35 @@ class TimeSeriesManager:
             # with an error in _load_from_dataframes during the conversion step.
             for col, series in df.select_dtypes(include="number").items():
                 if (series < 0).any():
-                    warnings.append(
-                        f"DataFrame for {asset_id}, column '{col}' contains negative values"
-                    )
+                    negative_cols.append(f"{asset_id}/{col}")
                 if series.max() > 1e9:  # Very large values might indicate unit issues
                     warnings.append(
                         f"DataFrame for {asset_id}, column '{col}' contains very large values"
                         " - check units"
                     )
 
+        if negative_cols:
+            warnings.append(self._summarize_column_list(negative_cols, "contain negative values"))
+
         return ValidationResult(is_valid=len(issues) == 0, errors=issues, warnings=warnings)
+
+    def _summarize_column_list(self, cols: list[str], verb: str, preview: int = 10) -> str:
+        """Format a column list into a single warning string with truncation.
+
+        Emits a DEBUG log with the full vertical list when the list exceeds preview.
+        """
+        head = ", ".join(cols[:preview])
+        if len(cols) <= preview:
+            return f"{len(cols)} column(s) {verb}: {head}"
+        tail_count = len(cols) - preview
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                f"Full list of columns that {verb}:\n" + "\n".join(f"  {c}" for c in cols)
+            )
+            hint = ""
+        else:
+            hint = " (set log level to DEBUG for full list)"
+        return f"{len(cols)} column(s) {verb}: {head}, … +{tail_count} more{hint}"
 
     def _detect_time_step(self, df: pd.DataFrame) -> float:
         """Detect time step from DataFrame DatetimeIndex.
@@ -291,18 +320,18 @@ class TimeSeriesManager:
             return 3600.0
 
     def _has_database_profiles(self, energy_system: esdl.EnergySystem) -> bool:
-        """Check if energy system contains InfluxDB profile references.
+        """Check if energy system contains profiles that are read from a database.
+
+        Eligible profiles are ``InfluxDBProfile`` elements and ``DataTableProfile``
+        elements that are not OUTPUT profiles and use a ``DatabaseConfiguration`` (or none).
 
         Args:
             energy_system: ESDL energy system to check
 
         Returns:
-            True if database profiles are found, False otherwise
+            True if eligible database profiles are found, False otherwise
         """
-        influx_profiles = [
-            x for x in energy_system.eAllContents() if isinstance(x, esdl.InfluxDBProfile)
-        ]
-        return len(influx_profiles) > 0
+        return any(is_database_profile(x) for x in energy_system.eAllContents())
 
     def _load_from_xml(
         self, xml_file: str, energy_system: esdl.EnergySystem

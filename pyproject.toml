@@ -24,9 +24,8 @@ classifiers = [
 dependencies = [
     "numpy>=2.1.0,<3.0", # Compatible with simulator-worker
     "pandas>=2.2.2,<3.0", # Requires pandas >=2.2.2 for numpy 2.x compatibility
-    "pyesdl~=26.2", # Compatible with simulator-worker
+    "pyesdl[profiles]~=26.7.1", # Extra supplies influxdb/psycopg/openpyxl; simulator-worker must bump its pyesdl==26.2 pin
     "xmltodict==0.14.2",
-    "influxdb>=5.3.2",
     "pydantic>=2.0.0,<3.0", # Modern data validation with type hints
     "urllib3>=2.6.3", # Security: CVE fixes
     "filelock>=3.25.0", # Security: CVE fixes
