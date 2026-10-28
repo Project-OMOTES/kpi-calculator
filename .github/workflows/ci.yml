@@ -155,6 +155,25 @@ jobs:
           uv venv .venv-test --python 3.14.10
           source .venv-test/bin/activate
           uv pip install dist/*.whl
+      - name: Verify package metadata and imports
+        run: |
+          source .venv-test/bin/activate
+          python -c "import kpicalculator; print(f'Package imported successfully')"
+          python -c "import importlib.metadata; meta = importlib.metadata.metadata('kpi-calculator'); print(f'Name: {meta[\"Name\"]}'); print(f'Version: {meta[\"Version\"]}')"
+      - name: Run security checks on dependencies
+        run: |
+          # Create clean environment and install package as editable
+          # This allows using --skip-editable to exclude the local package from audit
+          uv venv .venv-audit
+          source .venv-audit/bin/activate
+          uv pip install -e .
+          uv pip install pip-audit
+          # Audit dependencies, skipping the editable local package (not yet on PyPI)
+          pip-audit --desc on --skip-editable
+      - name: Check package description will render on PyPI
+        run: |
+          uv tool install twine
+          uv tool run twine check dist/*
 
   publish-to-pypi:
     name: Publish to PyPI
