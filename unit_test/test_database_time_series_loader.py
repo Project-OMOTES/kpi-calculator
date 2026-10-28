@@ -1629,8 +1629,9 @@ class TestProcessProfileBatch(unittest.TestCase):
         )
 
         self.assertEqual((successful, failed), (0, 2))
-        self.assertEqual(len(errors), 1)
-        self.assertIn("non-finite multiplier", errors[0])
+        self.assertEqual(len(errors), 2)
+        self.assertIn("has no field name", errors[0])
+        self.assertIn("non-finite multiplier", errors[1])
         self.assertEqual(time_series_data, {})
         mock_influx_cls.return_value.load_influxdb.assert_not_called()
         mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
@@ -1681,6 +1682,54 @@ class TestProcessProfileBatch(unittest.TestCase):
 
         mock_manager.load_influxdb.assert_called_once()
         self.assertEqual((successful, failed), (3, 0))
+
+    @patch(_INFLUXDB_PATH)
+    def test_empty_field_profile_in_a_batch_records_an_error_naming_the_asset(
+        self, mock_influx_cls
+    ) -> None:
+        bad = _make_profile(field="", asset_id="asset_bad")
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_influx_cls.return_value = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]}
+        )
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        errors: list = []
+        time_series_data: dict = {}
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                result = self.loader._process_profile_batch([bad, p1, p2], time_series_data, errors)
+
+        self.assertEqual(result, (2, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("asset_bad", errors[0])
+        self.assertIn("has no field name", errors[0])
+        self.assertEqual(
+            sorted(time_series_data),
+            [
+                f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a",
+                f"asset_2{COMPOSITE_KEY_SEPARATOR}field_b",
+            ],
+        )
+
+    def test_lone_empty_field_profile_makes_the_load_result_invalid(self) -> None:
+        for field in ("", None):
+            with self.subTest(field=field):
+                profile = _make_profile(field=field, asset_id="asset_1")
+
+                with patch.object(
+                    self.loader, "_collect_database_profiles", return_value=([profile], [])
+                ):
+                    data, validation = self.loader.load_time_series_from_esdl(Mock())
+
+                self.assertEqual(data, {})
+                self.assertFalse(validation.is_valid)
+                self.assertEqual(len(validation.errors), 1)
+                self.assertIn("asset_1", validation.errors[0])
+                self.assertIn("has no field name", validation.errors[0])
 
     @patch(_INFLUXDB_PATH)
     def test_empty_batch_result_error_names_the_database(self, mock_influx_cls) -> None:

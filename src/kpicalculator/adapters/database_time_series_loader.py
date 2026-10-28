@@ -90,7 +90,6 @@ class DatabaseTimeSeriesLoader:
     2. Graceful Degradation:
        - Individual profile failures do not crash entire loading process
        - Profiles that fail to load are skipped and reported in ValidationResult.errors
-       - Influx profiles with no field name are skipped with a warning only
        - Profiles that load are returned even when others fail; any load failure still
          makes ValidationResult.is_valid False
        - All errors are logged with detailed context for troubleshooting
@@ -564,10 +563,10 @@ class DatabaseTimeSeriesLoader:
             asset_id = self._extract_asset_id(profile)
             field_name = profile.field
             if not field_name:
-                self.db_logger.warning(
-                    f"InfluxDB profile for asset {asset_id} has no field name, skipping"
+                raise ValidationError(
+                    f"InfluxDB profile for asset {asset_id} (measurement "
+                    f"'{profile.measurement}') has no field name"
                 )
-                return False
 
             profile_start = time.time()
             time_series = self._load_profile_data(profile)
@@ -582,7 +581,7 @@ class DatabaseTimeSeriesLoader:
             return True
 
         except Exception as e:
-            errors.append(self._categorize_profile_error(e, profile.field))
+            errors.append(self._categorize_profile_error(e, profile.field or "?"))
             self.db_logger.error(
                 "Profile loading failed",
                 {
