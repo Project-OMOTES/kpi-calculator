@@ -4,8 +4,10 @@
 import math
 import time
 from collections import defaultdict
-from collections.abc import Sequence
-from datetime import datetime
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
 
 import numpy as np
@@ -61,6 +63,49 @@ class InfluxDBProfileProtocol(Protocol):
     database: str
     measurement: str
     field: str
+
+
+class _ReadLockTimeout(TimeoutError):
+    """Raised when a DataTable read could not take ``DATABASE_READ_LOCK`` in time."""
+
+
+@dataclass
+class _ReadLockState:
+    """Whether any profile of one load got past acquiring ``DATABASE_READ_LOCK``."""
+
+    acquired: bool = False
+
+
+@contextmanager
+def _read_lock(state: _ReadLockState) -> Iterator[None]:
+    """Hold ``DATABASE_READ_LOCK``; failing to take it raises ``_ReadLockTimeout``.
+
+    A ``TimeoutError`` raised inside the block is not a lock timeout and passes through.
+    """
+    entered = False
+    try:
+        with database_read_lock():
+            entered = True
+            state.acquired = True
+            yield
+    except TimeoutError as e:
+        if entered:
+            raise
+        raise _ReadLockTimeout(str(e)) from e
+
+
+def _strip_url_scheme(host: str) -> str:
+    """Drop a leading ``http://`` or ``https://`` from an ESDL profile host."""
+    if host.startswith("https://"):
+        return host[HTTPS_PREFIX_LENGTH:]
+    if host.startswith("http://"):
+        return host[HTTP_PREFIX_LENGTH:]
+    return host
+
+
+def _as_utc(moment: datetime) -> datetime:
+    """Return ``moment`` in UTC; a naive datetime is taken as UTC."""
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
 class _BatchHardError(Exception):
@@ -178,9 +223,10 @@ class DatabaseTimeSeriesLoader:
 
         ``InfluxDBProfile`` elements go through batched InfluxDB queries; eligible
         ``DataTableProfile`` elements are read one by one through pyESDL. Both kinds are
-        merged into one dict; on a composite-key collision the first entry is kept and the
-        duplicate is recorded as an error. When DataTable profiles were read,
-        ``close_db_connections()`` runs once in a ``finally`` afterwards.
+        merged into one dict listing its entries in ESDL profile order. On a composite-key
+        collision the first profile in ESDL order is kept; later ones are not loaded and are
+        recorded as errors. When DataTable profiles were read, ``close_db_connections()`` runs
+        once in a ``finally`` afterwards.
 
         Args:
             energy_system: ESDL EnergySystem containing InfluxDBProfile and/or
@@ -199,7 +245,9 @@ class DatabaseTimeSeriesLoader:
         warnings: list[str] = []
 
         try:
-            influx_profiles, table_profiles = self._collect_database_profiles(energy_system)
+            influx_profiles, table_profiles, esdl_order = self._collect_database_profiles(
+                energy_system
+            )
 
             profile_count = len(influx_profiles) + len(table_profiles)
             self.db_logger.info(
@@ -215,8 +263,11 @@ class DatabaseTimeSeriesLoader:
                 warnings.append("No database profiles found in ESDL file")
                 return time_series_data, ValidationResult(True, [], warnings)
 
+            planned_keys = [self._planned_key(profile) for profile in esdl_order]
+            influx_profiles, table_profiles, failed_loads = self._drop_duplicate_keys(
+                influx_profiles, table_profiles, esdl_order, planned_keys, errors
+            )
             successful_loads = 0
-            failed_loads = 0
 
             batches = self._group_profiles_for_batch(influx_profiles)
             self.db_logger.info(
@@ -236,6 +287,8 @@ class DatabaseTimeSeriesLoader:
             )
             successful_loads += table_successful
             failed_loads += table_failed
+
+            time_series_data = self._in_esdl_order(time_series_data, planned_keys)
 
             # Log summary
             total_time = time.time() - start_time
@@ -261,17 +314,29 @@ class DatabaseTimeSeriesLoader:
 
     def _collect_database_profiles(
         self, energy_system: esdl.EnergySystem
-    ) -> tuple[list[esdl.InfluxDBProfile], list[esdl.DataTableProfile]]:
-        """Collect Influx and eligible DataTable profiles; warn once about skipped ones."""
+    ) -> tuple[
+        list[esdl.InfluxDBProfile],
+        list[esdl.DataTableProfile],
+        list[esdl.InfluxDBProfile | esdl.DataTableProfile],
+    ]:
+        """Collect Influx and eligible DataTable profiles; warn once about skipped ones.
+
+        Returns:
+            (influx_profiles, table_profiles, all_profiles) where ``all_profiles`` holds both
+            kinds in the order ``eAllContents()`` yields them.
+        """
         influx_profiles: list[esdl.InfluxDBProfile] = []
         table_profiles: list[esdl.DataTableProfile] = []
+        esdl_order: list[esdl.InfluxDBProfile | esdl.DataTableProfile] = []
         skipped = 0
         for element in energy_system.eAllContents():
             if isinstance(element, esdl.InfluxDBProfile):
                 influx_profiles.append(element)
+                esdl_order.append(element)
             elif isinstance(element, esdl.DataTableProfile):
                 if is_database_profile(element):
                     table_profiles.append(element)
+                    esdl_order.append(element)
                 else:
                     skipped += 1
         if skipped:
@@ -279,7 +344,81 @@ class DatabaseTimeSeriesLoader:
                 f"Skipped {skipped} DataTableProfile(s) that are OUTPUT profiles or use a "
                 f"non-database configuration"
             )
-        return influx_profiles, table_profiles
+        return influx_profiles, table_profiles, esdl_order
+
+    def _planned_key(self, profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> str | None:
+        """Return the composite key a profile will be stored under, or None if unknown.
+
+        None for an Influx profile without a field, a DataTable profile without a column, or a
+        profile whose asset id cannot be extracted; those take the normal path, which records
+        their own error.
+        """
+        name = profile.columnName if isinstance(profile, esdl.DataTableProfile) else profile.field
+        if not name:
+            return None
+        try:
+            asset_id = self._extract_asset_id(profile)
+        except Exception:
+            return None
+        return f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{name}"
+
+    def _drop_duplicate_keys(
+        self,
+        influx_profiles: list[esdl.InfluxDBProfile],
+        table_profiles: list[esdl.DataTableProfile],
+        esdl_order: list[esdl.InfluxDBProfile | esdl.DataTableProfile],
+        planned_keys: list[str | None],
+        errors: list[str],
+    ) -> tuple[list[esdl.InfluxDBProfile], list[esdl.DataTableProfile], int]:
+        """Remove every profile whose composite key an earlier profile in ESDL order claims.
+
+        The first profile for a key wins whatever its kind or batch grouping; a dropped
+        profile is never queried or read. Each is recorded as one error.
+
+        Returns:
+            (influx_profiles, table_profiles, dropped_count) without the dropped profiles.
+        """
+        seen: set[str] = set()
+        dropped: set[int] = set()
+        for profile, key in zip(esdl_order, planned_keys, strict=True):
+            if key is None:
+                continue
+            if key not in seen:
+                seen.add(key)
+                continue
+            source = (
+                f"table '{profile.tableName}'"
+                if isinstance(profile, esdl.DataTableProfile)
+                else f"measurement '{profile.measurement}'"
+            )
+            message = f"Duplicate time series key '{key}' ({source}); keeping the first entry"
+            self.db_logger.warning(message)
+            errors.append(message)
+            dropped.add(id(profile))
+        return (
+            [p for p in influx_profiles if id(p) not in dropped],
+            [p for p in table_profiles if id(p) not in dropped],
+            len(dropped),
+        )
+
+    def _in_esdl_order(
+        self,
+        time_series_data: dict[str, TimeSeries],
+        planned_keys: list[str | None],
+    ) -> dict[str, TimeSeries]:
+        """Return the loaded series keyed in ESDL profile order.
+
+        Batching and the separate DataTable pass load profiles in a different order, but
+        consumers take an asset's first series as its primary one.
+        """
+        ordered: dict[str, TimeSeries] = {}
+        for key in planned_keys:
+            if key is not None and key in time_series_data:
+                ordered[key] = time_series_data[key]
+        # Keys that no collected profile plans (none expected) keep their load order.
+        for key, series in time_series_data.items():
+            ordered.setdefault(key, series)
+        return ordered
 
     def _group_profiles_for_batch(
         self, profiles: list[esdl.InfluxDBProfile]
@@ -408,10 +547,11 @@ class DatabaseTimeSeriesLoader:
             )
             raise _BatchHardError(failed_so_far + len(valid_profiles))
 
+        # Connect to the profile's own server, like the single-profile path does.
         manager = InfluxDBProfileManager(
             ConnectionSettings(
-                host=credentials.host,
-                port=credentials.port,
+                host=_strip_url_scheme(representative.host),
+                port=representative.port,
                 database=credentials.database,
                 username=credentials.username,
                 password=credentials.password,
@@ -614,31 +754,61 @@ class DatabaseTimeSeriesLoader:
     ) -> tuple[int, int]:
         """Read DataTable profiles one by one, then close pyESDL's connections once.
 
+        The close is skipped when a lock timeout left this load with nothing acquired.
+
         Returns:
             (successful_loads, failed_loads)
         """
         if not profiles:
             return 0, 0
         successful = 0
+        lock_state = _ReadLockState()
+        lock_timed_out = False
         try:
-            for profile in profiles:
-                if self._process_data_table_profile(profile, time_series_data, errors):
-                    successful += 1
+            for index, profile in enumerate(profiles):
+                try:
+                    if self._process_data_table_profile(
+                        profile, time_series_data, errors, lock_state
+                    ):
+                        successful += 1
+                except _ReadLockTimeout:
+                    lock_timed_out = True
+                    # Waiting again for every remaining profile would stack the timeouts.
+                    errors.extend(
+                        f"Skipped DataTable profile {self._data_table_subject(skipped)} "
+                        f"after a database lock timeout"
+                        for skipped in profiles[index + 1 :]
+                    )
+                    break
         finally:
-            try:
-                with database_read_lock():
-                    close_db_connections()
-            except TimeoutError as e:
-                self.db_logger.error(
-                    "Could not close pyESDL database connections; they stay open", {}, e
-                )
+            # After a lock timeout with no earlier acquisition this load opened nothing, so
+            # waiting for the lock again just to close connections would only add delay.
+            if lock_state.acquired or not lock_timed_out:
+                try:
+                    with database_read_lock():
+                        close_db_connections()
+                except TimeoutError as e:
+                    self.db_logger.error(
+                        "Could not close pyESDL database connections; they stay open", {}, e
+                    )
         return successful, len(profiles) - successful
+
+    def _data_table_subject(
+        self, profile: esdl.DataTableProfile, asset_id: str | None = None
+    ) -> str:
+        """Describe a DataTable profile in error messages."""
+        if asset_id is None:
+            asset_id = "?"
+            with suppress(Exception):
+                asset_id = self._extract_asset_id(profile)
+        return f"{profile.columnName or '?'} (asset {asset_id}, table '{profile.tableName}')"
 
     def _process_data_table_profile(
         self,
         profile: esdl.DataTableProfile,
         time_series_data: dict[str, TimeSeries],
         errors: list[str],
+        lock_state: _ReadLockState,
     ) -> bool:
         """Read one DataTableProfile and add it to time_series_data.
 
@@ -647,8 +817,12 @@ class DatabaseTimeSeriesLoader:
 
         Returns:
             True if the profile was loaded successfully, False otherwise.
+
+        Raises:
+            _ReadLockTimeout: The profile could not take ``DATABASE_READ_LOCK``. Its error is
+                recorded first; the caller stops reading further profiles.
         """
-        asset_id = "?"
+        asset_id: str | None = None
         try:
             asset_id = self._extract_asset_id(profile)
             target = validate_data_table_profile(profile, asset_id)
@@ -665,7 +839,7 @@ class DatabaseTimeSeriesLoader:
                 return False
 
             profile_start = time.time()
-            time_series = self._read_data_table_profile(profile, target)
+            time_series = self._read_data_table_profile(profile, target, lock_state)
             profile_time = time.time() - profile_start
             time_series_data[composite_key] = time_series
             self.db_logger.log_time_series_processing(
@@ -674,17 +848,22 @@ class DatabaseTimeSeriesLoader:
             return True
 
         except Exception as e:
-            subject = f"{profile.columnName or '?'} (asset {asset_id}, table '{profile.tableName}')"
+            subject = self._data_table_subject(profile, asset_id)
             errors.append(self._categorize_profile_error(e, subject))
             self.db_logger.error(
                 "DataTable profile loading failed",
                 {"table_name": profile.tableName, "column_name": profile.columnName},
                 e,
             )
+            if isinstance(e, _ReadLockTimeout):
+                raise
             return False
 
     def _read_data_table_profile(
-        self, profile: esdl.DataTableProfile, target: DataTableTarget
+        self,
+        profile: esdl.DataTableProfile,
+        target: DataTableTarget,
+        lock_state: _ReadLockState,
     ) -> TimeSeries:
         """Read one validated DataTableProfile through pyESDL and reshape it.
 
@@ -697,10 +876,11 @@ class DatabaseTimeSeriesLoader:
         A unit that pyESDL reads from ``datatable_metadata`` is stored on the copy.
 
         Raises:
+            _ReadLockTimeout: ``DATABASE_READ_LOCK`` could not be taken in time.
             Exception: Any validation, credential, read or reshape failure.
         """
         read_profile = detached_copy(profile)
-        with database_read_lock():
+        with _read_lock(lock_state):
             warning = check_database_login(
                 read_profile.configuration,
                 allow_passwordless=self.allow_passwordless_database,
@@ -741,6 +921,7 @@ class DatabaseTimeSeriesLoader:
                 f"profile in the ESDL or provide it in the datatable_metadata table"
             )
         rows = reshape_rows(data, header, column_name)
+        self._require_requested_interval(profile, rows, column_name)
         df = pd.DataFrame(
             [row[1] for row in rows], index=pd.DatetimeIndex([row[0] for row in rows])
         )
@@ -761,6 +942,31 @@ class DatabaseTimeSeriesLoader:
             values_list, f"DataTable profile {label}"
         )
         return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
+
+    @staticmethod
+    def _require_requested_interval(
+        profile: esdl.DataTableProfile, rows: Sequence[Sequence[Any]], column_name: str
+    ) -> None:
+        """Raise ValueError if the rows start or end more than an hour inside the requested window.
+
+        pyESDL filters inclusively on whichever of ``startDate``/``endDate`` is set. Rows no more
+        than an hour from a bound are accepted, so bounds off the hourly grid still work.
+        Naive datetimes are taken as UTC.
+        """
+        first, last = _as_utc(rows[0][0]), _as_utc(rows[-1][0])
+        start = _as_utc(profile.startDate) if profile.startDate else None
+        end = _as_utc(profile.endDate) if profile.endDate else None
+        one_hour = timedelta(seconds=SECONDS_PER_HOUR)
+        if (start is not None and first - start > one_hour) or (
+            end is not None and end - last > one_hour
+        ):
+            requested = (
+                f"{start.isoformat() if start else 'open'} to {end.isoformat() if end else 'open'}"
+            )
+            raise ValueError(
+                f"Column '{column_name}' returned rows from {first.isoformat()} to "
+                f"{last.isoformat()}, which does not cover the requested interval {requested}"
+            )
 
     @staticmethod
     def _require_finite_values(df: pd.DataFrame, message: str) -> None:
@@ -951,15 +1157,8 @@ class DatabaseTimeSeriesLoader:
             CredentialError: If no credentials found for the profile
         """
         # Parse host from profile (handle URL prefixes)
-        profile_host = profile.host
-        ssl_setting = False
-
-        # Handle https/http prefixes
-        if profile_host.startswith("https://"):
-            profile_host = profile_host[HTTPS_PREFIX_LENGTH:]
-            ssl_setting = True
-        elif profile_host.startswith("http://"):
-            profile_host = profile_host[HTTP_PREFIX_LENGTH:]
+        ssl_setting = profile.host.startswith("https://")
+        profile_host = _strip_url_scheme(profile.host)
 
         # CRITICAL SECURITY FIX: Validate host and port before processing
         try:
