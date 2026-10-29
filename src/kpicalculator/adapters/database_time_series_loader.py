@@ -823,12 +823,16 @@ class DatabaseTimeSeriesLoader:
     def _rows_to_dataframe(
         self, rows: Sequence[Sequence[datetime | float | None]], col_index: int
     ) -> pd.DataFrame:
-        """Build a timezone-aware DatetimeIndex DataFrame from raw InfluxDB rows."""
+        """Build a timezone-aware DatetimeIndex float DataFrame from raw InfluxDB rows.
+
+        Values are cast to float because InfluxDB returns integer fields as ints and pandas 3
+        refuses to store a converted (non-integral) value in an integer column.
+        """
         data_points = {
             row[0].strftime("%Y-%m-%dT%H:%M:%SZ"): row[col_index]  # type: ignore[union-attr]
             for row in rows
         }
-        df = pd.DataFrame.from_dict(data_points, orient="index")
+        df = pd.DataFrame.from_dict(data_points, orient="index").astype(float)
         df.index = pd.to_datetime(df.index, utc=True)
         return df
 

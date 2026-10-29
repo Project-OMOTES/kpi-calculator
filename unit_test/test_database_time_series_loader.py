@@ -543,6 +543,23 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         # Should return original DataFrame on exception
         self.assertEqual(result_df.iloc[0, 0], 100.0)
 
+    def test_integer_valued_rows_are_converted_to_the_base_unit(self) -> None:
+        profile = Mock(spec=esdl.InfluxDBProfile)
+        profile.profileQuantityAndUnit = esdl.QuantityAndUnitType(
+            physicalQuantity=esdl.PhysicalQuantityEnum.POWER,
+            unit=esdl.UnitEnum.WATT,
+            multiplier=esdl.MultiplierEnum.MILLI,
+        )
+        rows = [
+            (datetime(2024, 1, 1, hour), value) for hour, value in enumerate([1500, 2500, 3500])
+        ]
+
+        df = self.loader._rows_to_dataframe(rows, 1)
+        converted = self.loader._convert_units(df, profile)
+
+        self.assertEqual(df.dtypes.iloc[0], "float64")
+        self.assertEqual([round(v, 9) for v in converted.iloc[:, 0]], [1.5, 2.5, 3.5])
+
     def test_set_credential_manager(self) -> None:
         """Test credential manager setter."""
         new_manager = Mock()
