@@ -2,6 +2,7 @@
 """Tests for database time series loader."""
 
 import threading
+import time
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -18,7 +19,10 @@ from kpicalculator.adapters.data_table_profile_reader import (
     DATABASE_READ_LOCK,
     database_read_lock,
 )
-from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
+from kpicalculator.adapters.database_time_series_loader import (
+    DatabaseTimeSeriesLoader,
+    _ReadLockState,
+)
 from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
 from kpicalculator.common.types import DatabaseCredentials
 from kpicalculator.exceptions import CredentialError, ValidationError
@@ -268,7 +272,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         energy_system.eAllContents.return_value = [profile1, profile2]
         time_series = TimeSeries(time_step=3600.0, values=[1.0, 2.0])
 
-        with patch.object(self.loader, "_extract_asset_id", side_effect=["asset_1", "asset_2"]):
+        asset_ids = {id(profile1): "asset_1", id(profile2): "asset_2"}
+        with patch.object(self.loader, "_extract_asset_id", side_effect=lambda p: asset_ids[id(p)]):
             with patch.object(self.loader, "_load_profile_data") as mock_load:
                 mock_load.side_effect = [ConnectionError("db down"), time_series]
 
@@ -582,8 +587,9 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         time_series1 = TimeSeries(time_step=3600.0, values=[100.0, 200.0])
         time_series2 = TimeSeries(time_step=3600.0, values=[50.0, 75.0])
 
+        asset_ids = {id(profile1): "asset_1", id(profile2): "asset_2"}
         with patch.object(self.loader, "_extract_asset_id") as mock_extract:
-            mock_extract.side_effect = ["asset_1", "asset_2"]
+            mock_extract.side_effect = lambda p: asset_ids[id(p)]
 
             with patch.object(self.loader, "_load_profile_data") as mock_load:
                 mock_load.side_effect = [time_series1, time_series2]
@@ -604,8 +610,6 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         self.assertEqual(result_data[f"asset_1{COMPOSITE_KEY_SEPARATOR}power"], time_series1)
         self.assertEqual(result_data[f"asset_2{COMPOSITE_KEY_SEPARATOR}flow"], time_series2)
 
-        # Verify mock calls
-        self.assertEqual(mock_extract.call_count, 2)
         self.assertEqual(mock_load.call_count, 2)
 
     def test_load_time_series_from_esdl_no_profiles(self) -> None:
@@ -629,8 +633,13 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         energy_system.eAllContents.return_value = [profile1, profile2]
 
+        def extract(profile: Mock) -> str:
+            if profile is profile2:
+                raise RuntimeError("Extract error")
+            return "asset_1"
+
         with patch.object(self.loader, "_extract_asset_id") as mock_extract:
-            mock_extract.side_effect = ["asset_1", RuntimeError("Extract error")]
+            mock_extract.side_effect = extract
 
             with patch.object(self.loader, "_load_profile_data") as mock_load:
                 mock_load.return_value = TimeSeries(time_step=3600.0, values=[100.0])
@@ -1328,6 +1337,43 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertEqual(successful, 2)
         self.assertEqual(failed, 0)
 
+    @patch(_INFLUXDB_PATH)
+    def test_batch_connects_to_the_profiles_host_and_port(self, mock_influx_cls) -> None:
+        """The batch connection targets the profile's server, as the single-profile path does."""
+        cases = {
+            "plain host": ("profile.example.com", "profile.example.com"),
+            "http prefix": ("http://profile.example.com", "profile.example.com"),
+            "https prefix": ("https://profile.example.com", "profile.example.com"),
+        }
+        for name, (profile_host, expected_host) in cases.items():
+            with self.subTest(case=name):
+                p1 = _make_profile(host=profile_host, port=9999, field="field_a", asset_id="a1")
+                p2 = _make_profile(host=profile_host, port=9999, field="field_b", asset_id="a2")
+                mock_influx_cls.return_value = self._make_mock_manager(
+                    ["field_a", "field_b"], {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]}
+                )
+                mock_influx_cls._parse_esdl_profile_filters.return_value = []
+
+                with (
+                    patch(
+                        "kpicalculator.adapters.database_time_series_loader.ConnectionSettings"
+                    ) as mock_settings,
+                    patch.object(
+                        self.loader, "_get_credentials_for_profile", return_value=self.credentials
+                    ),
+                ):
+                    self.loader._execute_batch_query([p1, p2], p1, "heat", [], 0)
+
+                mock_settings.assert_called_once_with(
+                    host=expected_host,
+                    port=9999,
+                    database="db",
+                    username="user",
+                    password="password1",
+                    ssl=False,
+                    verify_ssl=False,
+                )
+
     def test_require_finite_values_rejects_non_numeric_frames_with_the_given_message(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self.loader._require_finite_values(pd.DataFrame({"v": ["a"]}), "custom message")
@@ -1410,6 +1456,185 @@ class TestLoadTimeSeriesFromEsdlBatchIntegration(unittest.TestCase):
         batch_inputs = [call.args[0] for call in mock_batch.call_args_list]
         self.assertIn([p1], batch_inputs)
         self.assertIn([p2], batch_inputs)
+
+
+class TestEsdlOrderAndDuplicateKeys(unittest.TestCase):
+    """The returned dict follows ESDL order; the first profile per composite key wins."""
+
+    _INFLUXDB_PATH = "kpicalculator.adapters.database_time_series_loader.InfluxDBProfileManager"
+
+    def setUp(self) -> None:
+        self.credentials = DatabaseCredentials(
+            host="influx.example.com",
+            port=8086,
+            username="user",
+            password="password1",
+            database="db",
+            ssl=False,
+            verify_ssl=False,
+        )
+        self.loader = DatabaseTimeSeriesLoader(
+            MockCredentialManager({"influx.example.com: 8086": self.credentials})
+        )
+
+    @staticmethod
+    def _es(*profiles: Mock) -> Mock:
+        energy_system = Mock()
+        energy_system.eAllContents.return_value = list(profiles)
+        return energy_system
+
+    @staticmethod
+    def _batch_manager(fields: list[str]) -> Mock:
+        start, end = datetime(2024, 1, 1, 0), datetime(2024, 1, 1, 1)
+        manager = Mock()
+        manager.profile_header = ["datetime", *fields]
+        manager.profile_data_list = [
+            [start, *[float(i) for i in range(len(fields))]],
+            [end, *[float(i) + 0.5 for i in range(len(fields))]],
+        ]
+        manager.start_datetime = start
+        manager.end_datetime = end
+        return manager
+
+    def test_series_no_collected_profile_plans_keep_their_load_order_after_the_planned_ones(
+        self,
+    ) -> None:
+        a, b, c = (TimeSeries(time_step=3600.0, values=[v]) for v in (1.0, 2.0, 3.0))
+
+        ordered = self.loader._in_esdl_order({"x": a, "p2": b, "p1": c}, ["p1", None, "p2"])
+
+        self.assertEqual(list(ordered), ["p1", "p2", "x"])
+
+    @patch(_INFLUXDB_PATH)
+    def test_keys_follow_esdl_order_across_batch_and_single_loads(self, mock_influx_cls) -> None:
+        # M1 holds fb and fa2 (batched); M2 holds fa1 (single). Batching alone would give
+        # B|fb, A|fa2, A|fa1.
+        pb = _make_profile(measurement="M1", field="fb", asset_id="B")
+        pa1 = _make_profile(measurement="M2", field="fa1", asset_id="A")
+        pa2 = _make_profile(measurement="M1", field="fa2", asset_id="A")
+        mock_influx_cls.return_value = self._batch_manager(["fb", "fa2"])
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        single = TimeSeries(time_step=3600.0, values=[7.0])
+
+        with (
+            patch.object(
+                self.loader, "_get_credentials_for_profile", return_value=self.credentials
+            ),
+            patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df),
+            patch.object(self.loader, "_load_profile_data", return_value=single),
+        ):
+            data, result = self.loader.load_time_series_from_esdl(self._es(pb, pa1, pa2))
+
+        sep = COMPOSITE_KEY_SEPARATOR
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(list(data), [f"B{sep}fb", f"A{sep}fa1", f"A{sep}fa2"])
+        mock_influx_cls.return_value.load_influxdb.assert_called_once()
+
+    @patch(_INFLUXDB_PATH)
+    def test_esdl_first_influx_duplicate_wins_regardless_of_batching(self, mock_influx_cls) -> None:
+        # ESDL order: M2.f(A) first, then M1.f(A), M1.g(B), M1.h(C). Grouping loads M1 first,
+        # which used to let M1.f(A) win.
+        first = _make_profile(measurement="M2", field="f", asset_id="A")
+        later = _make_profile(measurement="M1", field="f", asset_id="A")
+        other = _make_profile(measurement="M1", field="g", asset_id="B")
+        third = _make_profile(measurement="M1", field="h", asset_id="C")
+        mock_influx_cls.return_value = self._batch_manager(["g", "h"])
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        winner = TimeSeries(time_step=3600.0, values=[42.0])
+
+        loaded: list[Mock] = []
+
+        def load(profile: Mock) -> TimeSeries:
+            loaded.append(profile)
+            return winner
+
+        with (
+            patch.object(
+                self.loader, "_get_credentials_for_profile", return_value=self.credentials
+            ),
+            patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df),
+            patch.object(self.loader, "_load_profile_data", side_effect=load),
+        ):
+            data, result = self.loader.load_time_series_from_esdl(
+                self._es(first, later, other, third)
+            )
+
+        sep = COMPOSITE_KEY_SEPARATOR
+        self.assertEqual(loaded, [first])
+        self.assertEqual(data[f"A{sep}f"], winner)
+        self.assertEqual(list(data), [f"A{sep}f", f"B{sep}g", f"C{sep}h"])
+        self.assertFalse(result.is_valid)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn(f"Duplicate time series key 'A{sep}f' (measurement 'M1')", result.errors[0])
+        # The duplicate is not queried: the M1 batch only asks for the remaining fields.
+        batch_fields = mock_influx_cls.return_value.load_influxdb.call_args.kwargs["fields"]
+        self.assertEqual(batch_fields, ["g", "h"])
+
+    def test_influx_duplicate_in_separate_single_queries_issues_no_second_query(self) -> None:
+        first = _make_profile(measurement="M1", field="f", asset_id="A")
+        later = _make_profile(measurement="M2", field="f", asset_id="A")
+        loaded: list[Mock] = []
+
+        def load(profile: Mock) -> TimeSeries:
+            loaded.append(profile)
+            return TimeSeries(time_step=3600.0, values=[1.0])
+
+        with patch.object(self.loader, "_load_profile_data", side_effect=load):
+            data, result = self.loader.load_time_series_from_esdl(self._es(first, later))
+
+        self.assertEqual(loaded, [first])
+        self.assertEqual(list(data), [f"A{COMPOSITE_KEY_SEPARATOR}f"])
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("keeping the first entry", result.errors[0])
+
+    def test_duplicate_is_counted_as_failed_and_empty_field_is_not_a_duplicate(self) -> None:
+        first = _make_profile(measurement="M1", field="f", asset_id="A")
+        later = _make_profile(measurement="M2", field="f", asset_id="A")
+        no_field_1 = _make_profile(measurement="M3", field="", asset_id="A")
+        no_field_2 = _make_profile(measurement="M4", field="", asset_id="A")
+
+        with (
+            patch.object(
+                self.loader,
+                "_load_profile_data",
+                return_value=TimeSeries(time_step=3600.0, values=[1.0]),
+            ),
+            patch.object(self.loader.db_logger, "info") as info,
+        ):
+            data, result = self.loader.load_time_series_from_esdl(
+                self._es(first, later, no_field_1, no_field_2)
+            )
+
+        self.assertEqual(len(data), 1)
+        # Only the real duplicate is reported; the two field-less profiles keep today's path.
+        self.assertEqual(len([e for e in result.errors if "Duplicate" in e]), 1)
+        summary = next(c for c in info.call_args_list if c.args[0].endswith("loading completed"))
+        self.assertEqual(summary.args[1]["successful_loads"], 1)
+        self.assertEqual(summary.args[1]["failed_loads"], 3)
+
+    def test_profile_whose_asset_id_cannot_be_extracted_is_left_to_the_normal_path(self) -> None:
+        broken = _make_profile(measurement="M1", field="f", asset_id="A")
+        good = _make_profile(measurement="M2", field="f", asset_id="A")
+
+        def extract(profile: Mock) -> str:
+            if profile is broken:
+                raise RuntimeError("no container")
+            return "A"
+
+        with (
+            patch.object(self.loader, "_extract_asset_id", side_effect=extract),
+            patch.object(
+                self.loader,
+                "_load_profile_data",
+                return_value=TimeSeries(time_step=3600.0, values=[1.0]),
+            ),
+        ):
+            data, result = self.loader.load_time_series_from_esdl(self._es(broken, good))
+
+        self.assertEqual(list(data), [f"A{COMPOSITE_KEY_SEPARATOR}f"])
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("no container", result.errors[0])
+        self.assertNotIn("Duplicate", result.errors[0])
 
 
 # --------------------------------------------------------------------------------------
@@ -2130,7 +2355,7 @@ class TestDatabaseReadLock(_DataTableTestBase):
             "Could not close pyESDL database connections; they stay open",
         )
 
-    def test_lock_timeout_on_one_profile_does_not_stop_the_others(self) -> None:
+    def test_lock_timeout_stops_reading_and_skipped_profiles_are_reported(self) -> None:
         calls: list[int] = []
 
         def second_acquisition_times_out() -> object:
@@ -2142,20 +2367,19 @@ class TestDatabaseReadLock(_DataTableTestBase):
         with patch(
             f"{_LOADER_MODULE}.database_read_lock", side_effect=second_acquisition_times_out
         ):
-            data, result = self.load(_table_profile(), _table_profile(), _table_profile())
+            data, result = self.load(
+                _table_profile(column="A"), _table_profile(column="B"), _table_profile(column="C")
+            )
 
-        self.assertEqual(
-            sorted(data),
-            [
-                f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q",
-                f"asset3{COMPOSITE_KEY_SEPARATOR}HeatIn.Q",
-            ],
-        )
-        self.assertEqual(len(result.errors), 1)
-        self.assertIn("Database connection failed for profile HeatIn.Q", result.errors[0])
+        self.assertEqual(list(data), [f"asset1{COMPOSITE_KEY_SEPARATOR}A"])
+        self.assertEqual(len(result.errors), 2)
+        self.assertIn("Database connection failed for profile B", result.errors[0])
         self.assertIn("busy", result.errors[0])
-        # One acquisition per read, plus one for the cleanup.
-        self.assertEqual(len(calls), 4)
+        self.assertIn("Skipped DataTable profile C (asset asset3, table 'tbl')", result.errors[1])
+        self.assertIn("after a database lock timeout", result.errors[1])
+        # One acquisition per attempted read (the third is never attempted), plus the cleanup.
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(self.mock_read.call_count, 1)
         self.mock_close.assert_called_once_with()
 
     def test_profile_reported_as_connection_failure_when_the_lock_times_out(self) -> None:
@@ -2169,6 +2393,70 @@ class TestDatabaseReadLock(_DataTableTestBase):
         self.mock_read.assert_not_called()
         # The cleanup cannot take the lock either: it is skipped, not raised.
         self.mock_close.assert_not_called()
+
+    def test_stalled_lock_blocks_for_one_timeout_not_one_per_profile(self) -> None:
+        timeout = 0.3
+        with patch(_LOCK_TIMEOUT_PATH, timeout), _lock_held_in_background():
+            started = time.monotonic()
+            data, result = self.load(
+                _table_profile(column="A"), _table_profile(column="B"), _table_profile(column="C")
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertGreaterEqual(elapsed, 0.9 * timeout)
+        self.assertLess(elapsed, 3 * timeout)
+        self.assertEqual(data, {})
+        self.assertEqual(len(result.errors), 3)
+        self.assertIn("Timed out after 0.3s", result.errors[0])
+        self.assertEqual(
+            [e.startswith("Skipped DataTable profile") for e in result.errors], [False, True, True]
+        )
+        self.mock_read.assert_not_called()
+        self.mock_close.assert_not_called()
+
+    def test_a_timeout_before_any_acquisition_does_not_wait_for_the_lock_again_to_clean_up(
+        self,
+    ) -> None:
+        calls: list[int] = []
+
+        def always_time_out() -> object:
+            calls.append(1)
+            raise TimeoutError("busy")
+
+        with (
+            patch(f"{_LOADER_MODULE}.database_read_lock", side_effect=always_time_out),
+            patch.object(self.loader.db_logger, "error") as log_error,
+        ):
+            _, result = self.load(_table_profile(column="A"), _table_profile(column="B"))
+
+        self.assertEqual(len(result.errors), 2)
+        self.assertEqual(len(calls), 1)  # the read only; no second wait for the cleanup
+        self.mock_close.assert_not_called()
+        self.assertNotIn(
+            "Could not close pyESDL database connections; they stay open",
+            [c.args[0] for c in log_error.call_args_list],
+        )
+
+    def test_connections_are_closed_once_when_every_profile_is_invalid_and_the_lock_is_free(
+        self,
+    ) -> None:
+        _, result = self.load(
+            _table_profile(column="A", configuration=None),
+            _table_profile(column="B", configuration=None),
+        )
+
+        self.assertEqual(len(result.errors), 2)
+        self.mock_read.assert_not_called()
+        self.mock_close.assert_called_once_with()
+
+    def test_a_timeout_inside_the_read_is_not_a_lock_timeout(self) -> None:
+        self.mock_read.side_effect = TimeoutError("query timed out")
+        _, result = self.load(_table_profile(column="A"), _table_profile(column="B"))
+
+        self.assertEqual(len(result.errors), 2)
+        self.assertFalse(any(e.startswith("Skipped DataTable profile") for e in result.errors))
+        self.assertEqual(self.mock_read.call_count, 2)
+        self.mock_close.assert_called_once_with()
 
     def test_load_succeeds_again_once_the_lock_is_free(self) -> None:
         with patch(_LOCK_TIMEOUT_PATH, 0.05), _lock_held_in_background():
@@ -2703,7 +2991,8 @@ class TestDataTableProfileMergeWithInflux(_DataTableTestBase):
         # The duplicate is rejected before any query is sent.
         self.assertEqual([c.args[0].tableName for c in self.mock_read.call_args_list], ["tbl"])
 
-    def test_duplicate_of_a_failed_profile_is_still_read(self) -> None:
+    def test_duplicate_of_a_failed_profile_is_not_read(self) -> None:
+        # The first profile in ESDL order owns the key even when its read fails.
         self.mock_read.side_effect = [
             RuntimeError("first read failed"),
             (_table_rows([7.0, 8.0]), _HEADER),
@@ -2713,13 +3002,174 @@ class TestDataTableProfileMergeWithInflux(_DataTableTestBase):
         port.profile.append(_table_profile(table="other_table"))
         data, result = self.loader.load_time_series_from_esdl(energy_system)
 
+        self.assertEqual(data, {})
+        self.assertEqual([c.args[0].tableName for c in self.mock_read.call_args_list], ["tbl"])
+        self.assertEqual(len(result.errors), 2)
+        self.assertTrue(any("first read failed" in e for e in result.errors))
+        self.assertTrue(any("Duplicate time series key" in e for e in result.errors))
+
+    def test_data_table_before_influx_duplicate_wins_and_influx_is_not_queried(self) -> None:
         key = f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"
-        self.assertEqual(data[key].values, [7.0, 8.0])
-        self.assertEqual(
-            [c.args[0].tableName for c in self.mock_read.call_args_list], ["tbl", "other_table"]
+        energy_system = _energy_system([("asset1", _table_profile())])
+        port = next(p for p in energy_system.eAllContents() if isinstance(p, esdl.InPort))
+        port.profile.append(
+            esdl.InfluxDBProfile(
+                host="influx.example.com",
+                port=8086,
+                database="db",
+                measurement="heat",
+                field="HeatIn.Q",
+            )
         )
+        with patch.object(self.loader, "_process_single_profile") as mock_single:
+            data, result = self.loader.load_time_series_from_esdl(energy_system)
+
+        mock_single.assert_not_called()
+        self.assertEqual(data[key].values, [1.0, 2.0, 3.0])
         self.assertEqual(len(result.errors), 1)
-        self.assertIn("first read failed", result.errors[0])
+        self.assertIn(f"Duplicate time series key '{key}' (measurement 'heat')", result.errors[0])
+        self.assertEqual(self.mock_read.call_count, 1)
+
+    def test_data_table_and_influx_entries_follow_esdl_order(self) -> None:
+        sep = COMPOSITE_KEY_SEPARATOR
+        energy_system = _energy_system(
+            [
+                ("asset1", _table_profile()),
+                ("asset2", self._influx_profile()),
+                ("asset3", _table_profile()),
+            ]
+        )
+        with patch.object(
+            self.loader,
+            "_process_single_profile",
+            side_effect=self._fake_influx_load(f"asset2{sep}power", [9.0]),
+        ):
+            data, result = self.loader.load_time_series_from_esdl(energy_system)
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(
+            list(data), [f"asset1{sep}HeatIn.Q", f"asset2{sep}power", f"asset3{sep}HeatIn.Q"]
+        )
+
+
+class TestDataTableRequestedInterval(_DataTableTestBase):
+    """Rows must cover the profile's startDate/endDate to within one hour."""
+
+    def _load_with_rows(self, rows: list, **profile_kwargs: object) -> tuple[dict, object]:
+        self.mock_read.return_value = (rows, _HEADER)
+        return self.load(_table_profile(**profile_kwargs))
+
+    def test_rows_starting_hours_after_the_start_date_are_rejected(self) -> None:
+        data, result = self._load_with_rows(
+            _table_rows([1.0, 2.0, 3.0]), startDate=_T0 - timedelta(hours=10)
+        )
+
+        self.assertEqual(data, {})
+        self.assertEqual(len(result.errors), 1)
+        error = result.errors[0]
+        self.assertTrue(error.startswith("Data processing error for profile HeatIn.Q"), error)
+        self.assertIn("2024-01-01T00:00:00+00:00 to 2024-01-01T02:00:00+00:00", error)
+        self.assertIn("2023-12-31T14:00:00+00:00 to open", error)
+
+    def test_rows_ending_hours_before_the_end_date_are_rejected(self) -> None:
+        data, result = self._load_with_rows(
+            _table_rows([1.0, 2.0, 3.0]), endDate=_T0 + timedelta(hours=12)
+        )
+
+        self.assertEqual(data, {})
+        self.assertIn("does not cover the requested interval", result.errors[0])
+        self.assertIn("open to 2024-01-01T12:00:00+00:00", result.errors[0])
+
+    def test_single_row_against_a_24_hour_window_is_rejected(self) -> None:
+        data, result = self._load_with_rows(
+            _table_rows([1.0]), startDate=_T0, endDate=_T0 + timedelta(hours=24)
+        )
+
+        self.assertEqual(data, {})
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("does not cover the requested interval", result.errors[0])
+
+    def test_a_gap_of_exactly_one_hour_is_accepted_on_each_side_alone(self) -> None:
+        for name, kwargs in {
+            "start": {"startDate": _T0 - _HOUR},
+            "end": {"endDate": _T0 + 3 * _HOUR},
+        }.items():
+            with self.subTest(side=name):
+                data, result = self._load_with_rows(_table_rows([1.0, 2.0, 3.0]), **kwargs)
+                self.assertTrue(result.is_valid, result.errors)
+                self.assertEqual(len(data), 1)
+
+    def test_a_gap_just_over_one_hour_is_rejected_on_each_side(self) -> None:
+        over = _HOUR + timedelta(minutes=1)
+        for name, kwargs in {
+            "start": {"startDate": _T0 - over},
+            "end": {"endDate": _T0 + 2 * _HOUR + over},
+        }.items():
+            with self.subTest(side=name):
+                data, result = self._load_with_rows(_table_rows([1.0, 2.0, 3.0]), **kwargs)
+                self.assertEqual(data, {})
+                self.assertIn("does not cover the requested interval", result.errors[0])
+
+    def test_bounds_inside_the_returned_rows_are_accepted(self) -> None:
+        data, result = self._load_with_rows(
+            _table_rows([1.0, 2.0, 3.0]), startDate=_T0 + _HOUR, endDate=_T0 + _HOUR
+        )
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(len(data), 1)
+
+    def test_naive_bounds_are_taken_as_utc(self) -> None:
+        naive_start = datetime(2023, 12, 31, 14)  # 10 h before the first row, taken as UTC
+        data, result = self._load_with_rows(_table_rows([1.0, 2.0]), startDate=naive_start)
+        self.assertEqual(data, {})
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("does not cover the requested interval", result.errors[0])
+        self.assertIn("2023-12-31T14:00:00+00:00 to open", result.errors[0])
+
+        data, result = self._load_with_rows(
+            _table_rows([1.0, 2.0, 3.0]),
+            startDate=datetime(2024, 1, 1),
+            endDate=datetime(2024, 1, 1, 2),
+        )
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(len(data), 1)
+
+    def test_aware_bounds_are_converted_to_utc(self) -> None:
+        plus_two = timezone(timedelta(hours=2))
+        data, result = self._load_with_rows(
+            _table_rows([1.0, 2.0]),
+            startDate=datetime(2024, 1, 1, 2, tzinfo=plus_two),  # 00:00 UTC
+            endDate=datetime(2024, 1, 1, 3, tzinfo=plus_two),  # 01:00 UTC
+        )
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(len(data), 1)
+
+    def test_unset_bounds_accept_any_rows(self) -> None:
+        data, result = self._load_with_rows(_table_rows([1.0]))
+
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(len(data), 1)
+
+
+class TestDataTableDuplicateKeyInProcess(_DataTableTestBase):
+    """The per-profile duplicate check holds when a key is already loaded."""
+
+    def test_an_already_loaded_key_is_kept_and_the_profile_is_not_read(self) -> None:
+        existing = TimeSeries(time_step=3600.0, values=[9.0])
+        key = f"asset1{COMPOSITE_KEY_SEPARATOR}HeatIn.Q"
+        data = {key: existing}
+        errors: list[str] = []
+
+        with patch.object(self.loader, "_extract_asset_id", return_value="asset1"):
+            loaded = self.loader._process_data_table_profile(
+                _table_profile(), data, errors, _ReadLockState()
+            )
+
+        self.assertFalse(loaded)
+        self.assertEqual(data, {key: existing})
+        self.assertEqual(len(errors), 1)
+        self.assertIn(f"Duplicate time series key '{key}' (table 'tbl')", errors[0])
+        self.mock_read.assert_not_called()
 
 
 class TestDataTableConnectionAutocommit(_DataTableTestBase):
