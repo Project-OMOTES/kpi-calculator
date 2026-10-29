@@ -421,6 +421,41 @@ class TestTimeSeriesManagerValidation(unittest.TestCase):
             f"Expected 'null values' error, got: {validation.errors}",
         )
 
+    def test_only_the_null_column_is_dropped_and_clean_columns_load(self) -> None:
+        """A column with a NaN is skipped; the asset's clean column is still returned."""
+        import math
+
+        df = self._make_df(
+            {
+                "ThermalDemand": [1.0, 2.0, 3.0, 4.0],
+                "ThermalConsumption": [1.0, math.nan, 3.0, 4.0],
+            }
+        )
+        series, validation = self.manager.load_time_series(
+            self.energy_system,
+            timeseries_dataframes={self.ASSET_ID: df},
+        )
+        self.assertEqual(list(series), [f"{self.ASSET_ID}|ThermalDemand"])
+        self.assertEqual(series[f"{self.ASSET_ID}|ThermalDemand"].values, [1.0, 2.0, 3.0, 4.0])
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(
+            [e for e in validation.errors if "null values" in e],
+            [f"DataFrame for {self.ASSET_ID} contains null values"],
+        )
+
+    def test_all_columns_null_loads_nothing(self) -> None:
+        """Every column null: nothing is returned and the null-values error stays."""
+        import math
+
+        df = self._make_df({"ThermalDemand": [math.nan] * 4, "ThermalConsumption": [math.nan] * 4})
+        series, validation = self.manager.load_time_series(
+            self.energy_system,
+            timeseries_dataframes={self.ASSET_ID: df},
+        )
+        self.assertEqual(series, {})
+        self.assertFalse(validation.is_valid)
+        self.assertTrue(any("null values" in e for e in validation.errors))
+
     def test_orphaned_asset_id_produces_warning(self) -> None:
         """Asset ID present in DataFrames but absent from ESDL produces a warning."""
         df = self._make_df({"ThermalConsumption": [1.0] * self.TIMESTEPS})

@@ -130,8 +130,6 @@ class TimeSeriesManager:
                     continue
                 if not isinstance(df.index, pd.DatetimeIndex):
                     continue
-                if df.isnull().any().any():
-                    continue
 
                 # Detect time step from DataFrame index (same for all columns)
                 time_step = self._detect_time_step(df)
@@ -140,6 +138,8 @@ class TimeSeriesManager:
                 # Each column represents a different field (e.g., heat_supplied, power, flow)
                 for column_name in df.columns:
                     try:
+                        if df[column_name].isnull().any():
+                            continue  # reported by _validate_dataframe_time_series
                         if not pd.api.types.is_numeric_dtype(df[column_name]):
                             error_msg = (
                                 f"Column '{column_name}' for asset {asset_id} has non-numeric "
