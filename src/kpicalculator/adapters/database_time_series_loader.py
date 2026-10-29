@@ -755,7 +755,7 @@ class DatabaseTimeSeriesLoader:
         """Raise ValidationError(message) if df holds NaN, inf or non-numeric values."""
         try:
             finite = bool(np.isfinite(df.to_numpy(dtype=float)).all())
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             finite = False
         if not finite:
             raise ValidationError(message)
@@ -772,7 +772,7 @@ class DatabaseTimeSeriesLoader:
             return 1.0
         try:
             finite = math.isfinite(multiplier)
-        except (TypeError, OverflowError):
+        except TypeError, OverflowError:
             finite = False
         if not finite:
             raise ValidationError(f"Profile has a non-finite multiplier ({multiplier})")
