@@ -1,12 +1,14 @@
 # src/kpicalculator/adapters/database_time_series_loader.py
 """Database time series loader for InfluxDB and PostgreSQL profiles in ESDL files."""
 
+import math
 import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Protocol, cast
 
+import numpy as np
 import pandas as pd
 from esdl import esdl
 from esdl.profiles.influxdbprofilemanager import ConnectionSettings, InfluxDBProfileManager
@@ -650,6 +652,7 @@ class DatabaseTimeSeriesLoader:
         try:
             asset_id = self._extract_asset_id(profile)
             target = validate_data_table_profile(profile, asset_id)
+            self._finite_multiplier(profile)  # fail before any read
 
             composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{profile.columnName}"
             if composite_key in time_series_data:
@@ -742,17 +745,50 @@ class DatabaseTimeSeriesLoader:
             [row[1] for row in rows], index=pd.DatetimeIndex([row[0] for row in rows])
         )
         df.iloc[:, 0] = self._to_base_unit(df.iloc[:, 0], quantity_and_unit, label)
-        multiplier = 1.0 if profile.multiplier is None else profile.multiplier
+        multiplier = self._finite_multiplier(profile)
         if multiplier == 0.0:
             self.db_logger.warning(
                 f"Profile '{label}' has multiplier=0.0 — all output values will be zero"
             )
         df = df * multiplier
+        self._require_finite_values(
+            df,
+            f"DataTable profile '{label}' has non-finite values after unit conversion "
+            f"and multiplier {multiplier}",
+        )
         values_list = df.values.flatten().tolist()
         validated_values = InputValidator.validate_time_series_data(
             values_list, f"DataTable profile {label}"
         )
         return TimeSeries(time_step=DEFAULT_TIME_STEP_SECONDS, values=validated_values)
+
+    @staticmethod
+    def _require_finite_values(df: pd.DataFrame, message: str) -> None:
+        """Raise ValidationError(message) if df holds NaN, inf or non-numeric values."""
+        try:
+            finite = bool(np.isfinite(df.to_numpy(dtype=float)).all())
+        except TypeError, ValueError:
+            finite = False
+        if not finite:
+            raise ValidationError(message)
+
+    @staticmethod
+    def _finite_multiplier(profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> float:
+        """Return the profile multiplier (1.0 when unset).
+
+        Raises:
+            ValidationError: The multiplier is NaN, infinite or not a number.
+        """
+        multiplier = getattr(profile, "multiplier", None)
+        if multiplier is None:
+            return 1.0
+        try:
+            finite = math.isfinite(multiplier)
+        except TypeError, OverflowError:
+            finite = False
+        if not finite:
+            raise ValidationError(f"Profile has a non-finite multiplier ({multiplier})")
+        return float(multiplier)
 
     @staticmethod
     def _to_base_unit(

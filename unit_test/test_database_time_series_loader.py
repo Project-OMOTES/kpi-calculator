@@ -21,7 +21,7 @@ from kpicalculator.adapters.data_table_profile_reader import (
 from kpicalculator.adapters.database_time_series_loader import DatabaseTimeSeriesLoader
 from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
 from kpicalculator.common.types import DatabaseCredentials
-from kpicalculator.exceptions import CredentialError
+from kpicalculator.exceptions import CredentialError, ValidationError
 from kpicalculator.security.credential_manager import CredentialManager
 from kpicalculator.security.input_validator import InputValidator
 
@@ -1328,6 +1328,11 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertEqual(successful, 2)
         self.assertEqual(failed, 0)
 
+    def test_require_finite_values_rejects_non_numeric_frames_with_the_given_message(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self.loader._require_finite_values(pd.DataFrame({"v": ["a"]}), "custom message")
+        self.assertEqual(str(ctx.exception), "custom message")
+
 
 class TestLoadTimeSeriesFromEsdlBatchIntegration(unittest.TestCase):
     """Integration-level tests verifying batching through load_time_series_from_esdl."""
@@ -2323,6 +2328,39 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
         zero_warnings = [w for w in self.warning_texts() if "multiplier=0.0" in w]
         self.assertEqual(len(zero_warnings), 1)
         self.assertIn("tbl.HeatIn.Q", zero_warnings[0])
+
+    def test_non_finite_multiplier_rejected(self) -> None:
+        for name, multiplier in (
+            ("nan", float("nan")),
+            ("inf", float("inf")),
+            ("-inf", float("-inf")),
+        ):
+            with self.subTest(multiplier=name):
+                self.mock_read.reset_mock()
+                data, result = self.load(_table_profile(multiplier=multiplier))
+
+                self.assertEqual(data, {})
+                self.assertFalse(result.is_valid)
+                self.assertEqual(len(result.errors), 1)
+                self.assertIn("non-finite multiplier", result.errors[0])
+                self.assertIn("(asset asset1, table 'tbl')", result.errors[0])
+                self.mock_read.assert_not_called()
+
+    def test_overflow_in_unit_conversion_rejected_even_with_zero_multiplier(self) -> None:
+        # 1e308 MW overflows to inf in W, and inf * 0.0 is NaN.
+        unit = esdl.QuantityAndUnitType(
+            physicalQuantity=esdl.PhysicalQuantityEnum.POWER,
+            unit=esdl.UnitEnum.WATT,
+            multiplier=esdl.MultiplierEnum.MEGA,
+        )
+        self.mock_read.return_value = (_table_rows([1e308, 1.0]), _HEADER)
+        data, result = self.load(_table_profile(profileQuantityAndUnit=unit, multiplier=0.0))
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("non-finite values after unit conversion", result.errors[0])
+        self.assertIn("multiplier 0.0", result.errors[0])
 
     def test_missing_unit_reported_as_error_and_profile_not_loaded(self) -> None:
         data, result = self.load(_table_profile(with_unit=False))
