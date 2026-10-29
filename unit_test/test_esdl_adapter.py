@@ -622,5 +622,29 @@ class TestAssetValidationFailure(unittest.TestCase):
         self.assertEqual(result.assets, [])
 
 
+class TestPasswordlessFlagPlumbing(unittest.TestCase):
+    """allow_passwordless_database reaches both loaders owned by the adapter."""
+
+    def test_defaults_to_fail_closed(self) -> None:
+        from kpicalculator.adapters.esdl_adapter import EsdlAdapter
+
+        adapter = EsdlAdapter()
+        self.assertFalse(adapter.database_loader.allow_passwordless_database)
+        self.assertFalse(adapter.time_series_manager.database_loader.allow_passwordless_database)
+
+    def test_flag_reaches_both_loaders(self) -> None:
+        from kpicalculator.adapters.esdl_adapter import EsdlAdapter
+
+        adapter = EsdlAdapter(allow_passwordless_database=True)
+        self.assertTrue(adapter.database_loader.allow_passwordless_database)
+        self.assertTrue(adapter.time_series_manager.database_loader.allow_passwordless_database)
+
+    def test_flag_is_keyword_only(self) -> None:
+        from kpicalculator.adapters.esdl_adapter import EsdlAdapter
+
+        with self.assertRaises(TypeError):
+            EsdlAdapter(None, True)  # type: ignore[misc]
+
+
 if __name__ == "__main__":
     unittest.main()

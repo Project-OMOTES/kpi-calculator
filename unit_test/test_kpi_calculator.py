@@ -389,7 +389,7 @@ class TestTimeSeriesManagerValidation(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_empty_dataframe_produces_error(self) -> None:
-        """Empty DataFrame (0 rows) is recorded as an error, asset is skipped."""
+        """Empty DataFrame (0 rows) is recorded as an error exactly once, asset is skipped."""
         empty_df = pd.DataFrame(
             {"ThermalConsumption": pd.Series([], dtype=float)},
             index=pd.DatetimeIndex([]),
@@ -399,9 +399,11 @@ class TestTimeSeriesManagerValidation(unittest.TestCase):
             timeseries_dataframes={self.ASSET_ID: empty_df},
         )
         self.assertFalse(validation.is_valid)
-        self.assertTrue(
-            any("Empty DataFrame" in e for e in validation.errors),
-            f"Expected 'Empty DataFrame' error, got: {validation.errors}",
+        empty_errors = [e for e in validation.errors if "Empty DataFrame" in e]
+        self.assertEqual(
+            len(empty_errors),
+            1,
+            f"Expected exactly one 'Empty DataFrame' error, got: {validation.errors}",
         )
 
     def test_nan_values_produce_error(self) -> None:
@@ -426,10 +428,9 @@ class TestTimeSeriesManagerValidation(unittest.TestCase):
             self.energy_system,
             timeseries_dataframes={"nonexistent-asset-id": df},
         )
-        self.assertTrue(
-            any("Unknown assets" in w for w in validation.warnings),
-            f"Expected 'Unknown assets' warning, got: {validation.warnings}",
-        )
+        unknown_warnings = [w for w in validation.warnings if "Unknown assets" in w]
+        self.assertEqual(len(unknown_warnings), 1, f"Expected warning, got: {validation.warnings}")
+        self.assertIn("nonexistent-asset-id", unknown_warnings[0])
 
     def test_non_datetime_index_produces_error(self) -> None:
         """DataFrame with a plain integer index (not DatetimeIndex) is an error."""
@@ -447,17 +448,40 @@ class TestTimeSeriesManagerValidation(unittest.TestCase):
             f"Expected 'DatetimeIndex' error, got: {validation.errors}",
         )
 
-    def test_negative_values_produce_warning(self) -> None:
-        """Negative numeric values produce a warning (not an error)."""
-        df = self._make_df({"ThermalConsumption": [-1.0, -2.0, 3.0, 4.0]})
+    def test_negative_values_produce_single_consolidated_warning(self) -> None:
+        """Multiple columns with negative values produce exactly one consolidated warning."""
+        df = self._make_df(
+            {"ThermalConsumption": [-1.0, -2.0, 3.0, 4.0], "HeatDemand": [-5.0, 1.0, 1.0, 1.0]}
+        )
         _, validation = self.manager.load_time_series(
             self.energy_system,
             timeseries_dataframes={self.ASSET_ID: df},
         )
-        self.assertTrue(
-            any("negative values" in w for w in validation.warnings),
-            f"Expected 'negative values' warning, got: {validation.warnings}",
+        negative_warnings = [w for w in validation.warnings if "negative values" in w]
+        self.assertEqual(
+            len(negative_warnings),
+            1,
+            f"Expected exactly one consolidated warning, got: {validation.warnings}",
         )
+        self.assertIn("2 column(s)", negative_warnings[0])
+        self.assertTrue(validation.is_valid)
+
+    def test_summarize_column_list_truncates_beyond_preview(self) -> None:
+        """More than 10 columns produces a truncated summary with a debug hint."""
+        cols = [f"asset_{i}/col" for i in range(15)]
+        msg = self.manager._summarize_column_list(cols, "contain negative values")
+        self.assertIn("15 column(s)", msg)
+        self.assertIn("+5 more", msg)
+        self.assertIn("DEBUG", msg)
+        self.assertNotIn("asset_10", msg)
+
+    def test_summarize_column_list_no_truncation_at_or_below_preview(self) -> None:
+        """Exactly 10 columns produces no truncation suffix."""
+        cols = [f"asset_{i}/col" for i in range(10)]
+        msg = self.manager._summarize_column_list(cols, "contain negative values")
+        self.assertIn("10 column(s)", msg)
+        self.assertNotIn("more", msg)
+        self.assertNotIn("DEBUG", msg)
 
     def test_very_large_values_produce_warning(self) -> None:
         """Values exceeding 1e9 produce a 'check units' warning."""
