@@ -2725,16 +2725,24 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
         spy.assert_called_once()
         self.assertEqual(len(spy.call_args.args[0]), 3)
 
-    def test_energy_profile_converted_to_joules(self) -> None:
-        unit = esdl.QuantityAndUnitType(
-            physicalQuantity=esdl.PhysicalQuantityEnum.ENERGY,
-            unit=esdl.UnitEnum.JOULE,
-            multiplier=esdl.MultiplierEnum.KILO,
-        )
-        data, result = self.load(_table_profile(profileQuantityAndUnit=unit))
+    def test_energy_profile_rejected_before_any_read(self) -> None:
+        for name, unit in (
+            ("joule", esdl.UnitEnum.JOULE),
+            ("watt hour", esdl.UnitEnum.WATTHOUR),
+        ):
+            with self.subTest(unit=name):
+                self.mock_read.reset_mock()
+                quantity_and_unit = esdl.QuantityAndUnitType(
+                    physicalQuantity=esdl.PhysicalQuantityEnum.ENERGY, unit=unit
+                )
+                data, result = self.load(_table_profile(profileQuantityAndUnit=quantity_and_unit))
 
-        self.assertTrue(result.is_valid, result.errors)
-        self.assertEqual(data[self.KEY].values, [1000.0, 2000.0, 3000.0])
+                self.assertEqual(data, {})
+                self.assertFalse(result.is_valid)
+                self.assertEqual(len(result.errors), 1)
+                self.assertIn("physical quantity ENERGY", result.errors[0])
+                self.assertIn("only power and cost profiles are supported", result.errors[0])
+                self.mock_read.assert_not_called()
 
     def test_cost_profile_left_unconverted(self) -> None:
         unit = esdl.QuantityAndUnitType(
@@ -2758,7 +2766,7 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
         self.assertFalse(result.is_valid)
         self.assertEqual(len(result.errors), 1)
         self.assertIn("Configuration error loading profile HeatIn.Q", result.errors[0])
-        self.assertIn("only power, energy and cost profiles are supported", result.errors[0])
+        self.assertIn("only power and cost profiles are supported", result.errors[0])
         self.assertIn("tbl.HeatIn.Q", result.errors[0])
 
     def test_failed_unit_conversion_reported_not_swallowed(self) -> None:
@@ -2847,18 +2855,7 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
         self.assertEqual(data, {})
         self.assertEqual(len(result.errors), 1)
         self.assertIn("physical quantity UNDEFINED", result.errors[0])
-        self.assertIn("only power, energy and cost profiles are supported", result.errors[0])
-
-    def test_watt_hour_energy_converted_to_joules(self) -> None:
-        unit = esdl.QuantityAndUnitType(
-            physicalQuantity=esdl.PhysicalQuantityEnum.ENERGY,
-            unit=esdl.UnitEnum.WATTHOUR,
-            multiplier=esdl.MultiplierEnum.KILO,
-        )
-        data, result = self.load(_table_profile(profileQuantityAndUnit=unit))
-
-        self.assertTrue(result.is_valid, result.errors)
-        self.assertEqual(data[self.KEY].values, [3.6e6, 7.2e6, 10.8e6])
+        self.assertIn("only power and cost profiles are supported", result.errors[0])
 
 
 class TestDataTableProfileMergeWithInflux(_DataTableTestBase):
