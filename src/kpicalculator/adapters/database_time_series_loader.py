@@ -827,6 +827,13 @@ class DatabaseTimeSeriesLoader:
             asset_id = self._extract_asset_id(profile)
             target = validate_data_table_profile(profile, asset_id)
             self._finite_multiplier(profile)  # fail before any read
+            if profile.profileQuantityAndUnit is not None:
+                # A unit that cannot be read is reported after the read, like a missing one.
+                with suppress(AttributeError):
+                    self._require_supported_quantity(
+                        profile.profileQuantityAndUnit,
+                        f"{profile.tableName}.{profile.columnName}",
+                    )
 
             composite_key = f"{asset_id}{COMPOSITE_KEY_SEPARATOR}{profile.columnName}"
             if composite_key in time_series_data:
@@ -997,37 +1004,49 @@ class DatabaseTimeSeriesLoader:
         return float(multiplier)
 
     @staticmethod
-    def _to_base_unit(
-        values: pd.Series, quantity_and_unit: esdl.QuantityAndUnitType, label: str
-    ) -> pd.Series:
-        """Convert a whole series to W (power), J (energy) or leave a cost series as it is.
+    def _require_supported_quantity(
+        quantity_and_unit: esdl.QuantityAndUnitType, label: str
+    ) -> esdl.PhysicalQuantityEnum:
+        """Return the physical quantity of a DataTable unit if it is power or cost.
+
+        Energy per step is not converted to average power, so it would be read as watts and
+        come out 3600x too high for hourly rows; it is rejected with every other quantity.
 
         Raises:
-            ValidationError: The physical quantity is not power, energy or cost, or the unit
-                cannot be converted to the base unit of its quantity.
+            ValidationError: The physical quantity is not power or cost.
+            AttributeError: The unit has no readable physical quantity.
         """
         try:
             quantity = quantity_and_unit.reference.physicalQuantity
         except AttributeError:
             quantity = quantity_and_unit.physicalQuantity
-        target = {
-            esdl.PhysicalQuantityEnum.POWER: POWER_IN_W,
-            esdl.PhysicalQuantityEnum.ENERGY: ENERGY_IN_J,
-        }.get(quantity)
-        if target is not None:
-            try:
-                return cast(pd.Series, convert_to_unit(values, quantity_and_unit, target))
-            except UnitException as e:
-                raise ValidationError(
-                    f"DataTable profile '{label}' has a unit that cannot be converted to the "
-                    f"base unit of {quantity}: {e}"
-                ) from e
+        if quantity not in (esdl.PhysicalQuantityEnum.POWER, esdl.PhysicalQuantityEnum.COST):
+            raise ValidationError(
+                f"DataTable profile '{label}' has physical quantity {quantity}; only power "
+                f"and cost profiles are supported"
+            )
+        return quantity
+
+    @classmethod
+    def _to_base_unit(
+        cls, values: pd.Series, quantity_and_unit: esdl.QuantityAndUnitType, label: str
+    ) -> pd.Series:
+        """Convert a whole series to W (power) or leave a cost series as it is.
+
+        Raises:
+            ValidationError: The physical quantity is not power or cost, or the unit cannot
+                be converted to watts.
+        """
+        quantity = cls._require_supported_quantity(quantity_and_unit, label)
         if quantity == esdl.PhysicalQuantityEnum.COST:
             return values
-        raise ValidationError(
-            f"DataTable profile '{label}' has physical quantity {quantity}; only power, energy "
-            f"and cost profiles are supported"
-        )
+        try:
+            return cast(pd.Series, convert_to_unit(values, quantity_and_unit, POWER_IN_W))
+        except UnitException as e:
+            raise ValidationError(
+                f"DataTable profile '{label}' has a unit that cannot be converted to the "
+                f"base unit of {quantity}: {e}"
+            ) from e
 
     def _rows_to_dataframe(
         self, rows: Sequence[Sequence[datetime | float | None]], col_index: int
