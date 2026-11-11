@@ -475,8 +475,8 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         expected_values = [150.0, 250.0, 200.0]
         self.assertEqual(result_df.iloc[0, 0], expected_values[0])
 
-    def test_convert_units_energy(self) -> None:
-        """Test unit conversion for energy quantities."""
+    def test_convert_units_leaves_energy_unconverted(self) -> None:
+        """ENERGY is rejected before the query; _convert_units itself never converts it."""
         df = pd.DataFrame([1000.0])
 
         profile = Mock(spec=esdl.InfluxDBProfile)
@@ -487,11 +487,10 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         with patch(
             "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
         ) as mock_convert:
-            mock_convert.return_value = 1500.0
+            result_df = self.loader._convert_units(df, profile)
 
-            self.loader._convert_units(df, profile)
-
-        mock_convert.assert_called_once()
+        mock_convert.assert_not_called()
+        self.assertEqual(result_df.iloc[0, 0], 1000.0)
 
     def test_convert_units_no_reference(self) -> None:
         """Test unit conversion when no reference attribute."""
@@ -772,6 +771,24 @@ def _make_profile(
     container.energyasset.id = asset_id
     p.eContainer.return_value = container
     return p
+
+
+def _energy_profile(unit: esdl.UnitEnum, referenced: bool = False, **kwargs) -> Mock:
+    """Return an InfluxDBProfile mock whose physical quantity is ENERGY.
+
+    With ``referenced`` the unit is a QuantityAndUnitReference to the ENERGY unit, as in an
+    ESDL that declares its units once and refers to them from each profile.
+    """
+    profile = _make_profile(**kwargs)
+    quantity_and_unit = esdl.QuantityAndUnitType(
+        physicalQuantity=esdl.PhysicalQuantityEnum.ENERGY, unit=unit
+    )
+    profile.profileQuantityAndUnit = (
+        esdl.QuantityAndUnitReference(reference=quantity_and_unit)
+        if referenced
+        else quantity_and_unit
+    )
+    return profile
 
 
 class TestGroupProfilesForBatch(unittest.TestCase):
@@ -1371,6 +1388,30 @@ class TestProcessProfileBatch(unittest.TestCase):
                 self.assertEqual(len(errors), 1)
                 self.assertIn("non-finite multiplier", errors[0])
 
+    @patch(_INFLUXDB_PATH)
+    def test_energy_profile_fails_before_any_query(self, mock_influx_cls) -> None:
+        """An ENERGY Influx profile is recorded once with an actionable message, with no query."""
+        for name, unit, referenced in (
+            ("joule", esdl.UnitEnum.JOULE, False),
+            ("watt hour", esdl.UnitEnum.WATTHOUR, False),
+            ("referenced watt hour", esdl.UnitEnum.WATTHOUR, True),
+        ):
+            with self.subTest(unit=name):
+                mock_influx_cls.reset_mock()
+                profile = _energy_profile(unit, referenced)
+                errors: list = []
+                with patch.object(
+                    self.loader, "_get_credentials_for_profile", return_value=self.credentials
+                ):
+                    successful, failed = self.loader._process_profile_batch([profile], {}, errors)
+
+                mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+                self.assertEqual((successful, failed), (0, 1))
+                self.assertEqual(len(errors), 1)
+                self.assertIn("heat.field_a has physical quantity ENERGY", errors[0])
+                self.assertIn("3600x too high", errors[0])
+                self.assertIn("Use a POWER profile", errors[0])
+
     def test_multiplier_too_large_for_a_float_is_a_validation_error(self) -> None:
         profile = _make_profile(multiplier=10**400)
         self.assertFalse(self.loader._has_finite_multiplier(profile))
@@ -1642,6 +1683,36 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertEqual((successful, failed), (2, 1))
         self.assertEqual(len(errors), 1)
         self.assertIn("non-finite multiplier", errors[0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_energy_profile_is_left_out_of_the_batch(self, mock_influx_cls) -> None:
+        energy = _energy_profile(
+            esdl.UnitEnum.WATTHOUR, referenced=True, field="field_e", asset_id="asset_e"
+        )
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]}
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        errors: list = []
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch(
+                    [energy, p1, p2], {}, errors
+                )
+
+        mock_manager.load_influxdb.assert_called_once()
+        self.assertEqual(
+            mock_manager.load_influxdb.call_args.kwargs["fields"], ["field_a", "field_b"]
+        )
+        self.assertEqual((successful, failed), (2, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("physical quantity ENERGY", errors[0])
 
     @patch(_INFLUXDB_PATH)
     def test_batch_of_only_unbatchable_profiles_runs_no_query(self, mock_influx_cls) -> None:
