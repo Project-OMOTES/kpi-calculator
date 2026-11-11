@@ -15,7 +15,7 @@ import pandas as pd
 from esdl import esdl
 from esdl.profiles.influxdbprofilemanager import ConnectionSettings, InfluxDBProfileManager
 from esdl.profiles.profile_utils import close_db_connections, load_profile_data_and_header
-from esdl.units.conversion import ENERGY_IN_J, POWER_IN_W, UnitException, convert_to_unit
+from esdl.units.conversion import POWER_IN_W, UnitException, convert_to_unit
 
 from ..common.constants import (
     COMPOSITE_KEY_SEPARATOR,
@@ -469,12 +469,12 @@ class DatabaseTimeSeriesLoader:
             success = self._process_single_profile(profiles[0], time_series_data, errors)
             return (1, 0) if success else (0, 1)
 
-        # Profiles with an empty/None field or a non-finite multiplier cannot be batched;
-        # route them per-profile up front.
+        # Profiles with an empty/None field, a non-finite multiplier or an ENERGY quantity
+        # cannot be batched; route them per-profile up front, where they are rejected.
         valid_profiles: list[esdl.InfluxDBProfile] = []
         unbatchable_profiles: list[esdl.InfluxDBProfile] = []
         for p in profiles:
-            if p.field and self._has_finite_multiplier(p):
+            if p.field and self._has_finite_multiplier(p) and not self._is_energy_profile(p):
                 valid_profiles.append(p)
             else:
                 unbatchable_profiles.append(p)
@@ -482,8 +482,8 @@ class DatabaseTimeSeriesLoader:
         representative = valid_profiles[0] if valid_profiles else profiles[0]
         measurement = representative.measurement
         warn_msg = (
-            f"Profile in '{measurement}' has an empty field or non-finite multiplier "
-            f"— processing per-profile"
+            f"Profile in '{measurement}' has an empty field, non-finite multiplier or ENERGY "
+            f"quantity — processing per-profile"
         )
         successful, failed = self._fallback_to_per_profile(
             unbatchable_profiles, time_series_data, errors, warn_msg=warn_msg
@@ -990,6 +990,36 @@ class DatabaseTimeSeriesLoader:
             raise ValidationError(f"Profile has a non-finite multiplier ({multiplier})")
         return float(multiplier)
 
+    @staticmethod
+    def _is_energy_profile(profile: esdl.InfluxDBProfile) -> bool:
+        """Return True if the profile's physical quantity is ENERGY (False if unreadable)."""
+        quantity_and_unit = profile.profileQuantityAndUnit
+        if quantity_and_unit is None:
+            return False
+        try:
+            quantity = quantity_and_unit.reference.physicalQuantity
+        except AttributeError:
+            quantity = getattr(quantity_and_unit, "physicalQuantity", None)
+        return bool(quantity == esdl.PhysicalQuantityEnum.ENERGY)
+
+    @classmethod
+    def _reject_energy_profile(cls, profile: esdl.InfluxDBProfile) -> None:
+        """Reject an ENERGY profile before any query.
+
+        Energy per time step is not converted to average power, so the values would be used as
+        watts and come out 3600x too high for hourly rows.
+
+        Raises:
+            ValidationError: The profile's physical quantity is ENERGY.
+        """
+        if cls._is_energy_profile(profile):
+            raise ValidationError(
+                f"InfluxDB profile {profile.measurement}.{profile.field} has physical quantity "
+                f"ENERGY; energy per time step is not converted to average power, so it would "
+                f"be read as watts (3600x too high for hourly rows). Use a POWER profile "
+                f"(W, kW, MW) instead."
+            )
+
     @classmethod
     def _has_finite_multiplier(cls, profile: esdl.InfluxDBProfile | esdl.DataTableProfile) -> bool:
         """Return True if the profile multiplier is unset or a finite number."""
@@ -1113,6 +1143,7 @@ class DatabaseTimeSeriesLoader:
 
         try:
             self._finite_multiplier(profile)  # fail before any query
+            self._reject_energy_profile(profile)  # fail before any query
             self.db_logger.log_query_execution(
                 measurement, field, (profile.startDate, profile.endDate)
             )
@@ -1322,10 +1353,6 @@ class DatabaseTimeSeriesLoader:
                 if unit == esdl.PhysicalQuantityEnum.POWER:
                     df.iloc[i] = convert_to_unit(
                         df.iloc[i], profile.profileQuantityAndUnit, POWER_IN_W
-                    )
-                elif unit == esdl.PhysicalQuantityEnum.ENERGY:
-                    df.iloc[i] = convert_to_unit(
-                        df.iloc[i], profile.profileQuantityAndUnit, ENERGY_IN_J
                     )
                 elif unit == esdl.PhysicalQuantityEnum.COST:
                     # No unit conversion for cost
