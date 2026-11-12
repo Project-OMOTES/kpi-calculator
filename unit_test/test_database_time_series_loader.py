@@ -23,7 +23,7 @@ from kpicalculator.adapters.database_time_series_loader import (
     DatabaseTimeSeriesLoader,
     _ReadLockState,
 )
-from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR
+from kpicalculator.common.constants import COMPOSITE_KEY_SEPARATOR, KNOWN_TIME_SERIES_FIELDS
 from kpicalculator.common.types import DatabaseCredentials
 from kpicalculator.exceptions import CredentialError, ValidationError
 from kpicalculator.security.credential_manager import CredentialManager
@@ -2361,7 +2361,64 @@ class TestDataTableProfileLoading(_DataTableTestBase):
         data, result = self.load(_table_profile())
 
         self.assertEqual(len(data), 1)
+        self.assertNotIn("No database profiles found in ESDL file", result.warnings)
+
+    def test_unrecognised_column_loads_with_one_warning(self) -> None:
+        data, result = self.load(_table_profile())
+
+        self.assertEqual(list(data), [self.KEY])
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(
+            result.warnings,
+            ["1 series are not recognised KPI fields: asset1/HeatIn.Q"],
+        )
+
+    def test_recognised_column_gives_no_warning(self) -> None:
+        field = sorted(KNOWN_TIME_SERIES_FIELDS)[0]
+        data, result = self.load(_table_profile(column=field))
+
+        self.assertEqual(list(data), [f"asset1{COMPOSITE_KEY_SEPARATOR}{field}"])
         self.assertEqual(result.warnings, [])
+
+    def test_recognised_and_unrecognised_columns_warn_only_about_the_unrecognised_one(
+        self,
+    ) -> None:
+        field = sorted(KNOWN_TIME_SERIES_FIELDS)[0]
+        energy_system = _energy_system([("asset1", _table_profile(column=field))])
+        port = next(p for p in energy_system.eAllContents() if isinstance(p, esdl.InPort))
+        port.profile.append(_table_profile(column="Q"))
+        data, result = self.loader.load_time_series_from_esdl(energy_system)
+
+        self.assertEqual(len(data), 2)
+        self.assertEqual(len(result.warnings), 1)
+        self.assertTrue(result.warnings[0].endswith(": asset1/Q"), result.warnings[0])
+
+    def test_unrecognised_fields_warning_is_truncated(self) -> None:
+        series = {f"asset{i}{COMPOSITE_KEY_SEPARATOR}col{i}": Mock() for i in range(12)}
+        message = DatabaseTimeSeriesLoader._unrecognised_fields_warning(series)
+
+        self.assertIsNotNone(message)
+        assert message is not None
+        self.assertTrue(message.startswith("12 series are not recognised KPI fields"))
+        self.assertIn("asset9/col9", message)
+        self.assertNotIn("asset10/col10", message)
+        self.assertTrue(message.endswith("… +2 more"), message)
+
+    def test_unrecognised_fields_warning_splits_at_the_first_separator(self) -> None:
+        # The ESDL adapter splits a key at its first separator, so a column name that
+        # itself contains the separator stays whole.
+        series = {f"asset1{COMPOSITE_KEY_SEPARATOR}a{COMPOSITE_KEY_SEPARATOR}b": Mock()}
+        message = DatabaseTimeSeriesLoader._unrecognised_fields_warning(series)
+
+        self.assertIsNotNone(message)
+        assert message is not None
+        self.assertTrue(message.endswith(f": asset1/a{COMPOSITE_KEY_SEPARATOR}b"), message)
+
+    def test_no_unrecognised_fields_gives_no_warning(self) -> None:
+        field = sorted(KNOWN_TIME_SERIES_FIELDS)[0]
+        series = {f"asset1{COMPOSITE_KEY_SEPARATOR}{field}": Mock()}
+
+        self.assertIsNone(DatabaseTimeSeriesLoader._unrecognised_fields_warning(series))
 
     def test_influxdb_typed_database_configuration_rejected_before_any_read(self) -> None:
         profile = _table_profile()
@@ -2678,9 +2735,15 @@ class TestDataTableProfileConnections(_DataTableTestBase):
         self.assertEqual(len(result.errors), 1)
         self.assertIn("Database connection failed for profile HeatIn.Q", result.errors[0])
 
-    def test_connections_closed_when_loading_raises_unexpectedly(self) -> None:
+    def test_connections_closed_when_loading_raises_unexpectedly_after_a_read_took_the_lock(
+        self,
+    ) -> None:
+        def take_the_lock_then_fail(_profile, _data, _errors, lock_state) -> None:
+            lock_state.acquired = True
+            raise RuntimeError("unexpected")
+
         with patch.object(
-            self.loader, "_process_data_table_profile", side_effect=RuntimeError("unexpected")
+            self.loader, "_process_data_table_profile", side_effect=take_the_lock_then_fail
         ):
             data, result = self.load(_table_profile())
 
@@ -2699,7 +2762,7 @@ class TestDataTableProfileConnections(_DataTableTestBase):
         self.assertFalse(result.is_valid)
         self.assertEqual(result.errors, ["Failed to process database profiles: close boom"])
 
-    def test_all_invalid_profiles_each_reported_and_close_called_once(self) -> None:
+    def test_all_invalid_profiles_each_reported_and_nothing_is_closed(self) -> None:
         data, result = self.load(
             _table_profile(configuration=None),
             _table_profile(host=None),
@@ -2713,7 +2776,7 @@ class TestDataTableProfileConnections(_DataTableTestBase):
         self.assertIn("must define both host and port", result.errors[1])
         self.assertIn("no columnName", result.errors[2])
         self.assertNotIn("No database profiles found in ESDL file", result.warnings)
-        self.mock_close.assert_called_once_with()
+        self.mock_close.assert_not_called()
         self.mock_read.assert_not_called()
 
     def test_summary_counts_successful_and_failed_profiles(self) -> None:
@@ -3007,7 +3070,7 @@ class TestDatabaseReadLock(_DataTableTestBase):
             [c.args[0] for c in log_error.call_args_list],
         )
 
-    def test_connections_are_closed_once_when_every_profile_is_invalid_and_the_lock_is_free(
+    def test_connections_are_not_closed_when_every_profile_is_invalid_and_the_lock_is_free(
         self,
     ) -> None:
         _, result = self.load(
@@ -3017,6 +3080,17 @@ class TestDatabaseReadLock(_DataTableTestBase):
 
         self.assertEqual(len(result.errors), 2)
         self.mock_read.assert_not_called()
+        self.mock_close.assert_not_called()
+
+    def test_connections_are_closed_when_one_profile_is_invalid_and_another_is_read(
+        self,
+    ) -> None:
+        data, result = self.load(
+            _table_profile(column="A", configuration=None), _table_profile(column="B")
+        )
+
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(list(data), [f"asset2{COMPOSITE_KEY_SEPARATOR}B"])
         self.mock_close.assert_called_once_with()
 
     def test_a_timeout_inside_the_read_is_not_a_lock_timeout(self) -> None:
@@ -3471,7 +3545,7 @@ class TestDataTableProfileMergeWithInflux(_DataTableTestBase):
             data, result = self.load(self._influx_profile(), output_profile)
 
         self.assertEqual(list(data), [influx_key])
-        self.assertEqual(result.warnings, [])
+        self.assertNotIn("No database profiles found in ESDL file", result.warnings)
         skipped = [w for w in self.warning_texts() if w.startswith("Skipped")]
         self.assertEqual(len(skipped), 1)
         self.assertIn("Skipped 1 DataTableProfile(s)", skipped[0])

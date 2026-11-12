@@ -23,6 +23,7 @@ from ..common.constants import (
     DEFAULT_TIME_STEP_SECONDS,
     HTTP_PREFIX_LENGTH,
     HTTPS_PREFIX_LENGTH,
+    KNOWN_TIME_SERIES_FIELDS,
     SECONDS_PER_HOUR,
 )
 from ..common.logging_utils import get_database_logger
@@ -63,6 +64,10 @@ class InfluxDBProfileProtocol(Protocol):
     database: str
     measurement: str
     field: str
+
+
+# Series names listed in the unrecognised-fields warning before it is truncated.
+_UNRECOGNISED_PREVIEW = 10
 
 
 class _ReadLockTimeout(TimeoutError):
@@ -218,8 +223,8 @@ class DatabaseTimeSeriesLoader:
         ``DataTableProfile`` elements are read one by one through pyESDL. Both kinds are
         merged into one dict listing its entries in ESDL profile order. On a composite-key
         collision the first profile in ESDL order is kept; later ones are not loaded and are
-        recorded as errors. When DataTable profiles were read, ``close_db_connections()`` runs
-        once in a ``finally`` afterwards.
+        recorded as errors. When a DataTable read took the database lock, even one that then
+        failed, ``close_db_connections()`` runs once in a ``finally`` afterwards.
 
         Args:
             energy_system: ESDL EnergySystem containing InfluxDBProfile and/or
@@ -282,6 +287,9 @@ class DatabaseTimeSeriesLoader:
             failed_loads += table_failed
 
             time_series_data = self._in_esdl_order(time_series_data, planned_keys)
+            unrecognised = self._unrecognised_fields_warning(time_series_data)
+            if unrecognised:
+                warnings.append(unrecognised)
 
             # Log summary
             total_time = time.time() - start_time
@@ -304,6 +312,30 @@ class DatabaseTimeSeriesLoader:
         )
 
         return time_series_data, validation_result
+
+    @staticmethod
+    def _unrecognised_fields_warning(time_series_data: dict[str, TimeSeries]) -> str | None:
+        """Summarise loaded series whose field is not a recognised KPI field, or None if all are.
+
+        The energy and emission calculators look series up by the recognised names. The series
+        stay in the result; only the warning is new, as for DataFrame columns.
+        """
+        names = [
+            f"{asset_id}/{field}"
+            for asset_id, _, field in (
+                key.partition(COMPOSITE_KEY_SEPARATOR) for key in time_series_data
+            )
+            if field not in KNOWN_TIME_SERIES_FIELDS
+        ]
+        if not names:
+            return None
+        shown = ", ".join(names[:_UNRECOGNISED_PREVIEW])
+        more = (
+            f", … +{len(names) - _UNRECOGNISED_PREVIEW} more"
+            if len(names) > _UNRECOGNISED_PREVIEW
+            else ""
+        )
+        return f"{len(names)} series are not recognised KPI fields: {shown}{more}"
 
     def _collect_database_profiles(
         self, energy_system: esdl.EnergySystem
@@ -741,7 +773,8 @@ class DatabaseTimeSeriesLoader:
     ) -> tuple[int, int]:
         """Read DataTable profiles one by one, then close pyESDL's connections once.
 
-        The close is skipped when a lock timeout left this load with nothing acquired.
+        The close is skipped when no read acquired the lock: every profile failed validation
+        or a lock timeout left this load with nothing acquired.
 
         Returns:
             (successful_loads, failed_loads)
@@ -750,7 +783,6 @@ class DatabaseTimeSeriesLoader:
             return 0, 0
         successful = 0
         lock_state = _ReadLockState()
-        lock_timed_out = False
         try:
             for index, profile in enumerate(profiles):
                 try:
@@ -759,7 +791,6 @@ class DatabaseTimeSeriesLoader:
                     ):
                         successful += 1
                 except _ReadLockTimeout:
-                    lock_timed_out = True
                     # Waiting again for every remaining profile would stack the timeouts.
                     errors.extend(
                         f"Skipped DataTable profile {self._data_table_subject(skipped)} "
@@ -768,9 +799,11 @@ class DatabaseTimeSeriesLoader:
                     )
                     break
         finally:
-            # After a lock timeout with no earlier acquisition this load opened nothing, so
-            # waiting for the lock again just to close connections would only add delay.
-            if lock_state.acquired or not lock_timed_out:
+            # This load can only have opened a connection after a read acquired the lock. With
+            # no acquisition (every profile rejected by validation, or a lock timeout first)
+            # there is nothing of its own to close, and waiting for the lock again, or closing
+            # pyESDL's shared connections, would only affect other users.
+            if lock_state.acquired:
                 try:
                     with database_read_lock():
                         close_db_connections()
