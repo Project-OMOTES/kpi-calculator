@@ -179,5 +179,112 @@ class TestPasswordlessFlagPlumbing(unittest.TestCase):
         self.assertTrue(manager.database_loader.allow_passwordless_database)
 
 
+class TestFailedDatabaseLoadFallback(unittest.TestCase):
+    """A database load that produced nothing usable lets the next source run."""
+
+    def setUp(self) -> None:
+        self.manager = TimeSeriesManager(Mock())
+        self.es = _energy_system(_postgres_profile())
+        self.failed: tuple = (
+            {},
+            ValidationResult(is_valid=False, errors=["connection refused"], warnings=["w1"]),
+        )
+        self.xml_result: tuple = (
+            {"asset1|power": Mock()},
+            ValidationResult(is_valid=True, warnings=["from xml"]),
+        )
+
+    def _load(self, *, xml_file: str | None = "series.xml", xml=None):
+        with (
+            patch.object(
+                self.manager.database_loader, "load_time_series_from_esdl", return_value=self.failed
+            ),
+            patch.object(
+                self.manager,
+                "_load_from_xml",
+                return_value=xml or self.xml_result,
+                side_effect=None,
+            ) as mock_xml,
+        ):
+            return self.manager.load_time_series(self.es, xml_file=xml_file), mock_xml
+
+    def test_failed_database_load_falls_back_to_xml_and_keeps_the_database_error(self) -> None:
+        (data, result), mock_xml = self._load()
+
+        mock_xml.assert_called_once_with("series.xml", self.es)
+        self.assertEqual(data, self.xml_result[0])
+        self.assertTrue(result.is_valid)
+        self.assertEqual(
+            result.warnings,
+            ["from xml", "w1", "Database load failed, used another source: connection refused"],
+        )
+
+    def test_fallback_that_loads_nothing_keeps_the_database_failure_as_errors(self) -> None:
+        empty_xml = ({}, ValidationResult(is_valid=True, warnings=["xml had no series"]))
+        (data, result), mock_xml = self._load(xml=empty_xml)
+
+        mock_xml.assert_called_once_with("series.xml", self.es)
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertEqual(result.errors, ["connection refused"])
+        self.assertEqual(result.warnings, ["w1", "xml had no series"])
+
+    def test_failed_database_load_without_other_source_stays_invalid(self) -> None:
+        (data, result), mock_xml = self._load(xml_file=None)
+
+        mock_xml.assert_not_called()
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertEqual(result.errors, ["connection refused"])
+        self.assertEqual(result.warnings, ["w1"])
+
+    def test_failed_database_load_and_failed_xml_report_both(self) -> None:
+        with (
+            patch.object(
+                self.manager.database_loader, "load_time_series_from_esdl", return_value=self.failed
+            ),
+            patch.object(self.manager, "_load_from_xml", side_effect=RuntimeError("xml boom")),
+        ):
+            data, result = self.manager.load_time_series(self.es, xml_file="series.xml")
+
+        self.assertEqual(data, {})
+        self.assertFalse(result.is_valid)
+        self.assertEqual(result.errors, ["connection refused"])
+        self.assertEqual(result.warnings, ["w1", "Failed to load time series from xml: xml boom"])
+
+    def test_partial_database_result_is_returned_without_trying_xml(self) -> None:
+        partial = (
+            {"asset1|power": Mock()},
+            ValidationResult(is_valid=False, errors=["one profile failed"]),
+        )
+        with (
+            patch.object(
+                self.manager.database_loader, "load_time_series_from_esdl", return_value=partial
+            ),
+            patch.object(self.manager, "_load_from_xml") as mock_xml,
+        ):
+            result = self.manager.load_time_series(self.es, xml_file="series.xml")
+
+        self.assertIs(result, partial)
+        mock_xml.assert_not_called()
+
+    def test_failed_database_load_falls_back_to_dataframes_and_keeps_the_database_error(
+        self,
+    ) -> None:
+        index = pd.date_range("2024-01-01", periods=3, freq="h")
+        frames = {"asset0": pd.DataFrame({"heat_supplied": [1.0, 2.0, 3.0]}, index=index)}
+        with patch.object(
+            self.manager.database_loader, "load_time_series_from_esdl", return_value=self.failed
+        ):
+            data, result = self.manager.load_time_series(
+                self.es, timeseries_dataframes=frames, source_priority=["database", "dataframes"]
+            )
+
+        self.assertIn(f"asset0{COMPOSITE_KEY_SEPARATOR}heat_supplied", data)
+        self.assertIn(
+            "Database load failed, used another source: connection refused", result.warnings
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
