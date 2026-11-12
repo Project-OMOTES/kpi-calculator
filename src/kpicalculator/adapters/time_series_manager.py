@@ -61,7 +61,10 @@ class TimeSeriesManager:
                 Default: ["dataframes", "database", "xml", "empty"]
 
         Returns:
-            Tuple of (time_series_dict, validation_result)
+            Tuple of (time_series_dict, validation_result). When the database returns
+            nothing usable (every profile failed), the next source is tried and the
+            database errors are kept: as warnings if that source loads series, as errors
+            if it loads none.
 
         Raises:
             ValidationError: If critical validation fails across all sources
@@ -70,20 +73,34 @@ class TimeSeriesManager:
         priority = source_priority or ["dataframes", "database", "xml", "empty"]
 
         validation_results = []
+        database_failure: tuple[dict[str, TimeSeries], ValidationResult] | None = None
 
         for source in priority:
             try:
                 if source == "dataframes" and timeseries_dataframes:
                     self.logger.info("Loading time series from pandas DataFrames")
-                    return self._load_from_dataframes(timeseries_dataframes, energy_system)
+                    return self._note_database_failure(
+                        self._load_from_dataframes(timeseries_dataframes, energy_system),
+                        database_failure,
+                    )
 
                 if source == "database" and self._has_database_profiles(energy_system):
                     self.logger.info("Loading time series from database")
-                    return self.database_loader.load_time_series_from_esdl(energy_system)
+                    loaded = self.database_loader.load_time_series_from_esdl(energy_system)
+                    if loaded[0] or loaded[1].is_valid:
+                        return loaded
+                    # Every database profile failed: nothing usable, so try the next source.
+                    database_failure = loaded
+                    self.logger.warning(
+                        "Database returned no usable time series; trying the next source"
+                    )
+                    continue
 
                 if source == "xml" and xml_file:
                     self.logger.info(f"Loading time series from XML file: {xml_file}")
-                    return self._load_from_xml(xml_file, energy_system)
+                    return self._note_database_failure(
+                        self._load_from_xml(xml_file, energy_system), database_failure
+                    )
 
             except Exception as e:
                 error_msg = f"Failed to load time series from {source}: {e}"
@@ -91,10 +108,44 @@ class TimeSeriesManager:
                 validation_results.append(error_msg)
                 continue
 
+        if database_failure is not None:
+            # No later source loaded anything: report the database failure as before.
+            return database_failure[0], ValidationResult(
+                is_valid=False,
+                errors=database_failure[1].errors,
+                warnings=[*database_failure[1].warnings, *validation_results],
+            )
+
         # If no sources succeeded, return empty with warnings
         self.logger.info("No time series data loaded - using empty time series")
         return {}, ValidationResult(
             is_valid=True, warnings=["No time series data loaded", *validation_results]
+        )
+
+    @staticmethod
+    def _note_database_failure(
+        loaded: tuple[dict[str, TimeSeries], ValidationResult],
+        database_failure: tuple[dict[str, TimeSeries], ValidationResult] | None,
+    ) -> tuple[dict[str, TimeSeries], ValidationResult]:
+        """Keep the diagnostics of a failed database load next to the source used instead.
+
+        When that source loaded series, the database errors become warnings on its result.
+        When it loaded none, the database failure stands: the result is invalid and carries
+        the database errors as errors.
+        """
+        if database_failure is None:
+            return loaded
+        data, result = loaded
+        failure = database_failure[1]
+        if not data:
+            return data, ValidationResult(
+                is_valid=False,
+                errors=[*failure.errors, *result.errors],
+                warnings=[*failure.warnings, *result.warnings],
+            )
+        notes = [f"Database load failed, used another source: {e}" for e in failure.errors]
+        return data, ValidationResult(
+            result.is_valid, result.errors, [*result.warnings, *failure.warnings, *notes]
         )
 
     def _load_from_dataframes(
