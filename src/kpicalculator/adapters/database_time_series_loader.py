@@ -66,7 +66,6 @@ class InfluxDBProfileProtocol(Protocol):
     field: str
 
 
-# Series names listed in the unrecognised-fields warning before it is truncated.
 _UNRECOGNISED_PREVIEW = 10
 
 
@@ -318,7 +317,7 @@ class DatabaseTimeSeriesLoader:
         """Summarise loaded series whose field is not a recognised KPI field, or None if all are.
 
         The energy and emission calculators look series up by the recognised names. The series
-        stay in the result; only the warning is new, as for DataFrame columns.
+        themselves stay in the result.
         """
         names = [
             f"{asset_id}/{field}"
@@ -330,11 +329,8 @@ class DatabaseTimeSeriesLoader:
         if not names:
             return None
         shown = ", ".join(names[:_UNRECOGNISED_PREVIEW])
-        more = (
-            f", … +{len(names) - _UNRECOGNISED_PREVIEW} more"
-            if len(names) > _UNRECOGNISED_PREVIEW
-            else ""
-        )
+        extra = len(names) - _UNRECOGNISED_PREVIEW
+        more = f", … +{extra} more" if extra > 0 else ""
         return f"{len(names)} series are not recognised KPI fields: {shown}{more}"
 
     def _collect_database_profiles(
@@ -799,10 +795,8 @@ class DatabaseTimeSeriesLoader:
                     )
                     break
         finally:
-            # This load can only have opened a connection after a read acquired the lock. With
-            # no acquisition (every profile rejected by validation, or a lock timeout first)
-            # there is nothing of its own to close, and waiting for the lock again, or closing
-            # pyESDL's shared connections, would only affect other users.
+            # Without an acquired lock no read opened a connection, so closing would only
+            # affect other pyESDL users.
             if lock_state.acquired:
                 try:
                     with database_read_lock():
@@ -1024,16 +1018,28 @@ class DatabaseTimeSeriesLoader:
         return float(multiplier)
 
     @staticmethod
-    def _is_energy_profile(profile: esdl.InfluxDBProfile) -> bool:
-        """Return True if the profile's physical quantity is ENERGY (False if unreadable)."""
-        quantity_and_unit = profile.profileQuantityAndUnit
-        if quantity_and_unit is None:
-            return False
+    def _physical_quantity(
+        quantity_and_unit: esdl.QuantityAndUnitType,
+    ) -> esdl.PhysicalQuantityEnum:
+        """Return the physical quantity of a unit given directly or through a reference.
+
+        Raises:
+            AttributeError: The unit has no readable physical quantity.
+        """
         try:
-            quantity = quantity_and_unit.reference.physicalQuantity
+            return quantity_and_unit.reference.physicalQuantity
         except AttributeError:
-            quantity = getattr(quantity_and_unit, "physicalQuantity", None)
-        return bool(quantity == esdl.PhysicalQuantityEnum.ENERGY)
+            return quantity_and_unit.physicalQuantity
+
+    @classmethod
+    def _is_energy_profile(cls, profile: esdl.InfluxDBProfile) -> bool:
+        """Return True if the profile's physical quantity is ENERGY (False if unreadable)."""
+        with suppress(AttributeError):
+            return bool(
+                cls._physical_quantity(profile.profileQuantityAndUnit)
+                == esdl.PhysicalQuantityEnum.ENERGY
+            )
+        return False
 
     @classmethod
     def _reject_energy_profile(cls, profile: esdl.InfluxDBProfile) -> None:
@@ -1062,9 +1068,9 @@ class DatabaseTimeSeriesLoader:
             return False
         return True
 
-    @staticmethod
+    @classmethod
     def _require_supported_quantity(
-        quantity_and_unit: esdl.QuantityAndUnitType, label: str
+        cls, quantity_and_unit: esdl.QuantityAndUnitType, label: str
     ) -> esdl.PhysicalQuantityEnum:
         """Return the physical quantity of a DataTable unit if it is power or cost.
 
@@ -1075,10 +1081,7 @@ class DatabaseTimeSeriesLoader:
             ValidationError: The physical quantity is not power or cost.
             AttributeError: The unit has no readable physical quantity.
         """
-        try:
-            quantity = quantity_and_unit.reference.physicalQuantity
-        except AttributeError:
-            quantity = quantity_and_unit.physicalQuantity
+        quantity = cls._physical_quantity(quantity_and_unit)
         if quantity not in (esdl.PhysicalQuantityEnum.POWER, esdl.PhysicalQuantityEnum.COST):
             raise ValidationError(
                 f"DataTable profile '{label}' has physical quantity {quantity}; only power "
@@ -1375,11 +1378,7 @@ class DatabaseTimeSeriesLoader:
     def _convert_units(self, df: pd.DataFrame, profile: esdl.InfluxDBProfile) -> pd.DataFrame:
         """Convert units to standard format following MESIDO pattern."""
         try:
-            # Get physical quantity
-            try:
-                unit = profile.profileQuantityAndUnit.reference.physicalQuantity
-            except AttributeError:
-                unit = profile.profileQuantityAndUnit.physicalQuantity
+            unit = self._physical_quantity(profile.profileQuantityAndUnit)
 
             # Convert based on physical quantity
             for i in range(len(df)):

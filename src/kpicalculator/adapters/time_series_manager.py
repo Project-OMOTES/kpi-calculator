@@ -73,7 +73,7 @@ class TimeSeriesManager:
         priority = source_priority or ["dataframes", "database", "xml", "empty"]
 
         validation_results = []
-        database_failure: tuple[dict[str, TimeSeries], ValidationResult] | None = None
+        database_failure: ValidationResult | None = None
 
         for source in priority:
             try:
@@ -87,14 +87,13 @@ class TimeSeriesManager:
                 if source == "database" and self._has_database_profiles(energy_system):
                     self.logger.info("Loading time series from database")
                     loaded = self.database_loader.load_time_series_from_esdl(energy_system)
-                    if loaded[0] or loaded[1].is_valid:
+                    data, result = loaded
+                    if data or result.is_valid:
                         return loaded
-                    # Every database profile failed: nothing usable, so try the next source.
-                    database_failure = loaded
+                    database_failure = result
                     self.logger.warning(
                         "Database returned no usable time series; trying the next source"
                     )
-                    continue
 
                 if source == "xml" and xml_file:
                     self.logger.info(f"Loading time series from XML file: {xml_file}")
@@ -109,11 +108,10 @@ class TimeSeriesManager:
                 continue
 
         if database_failure is not None:
-            # No later source loaded anything: report the database failure as before.
-            return database_failure[0], ValidationResult(
-                is_valid=False,
-                errors=database_failure[1].errors,
-                warnings=[*database_failure[1].warnings, *validation_results],
+            # No later source loaded anything: the database failure stands.
+            return self._note_database_failure(
+                ({}, ValidationResult(is_valid=True, warnings=validation_results)),
+                database_failure,
             )
 
         # If no sources succeeded, return empty with warnings
@@ -125,7 +123,7 @@ class TimeSeriesManager:
     @staticmethod
     def _note_database_failure(
         loaded: tuple[dict[str, TimeSeries], ValidationResult],
-        database_failure: tuple[dict[str, TimeSeries], ValidationResult] | None,
+        failure: ValidationResult | None,
     ) -> tuple[dict[str, TimeSeries], ValidationResult]:
         """Keep the diagnostics of a failed database load next to the source used instead.
 
@@ -133,10 +131,9 @@ class TimeSeriesManager:
         When it loaded none, the database failure stands: the result is invalid and carries
         the database errors as errors.
         """
-        if database_failure is None:
+        if failure is None:
             return loaded
         data, result = loaded
-        failure = database_failure[1]
         if not data:
             return data, ValidationResult(
                 is_valid=False,

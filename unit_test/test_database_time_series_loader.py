@@ -484,13 +484,22 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
         profile_unit.reference.physicalQuantity = esdl.PhysicalQuantityEnum.ENERGY
         profile.profileQuantityAndUnit = profile_unit
 
-        with patch(
-            "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
-        ) as mock_convert:
+        with (
+            patch(
+                "kpicalculator.adapters.database_time_series_loader.convert_to_unit"
+            ) as mock_convert,
+            patch.object(self.loader.db_logger, "warning") as log_warning,
+            patch.object(self.loader.db_logger, "error") as log_error,
+        ):
             result_df = self.loader._convert_units(df, profile)
 
         mock_convert.assert_not_called()
         self.assertEqual(result_df.iloc[0, 0], 1000.0)
+        log_warning.assert_called_once_with(
+            "Unsupported physical quantity for unit conversion",
+            {"physical_quantity": str(esdl.PhysicalQuantityEnum.ENERGY)},
+        )
+        log_error.assert_not_called()
 
     def test_convert_units_no_reference(self) -> None:
         """Test unit conversion when no reference attribute."""
@@ -517,7 +526,7 @@ class TestDatabaseTimeSeriesLoader(unittest.TestCase):
 
         profile = Mock(spec=esdl.InfluxDBProfile)
         profile_unit = Mock()
-        # Create a mock enum value that's not POWER, ENERGY, or COST
+        # Create a mock quantity that is neither POWER nor COST
         mock_quantity = Mock()
         mock_quantity.__str__ = Mock(return_value="UNKNOWN_QUANTITY")
         profile_unit.reference.physicalQuantity = mock_quantity
@@ -1393,7 +1402,6 @@ class TestProcessProfileBatch(unittest.TestCase):
         """An ENERGY Influx profile is recorded once with an actionable message, with no query."""
         for name, unit, referenced in (
             ("joule", esdl.UnitEnum.JOULE, False),
-            ("watt hour", esdl.UnitEnum.WATTHOUR, False),
             ("referenced watt hour", esdl.UnitEnum.WATTHOUR, True),
         ):
             with self.subTest(unit=name):
@@ -1684,11 +1692,117 @@ class TestProcessProfileBatch(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("non-finite multiplier", errors[0])
 
+    def test_profile_without_a_readable_unit_is_not_an_energy_profile(self) -> None:
+        for name, unit in (
+            ("no unit", None),
+            ("reference to nothing", esdl.QuantityAndUnitReference()),
+        ):
+            with self.subTest(unit=name):
+                profile = _make_profile()
+                profile.profileQuantityAndUnit = unit
+
+                self.assertFalse(DatabaseTimeSeriesLoader._is_energy_profile(profile))
+                # Must not raise: an unreadable unit is left to the unit conversion.
+                DatabaseTimeSeriesLoader._reject_energy_profile(profile)
+
     @patch(_INFLUXDB_PATH)
     def test_energy_profile_is_left_out_of_the_batch(self, mock_influx_cls) -> None:
         energy = _energy_profile(
             esdl.UnitEnum.WATTHOUR, referenced=True, field="field_e", asset_id="asset_e"
         )
+        p1 = _make_profile(field="field_a", asset_id="asset_1")
+        p2 = _make_profile(field="field_b", asset_id="asset_2")
+        mock_manager = self._make_mock_manager(
+            ["field_a", "field_b"], {"field_a": [1.0, 2.0], "field_b": [3.0, 4.0]}
+        )
+        mock_influx_cls.return_value = mock_manager
+        mock_influx_cls._parse_esdl_profile_filters.return_value = []
+        errors: list = []
+        time_series_data: dict = {}
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch(
+                    [energy, p1, p2], time_series_data, errors
+                )
+
+        mock_manager.load_influxdb.assert_called_once()
+        self.assertEqual(
+            mock_manager.load_influxdb.call_args.kwargs["fields"], ["field_a", "field_b"]
+        )
+        mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+        self.assertEqual((successful, failed), (2, 1))
+        self.assertEqual(
+            set(time_series_data),
+            {
+                f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a",
+                f"asset_2{COMPOSITE_KEY_SEPARATOR}field_b",
+            },
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("physical quantity ENERGY", errors[0])
+
+    @patch(_INFLUXDB_PATH)
+    def test_batch_of_only_energy_profiles_runs_no_query(self, mock_influx_cls) -> None:
+        first = _energy_profile(esdl.UnitEnum.JOULE, field="field_e1", asset_id="asset_1")
+        second = _energy_profile(
+            esdl.UnitEnum.WATTHOUR, referenced=True, field="field_e2", asset_id="asset_2"
+        )
+        errors: list = []
+        time_series_data: dict = {}
+
+        successful, failed = self.loader._process_profile_batch(
+            [first, second], time_series_data, errors
+        )
+
+        self.assertEqual((successful, failed), (0, 2))
+        self.assertEqual(len(errors), 2)
+        self.assertIn("heat.field_e1 has physical quantity ENERGY", errors[0])
+        self.assertIn("heat.field_e2 has physical quantity ENERGY", errors[1])
+        self.assertEqual(time_series_data, {})
+        mock_influx_cls.assert_not_called()
+        mock_influx_cls.create_esdl_influxdb_profile_manager.assert_not_called()
+
+    @patch(_INFLUXDB_PATH)
+    def test_single_batchable_profile_left_after_energy_exclusion_is_loaded_per_profile(
+        self, mock_influx_cls
+    ) -> None:
+        energy = _energy_profile(
+            esdl.UnitEnum.WATTHOUR, referenced=True, field="field_e", asset_id="asset_e"
+        )
+        good = _make_profile(field="field_a", asset_id="asset_1")
+        mock_manager = self._make_mock_manager(["field_a"], {"field_a": [1.0, 2.0]})
+        mock_influx_cls.create_esdl_influxdb_profile_manager.return_value = mock_manager
+        errors: list = []
+        time_series_data: dict = {}
+
+        with patch.object(
+            self.loader, "_get_credentials_for_profile", return_value=self.credentials
+        ):
+            with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
+                successful, failed = self.loader._process_profile_batch(
+                    [energy, good], time_series_data, errors
+                )
+
+        self.assertEqual((successful, failed), (1, 1))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("physical quantity ENERGY", errors[0])
+        mock_influx_cls.assert_not_called()
+        mock_influx_cls.create_esdl_influxdb_profile_manager.assert_called_once()
+        self.assertEqual(
+            time_series_data[f"asset_1{COMPOSITE_KEY_SEPARATOR}field_a"].values, [1.0, 2.0]
+        )
+
+    @patch(_INFLUXDB_PATH)
+    def test_energy_profile_with_another_problem_is_reported_once_for_that_problem(
+        self, mock_influx_cls
+    ) -> None:
+        energy_nan = _energy_profile(
+            esdl.UnitEnum.JOULE, field="field_e1", asset_id="asset_e1", multiplier=float("nan")
+        )
+        energy_no_field = _energy_profile(esdl.UnitEnum.JOULE, field=None, asset_id="asset_e2")
         p1 = _make_profile(field="field_a", asset_id="asset_1")
         p2 = _make_profile(field="field_b", asset_id="asset_2")
         mock_manager = self._make_mock_manager(
@@ -1703,16 +1817,15 @@ class TestProcessProfileBatch(unittest.TestCase):
         ):
             with patch.object(self.loader, "_convert_units", side_effect=lambda df, _: df):
                 successful, failed = self.loader._process_profile_batch(
-                    [energy, p1, p2], {}, errors
+                    [energy_nan, energy_no_field, p1, p2], {}, errors
                 )
 
+        self.assertEqual((successful, failed), (2, 2))
+        self.assertEqual(len(errors), 2)
+        self.assertIn("non-finite multiplier", errors[0])
+        self.assertIn("has no field name", errors[1])
+        self.assertFalse(any("ENERGY" in e for e in errors), errors)
         mock_manager.load_influxdb.assert_called_once()
-        self.assertEqual(
-            mock_manager.load_influxdb.call_args.kwargs["fields"], ["field_a", "field_b"]
-        )
-        self.assertEqual((successful, failed), (2, 1))
-        self.assertEqual(len(errors), 1)
-        self.assertIn("physical quantity ENERGY", errors[0])
 
     @patch(_INFLUXDB_PATH)
     def test_batch_of_only_unbatchable_profiles_runs_no_query(self, mock_influx_cls) -> None:
@@ -2357,22 +2470,6 @@ class TestDataTableProfileLoading(_DataTableTestBase):
         self.assertEqual(read_profile.configuration.port, _PG_PORT)
         self.assertEqual(profile.configuration.id, "cfg1")
 
-    def test_postgres_only_esdl_does_not_report_no_profiles(self) -> None:
-        data, result = self.load(_table_profile())
-
-        self.assertEqual(len(data), 1)
-        self.assertNotIn("No database profiles found in ESDL file", result.warnings)
-
-    def test_unrecognised_column_loads_with_one_warning(self) -> None:
-        data, result = self.load(_table_profile())
-
-        self.assertEqual(list(data), [self.KEY])
-        self.assertTrue(result.is_valid, result.errors)
-        self.assertEqual(
-            result.warnings,
-            ["1 series are not recognised KPI fields: asset1/HeatIn.Q"],
-        )
-
     def test_recognised_column_gives_no_warning(self) -> None:
         field = sorted(KNOWN_TIME_SERIES_FIELDS)[0]
         data, result = self.load(_table_profile(column=field))
@@ -2389,20 +2486,27 @@ class TestDataTableProfileLoading(_DataTableTestBase):
         port.profile.append(_table_profile(column="Q"))
         data, result = self.loader.load_time_series_from_esdl(energy_system)
 
-        self.assertEqual(len(data), 2)
-        self.assertEqual(len(result.warnings), 1)
-        self.assertTrue(result.warnings[0].endswith(": asset1/Q"), result.warnings[0])
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(
+            list(data),
+            [f"asset1{COMPOSITE_KEY_SEPARATOR}{field}", f"asset1{COMPOSITE_KEY_SEPARATOR}Q"],
+        )
+        self.assertEqual(result.warnings, ["1 series are not recognised KPI fields: asset1/Q"])
 
-    def test_unrecognised_fields_warning_is_truncated(self) -> None:
-        series = {f"asset{i}{COMPOSITE_KEY_SEPARATOR}col{i}": Mock() for i in range(12)}
-        message = DatabaseTimeSeriesLoader._unrecognised_fields_warning(series)
+    def test_unrecognised_fields_warning_lists_at_most_ten_names(self) -> None:
+        for count, suffix in ((10, ""), (11, ", … +1 more"), (12, ", … +2 more")):
+            with self.subTest(count=count):
+                series = {f"asset{i}{COMPOSITE_KEY_SEPARATOR}col{i}": Mock() for i in range(count)}
 
-        self.assertIsNotNone(message)
-        assert message is not None
-        self.assertTrue(message.startswith("12 series are not recognised KPI fields"))
-        self.assertIn("asset9/col9", message)
-        self.assertNotIn("asset10/col10", message)
-        self.assertTrue(message.endswith("… +2 more"), message)
+                message = DatabaseTimeSeriesLoader._unrecognised_fields_warning(series)
+
+                shown = ", ".join(f"asset{i}/col{i}" for i in range(10))
+                self.assertEqual(
+                    message, f"{count} series are not recognised KPI fields: {shown}{suffix}"
+                )
+
+    def test_unrecognised_fields_warning_is_none_without_series(self) -> None:
+        self.assertIsNone(DatabaseTimeSeriesLoader._unrecognised_fields_warning({}))
 
     def test_unrecognised_fields_warning_splits_at_the_first_separator(self) -> None:
         # The ESDL adapter splits a key at its first separator, so a column name that
@@ -2410,15 +2514,9 @@ class TestDataTableProfileLoading(_DataTableTestBase):
         series = {f"asset1{COMPOSITE_KEY_SEPARATOR}a{COMPOSITE_KEY_SEPARATOR}b": Mock()}
         message = DatabaseTimeSeriesLoader._unrecognised_fields_warning(series)
 
-        self.assertIsNotNone(message)
-        assert message is not None
-        self.assertTrue(message.endswith(f": asset1/a{COMPOSITE_KEY_SEPARATOR}b"), message)
-
-    def test_no_unrecognised_fields_gives_no_warning(self) -> None:
-        field = sorted(KNOWN_TIME_SERIES_FIELDS)[0]
-        series = {f"asset1{COMPOSITE_KEY_SEPARATOR}{field}": Mock()}
-
-        self.assertIsNone(DatabaseTimeSeriesLoader._unrecognised_fields_warning(series))
+        self.assertEqual(
+            message, f"1 series are not recognised KPI fields: asset1/a{COMPOSITE_KEY_SEPARATOR}b"
+        )
 
     def test_influxdb_typed_database_configuration_rejected_before_any_read(self) -> None:
         profile = _table_profile()
@@ -2752,6 +2850,16 @@ class TestDataTableProfileConnections(_DataTableTestBase):
         self.assertFalse(result.is_valid)
         self.assertIn("Failed to process database profiles: unexpected", result.errors[0])
 
+    def test_connections_not_closed_when_loading_raises_unexpectedly_before_any_read(self) -> None:
+        with patch.object(
+            self.loader, "_process_data_table_profile", side_effect=RuntimeError("unexpected")
+        ):
+            data, result = self.load(_table_profile())
+
+        self.mock_close.assert_not_called()
+        self.assertEqual(data, {})
+        self.assertEqual(result.errors, ["Failed to process database profiles: unexpected"])
+
     def test_close_failure_keeps_loaded_data_but_marks_result_invalid(self) -> None:
         # Closing connections failing after a successful load keeps the data and
         # reports the failure as the only error.
@@ -2775,7 +2883,6 @@ class TestDataTableProfileConnections(_DataTableTestBase):
         self.assertIn("no DatabaseConfiguration", result.errors[0])
         self.assertIn("must define both host and port", result.errors[1])
         self.assertIn("no columnName", result.errors[2])
-        self.assertNotIn("No database profiles found in ESDL file", result.warnings)
         self.mock_close.assert_not_called()
         self.mock_read.assert_not_called()
 
@@ -3015,6 +3122,26 @@ class TestDatabaseReadLock(_DataTableTestBase):
         self.assertEqual(self.mock_read.call_count, 1)
         self.mock_close.assert_called_once_with()
 
+    def test_lock_timeout_on_the_last_profile_skips_nothing_and_still_closes(self) -> None:
+        calls: list[int] = []
+
+        def second_acquisition_times_out() -> object:
+            calls.append(1)
+            if len(calls) == 2:
+                raise TimeoutError("busy")
+            return database_read_lock()
+
+        with patch(
+            f"{_LOADER_MODULE}.database_read_lock", side_effect=second_acquisition_times_out
+        ):
+            data, result = self.load(_table_profile(column="A"), _table_profile(column="B"))
+
+        self.assertEqual(list(data), [f"asset1{COMPOSITE_KEY_SEPARATOR}A"])
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("Database connection failed for profile B", result.errors[0])
+        self.assertFalse(any("Skipped" in e for e in result.errors), result.errors)
+        self.mock_close.assert_called_once_with()
+
     def test_profile_reported_as_connection_failure_when_the_lock_times_out(self) -> None:
         with patch(_LOCK_TIMEOUT_PATH, 0.05), _lock_held_in_background():
             data, result = self.load(_table_profile())
@@ -3069,18 +3196,6 @@ class TestDatabaseReadLock(_DataTableTestBase):
             "Could not close pyESDL database connections; they stay open",
             [c.args[0] for c in log_error.call_args_list],
         )
-
-    def test_connections_are_not_closed_when_every_profile_is_invalid_and_the_lock_is_free(
-        self,
-    ) -> None:
-        _, result = self.load(
-            _table_profile(column="A", configuration=None),
-            _table_profile(column="B", configuration=None),
-        )
-
-        self.assertEqual(len(result.errors), 2)
-        self.mock_read.assert_not_called()
-        self.mock_close.assert_not_called()
 
     def test_connections_are_closed_when_one_profile_is_invalid_and_another_is_read(
         self,
@@ -3370,15 +3485,18 @@ class TestDataTableProfileMultiplierAndUnits(_DataTableTestBase):
         self.assertEqual(len(spy.call_args.args[0]), 3)
 
     def test_energy_profile_rejected_before_any_read(self) -> None:
-        for name, unit in (
-            ("joule", esdl.UnitEnum.JOULE),
-            ("watt hour", esdl.UnitEnum.WATTHOUR),
+        for name, unit, referenced in (
+            ("joule", esdl.UnitEnum.JOULE, False),
+            ("watt hour", esdl.UnitEnum.WATTHOUR, False),
+            ("referenced watt hour", esdl.UnitEnum.WATTHOUR, True),
         ):
             with self.subTest(unit=name):
                 self.mock_read.reset_mock()
                 quantity_and_unit = esdl.QuantityAndUnitType(
                     physicalQuantity=esdl.PhysicalQuantityEnum.ENERGY, unit=unit
                 )
+                if referenced:
+                    quantity_and_unit = esdl.QuantityAndUnitReference(reference=quantity_and_unit)
                 data, result = self.load(_table_profile(profileQuantityAndUnit=quantity_and_unit))
 
                 self.assertEqual(data, {})
@@ -3545,7 +3663,8 @@ class TestDataTableProfileMergeWithInflux(_DataTableTestBase):
             data, result = self.load(self._influx_profile(), output_profile)
 
         self.assertEqual(list(data), [influx_key])
-        self.assertNotIn("No database profiles found in ESDL file", result.warnings)
+        self.assertTrue(result.is_valid, result.errors)
+        self.assertEqual(result.warnings, ["1 series are not recognised KPI fields: asset1/power"])
         skipped = [w for w in self.warning_texts() if w.startswith("Skipped")]
         self.assertEqual(len(skipped), 1)
         self.assertIn("Skipped 1 DataTableProfile(s)", skipped[0])

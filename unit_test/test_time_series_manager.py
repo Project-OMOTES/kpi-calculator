@@ -203,7 +203,6 @@ class TestFailedDatabaseLoadFallback(unittest.TestCase):
                 self.manager,
                 "_load_from_xml",
                 return_value=xml or self.xml_result,
-                side_effect=None,
             ) as mock_xml,
         ):
             return self.manager.load_time_series(self.es, xml_file=xml_file), mock_xml
@@ -280,9 +279,27 @@ class TestFailedDatabaseLoadFallback(unittest.TestCase):
                 self.es, timeseries_dataframes=frames, source_priority=["database", "dataframes"]
             )
 
-        self.assertIn(f"asset0{COMPOSITE_KEY_SEPARATOR}heat_supplied", data)
-        self.assertIn(
-            "Database load failed, used another source: connection refused", result.warnings
+        self.assertEqual(list(data), [f"asset0{COMPOSITE_KEY_SEPARATOR}heat_supplied"])
+        self.assertTrue(result.is_valid)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(
+            result.warnings,
+            ["w1", "Database load failed, used another source: connection refused"],
+        )
+
+    def test_invalid_fallback_with_data_stays_invalid_and_gains_the_database_note(self) -> None:
+        invalid_xml = (
+            {"asset1|power": Mock()},
+            ValidationResult(is_valid=False, errors=["xml err"], warnings=["xw"]),
+        )
+        (data, result), _ = self._load(xml=invalid_xml)
+
+        self.assertEqual(data, invalid_xml[0])
+        self.assertFalse(result.is_valid)
+        self.assertEqual(result.errors, ["xml err"])
+        self.assertEqual(
+            result.warnings,
+            ["xw", "w1", "Database load failed, used another source: connection refused"],
         )
 
 
